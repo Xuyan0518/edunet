@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -305,10 +304,9 @@ const TeacherDashboard: React.FC = () => {
 
 const ParentDashboard: React.FC = () => {
   const { user } = useAuth();
-  const parentUser = user as { id: string; children: string[] };
   
   // Find the student that belongs to this parent
-  const studentId = parentUser?.children?.[0];
+  const studentId = user?.children?.[0];
   const student = students.find(s => s.id === studentId);
   
   // Get progress entries for this student

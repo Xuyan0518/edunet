@@ -9,6 +9,7 @@ interface BadgeProps {
   size?: 'default' | 'sm';
   className?: string;
   animation?: boolean;
+  onClick?: () => void; // Add onClick prop
 }
 
 const Badge: React.FC<BadgeProps> = ({ 
@@ -16,7 +17,8 @@ const Badge: React.FC<BadgeProps> = ({
   variant = 'default', 
   size = 'default',
   className,
-  animation = false
+  animation = false,
+  onClick
 }) => {
   return (
     <ShadcnBadge 
@@ -24,8 +26,10 @@ const Badge: React.FC<BadgeProps> = ({
       className={cn(
         size === 'sm' && 'text-xs px-2 py-0.5',
         animation && 'animate-pulse-subtle',
+        onClick && 'cursor-pointer',
         className
       )}
+      onClick={onClick}
     >
       {text}
     </ShadcnBadge>

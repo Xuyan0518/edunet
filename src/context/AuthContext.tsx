@@ -1,7 +1,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { toast } from '@/components/ui/sonner';
+import { toast } from 'sonner'; // Fix the import
 import { users } from '@/utils/demoData';
 
 export type UserRole = 'teacher' | 'parent' | null;
@@ -11,6 +11,7 @@ interface User {
   name: string;
   email: string;
   role: UserRole;
+  children?: string[]; // Make children an optional property
 }
 
 interface AuthContextType {

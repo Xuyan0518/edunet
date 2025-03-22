@@ -9,7 +9,7 @@ interface BadgeProps {
   size?: 'default' | 'sm';
   className?: string;
   animation?: boolean;
-  onClick?: () => void; // Add onClick prop
+  onClick?: () => void;
 }
 
 const Badge: React.FC<BadgeProps> = ({ 

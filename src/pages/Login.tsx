@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import {Badge} from '@/components/ui/Badge';
+import {Badge} from '@/components/ui/badge';
 
 const Login: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -70,7 +70,7 @@ const Login: React.FC = () => {
     <div className="min-h-screen flex items-center justify-center bg-background px-4">
       <div className="w-full max-w-md space-y-8">
         <div className="text-center space-y-2">
-          <h1 className="text-4xl font-bold tracking-tight text-foreground">EduConnect</h1>
+          <h1 className="text-4xl font-bold tracking-tight text-foreground">EduNet</h1>
           <p className="text-muted-foreground">Bridging the gap between teachers and parents</p>
         </div>
         
@@ -146,17 +146,19 @@ const Login: React.FC = () => {
                 <p className="text-muted-foreground">For demo purposes</p>
                 <div className="flex justify-center space-x-2">
                   <Badge 
-                    text="Teacher Demo" 
                     variant="outline" 
                     className="cursor-pointer hover:bg-secondary transition-colors"
                     onClick={() => fillDemoAccount('teacher')}
-                  />
+                  >
+                    Teacher Demo
+                  </Badge>
                   <Badge 
-                    text="Parent Demo" 
                     variant="outline" 
                     className="cursor-pointer hover:bg-secondary transition-colors"
                     onClick={() => fillDemoAccount('parent')}
-                  />
+                  >
+                    Parent Demo
+                  </Badge>
                 </div>
               </div>
             </CardFooter>

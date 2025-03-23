@@ -14,7 +14,7 @@ import { format } from 'date-fns';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { students, dailyProgress } from '@/utils/demoData';
-import Badge from '@/components/ui/Badge';
+import {Badge} from '@/components/ui/Badge';
 import { useAuth } from '@/context/AuthContext';
 
 interface Activity {

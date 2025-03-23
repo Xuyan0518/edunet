@@ -4,7 +4,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Plus, Calendar, BookOpen, MessageSquare, Users, BookCheck } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import Badge from '@/components/ui/Badge';
+import {Badge} from '@/components/ui/Badge';
 import { dailyProgress, students, weeklyFeedback } from '@/utils/demoData';
 import { Link } from 'react-router-dom';
 

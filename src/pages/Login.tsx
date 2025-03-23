@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import Badge from '@/components/ui/Badge';
+import {Badge} from '@/components/ui/Badge';
 
 const Login: React.FC = () => {
   const [email, setEmail] = useState('');

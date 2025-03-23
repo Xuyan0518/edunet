@@ -4,7 +4,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Calendar, Book, Award, FileText, Clock, GraduationCap, Mail, Phone } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { dailyProgress, students, weeklyFeedback } from '@/utils/demoData';
-import Badge from '@/components/ui/Badge';
+import {Badge} from '@/components/ui/Badge';
 import { format } from 'date-fns';
 
 const StudentProfile: React.FC = () => {

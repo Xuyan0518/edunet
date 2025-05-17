@@ -1,9 +1,11 @@
+import express from 'express';
+import pkg from 'pg';
+import cors from 'cors';
+import bodyParser from 'body-parser';
+import dotenv from 'dotenv';
 
-const express = require('express');
-const { Pool } = require('pg');
-const cors = require('cors');
-const bodyParser = require('body-parser');
-const dotenv = require('dotenv');
+// Destructure Pool from the pg package
+const { Pool } = pkg;
 
 // Load environment variables
 dotenv.config();
@@ -34,7 +36,6 @@ pool.query('SELECT NOW()', (err, res) => {
 });
 
 // API Routes
-
 // Get all students
 app.get('/api/students', async (req, res) => {
   try {

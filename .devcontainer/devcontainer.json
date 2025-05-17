@@ -1,0 +1,16 @@
+{
+    "name": "Edunet Dev",
+    "context": "..",
+    "dockerComposeFile": "../docker-compose.yml",
+    "service": "frontend",
+    "workspaceFolder": "/app",
+    "settings": {
+      "terminal.integrated.defaultProfile.linux": "bash"
+    },
+    "extensions": [
+      "dbaeumer.vscode-eslint",
+      "esbenp.prettier-vscode"
+    ],
+    "postCreateCommand": "npm install"
+  }
+  

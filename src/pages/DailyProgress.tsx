@@ -1,5 +1,4 @@
-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -13,8 +12,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { format } from 'date-fns';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
-import { students, dailyProgress } from '@/utils/demoData';
-import {Badge} from '@/components/ui/badge';
+import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/context/AuthContext';
 
 interface Activity {
@@ -55,28 +53,52 @@ const CreateDailyProgress: React.FC = () => {
   const [activities, setActivities] = useState<Activity[]>([
     { subject: '', description: '', performance: '', notes: '' }
   ]);
+  const [students, setStudents] = useState<{ id: string, name: string }[]>([]);
   const navigate = useNavigate();
   const { toast } = useToast();
-  
+
+  useEffect(() => {
+    // Fetch students from the API
+    const fetchStudents = async () => {
+      try {
+        const response = await fetch('http://localhost:3001/api/students');
+        if (!response.ok) {
+          throw new Error('Network response was not ok');
+        }
+        const data = await response.json();
+        setStudents(data);
+      } catch (error) {
+        console.error('Error fetching students:', error);
+        toast({
+          title: "Error",
+          description: "Failed to fetch students",
+          variant: "destructive",
+        });
+      }
+    };
+
+    fetchStudents();
+  }, [toast]);
+
   const handleAddActivity = () => {
     setActivities([...activities, { subject: '', description: '', performance: '', notes: '' }]);
   };
-  
+
   const handleRemoveActivity = (index: number) => {
     const updatedActivities = [...activities];
     updatedActivities.splice(index, 1);
     setActivities(updatedActivities);
   };
-  
+
   const handleActivityChange = (index: number, field: keyof Activity, value: string) => {
     const updatedActivities = [...activities];
     updatedActivities[index] = { ...updatedActivities[index], [field]: value };
     setActivities(updatedActivities);
   };
-  
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     // Validation
     if (!selectedStudent) {
       toast({
@@ -86,7 +108,7 @@ const CreateDailyProgress: React.FC = () => {
       });
       return;
     }
-    
+
     if (!selectedDate) {
       toast({
         title: "Error",
@@ -95,7 +117,7 @@ const CreateDailyProgress: React.FC = () => {
       });
       return;
     }
-    
+
     if (activities.some(activity => !activity.subject || !activity.description || !activity.performance)) {
       toast({
         title: "Error",
@@ -104,7 +126,7 @@ const CreateDailyProgress: React.FC = () => {
       });
       return;
     }
-    
+
     // Create progress entry object
     const progressEntry: DailyProgressEntry = {
       studentId: selectedStudent,
@@ -112,27 +134,27 @@ const CreateDailyProgress: React.FC = () => {
       attendance,
       activities,
     };
-    
+
     // In a real app, you would send this to the server
     console.log('Submitting daily progress:', progressEntry);
-    
+
     // Show success message
     toast({
       title: "Success",
       description: "Daily progress has been saved successfully",
     });
-    
+
     // Navigate back to dashboard
     navigate('/dashboard');
   };
-  
+
   return (
     <div className="container mx-auto py-8 px-4 animate-fade-in">
       <div className="mb-8">
         <h1 className="text-3xl font-bold tracking-tight">Create Daily Progress Entry</h1>
         <p className="text-muted-foreground mt-1">Record a student's daily activities and performance</p>
       </div>
-      
+
       <form onSubmit={handleSubmit} className="space-y-8">
         <Card className="hover-card">
           <CardHeader>
@@ -152,14 +174,14 @@ const CreateDailyProgress: React.FC = () => {
                   </SelectTrigger>
                   <SelectContent>
                     {students.map((student) => (
-                      <SelectItem key={student.id} value={student.id}>
+                      <SelectItem key={student.id} value={student.name}>
                         {student.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-              
+
               <div className="space-y-2">
                 <Label>Date</Label>
                 <Popover>
@@ -183,7 +205,7 @@ const CreateDailyProgress: React.FC = () => {
                 </Popover>
               </div>
             </div>
-            
+
             <div>
               <Label>Attendance</Label>
               <div className="flex space-x-4 mt-2">
@@ -224,7 +246,7 @@ const CreateDailyProgress: React.FC = () => {
             </div>
           </CardContent>
         </Card>
-        
+
         <Card className="hover-card">
           <CardHeader>
             <CardTitle>Activities</CardTitle>
@@ -245,7 +267,7 @@ const CreateDailyProgress: React.FC = () => {
                     </Button>
                   )}
                 </div>
-                
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor={`subject-${index}`}>Subject</Label>
@@ -265,7 +287,7 @@ const CreateDailyProgress: React.FC = () => {
                       </SelectContent>
                     </Select>
                   </div>
-                  
+
                   <div className="space-y-2">
                     <Label htmlFor={`performance-${index}`}>Performance</Label>
                     <Select 
@@ -285,7 +307,7 @@ const CreateDailyProgress: React.FC = () => {
                     </Select>
                   </div>
                 </div>
-                
+
                 <div className="space-y-2">
                   <Label htmlFor={`description-${index}`}>Description</Label>
                   <Input
@@ -296,7 +318,7 @@ const CreateDailyProgress: React.FC = () => {
                     className="focus-within-ring"
                   />
                 </div>
-                
+
                 <div className="space-y-2">
                   <Label htmlFor={`notes-${index}`}>Teacher Notes</Label>
                   <Textarea
@@ -309,7 +331,7 @@ const CreateDailyProgress: React.FC = () => {
                 </div>
               </div>
             ))}
-            
+
             <Button
               type="button"
               variant="outline"
@@ -335,159 +357,4 @@ const CreateDailyProgress: React.FC = () => {
   );
 };
 
-const ViewDailyProgress: React.FC = () => {
-  // Group daily progress by student
-  const progressByStudent: Record<string, typeof dailyProgress> = {};
-  
-  dailyProgress.forEach(progress => {
-    if (!progressByStudent[progress.studentId]) {
-      progressByStudent[progress.studentId] = [];
-    }
-    progressByStudent[progress.studentId].push(progress);
-  });
-  
-  return (
-    <div className="container mx-auto py-8 px-4 animate-fade-in">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight">View Daily Progress</h1>
-        <p className="text-muted-foreground mt-1">Review past daily progress entries for your students</p>
-      </div>
-      
-      <Tabs defaultValue={Object.keys(progressByStudent)[0]} className="space-y-8">
-        <TabsList className="flex flex-wrap space-x-2 space-y-2">
-          {Object.keys(progressByStudent).map(studentId => {
-            const student = students.find(s => s.id === studentId);
-            return (
-              <TabsTrigger key={studentId} value={studentId} className="data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
-                {student?.name}
-              </TabsTrigger>
-            );
-          })}
-        </TabsList>
-        
-        {Object.entries(progressByStudent).map(([studentId, entries]) => {
-          const student = students.find(s => s.id === studentId);
-          
-          return (
-            <TabsContent key={studentId} value={studentId} className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <div className="flex justify-between items-center">
-                    <CardTitle>{student?.name}</CardTitle>
-                    <Badge text={`${entries.length} Entries`} variant="outline" />
-                  </div>
-                  <CardDescription>{student?.grade} • Age {student?.age}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-6">
-                    {entries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(entry => (
-                      <Card key={entry.id} className="hover-card">
-                        <CardContent className="p-6">
-                          <div className="flex justify-between items-center mb-4">
-                            <h3 className="text-lg font-semibold">{format(new Date(entry.date), 'MMMM d, yyyy')}</h3>
-                            <Badge 
-                              text={entry.attendance} 
-                              variant={entry.attendance === 'present' ? 'default' : entry.attendance === 'tardy' ? 'secondary' : 'destructive'} 
-                            />
-                          </div>
-                          
-                          <div className="space-y-4">
-                            {entry.activities.map((activity, index) => (
-                              <div key={index} className="border-l-2 pl-4 py-2" style={{ borderColor: getSubjectColor(activity.subject) }}>
-                                <div className="flex justify-between">
-                                  <span className="font-medium">{activity.subject}</span>
-                                  <Badge 
-                                    text={activity.performance} 
-                                    variant="outline" 
-                                    className={`${getPerformanceColor(activity.performance)}`}
-                                  />
-                                </div>
-                                <p className="text-sm mt-1">{activity.description}</p>
-                                <p className="text-sm italic text-muted-foreground mt-1">{activity.notes}</p>
-                              </div>
-                            ))}
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-          );
-        })}
-      </Tabs>
-    </div>
-  );
-};
-
-// Helper function to get a color for a subject
-const getSubjectColor = (subject: string): string => {
-  const colors: Record<string, string> = {
-    'Math': '#3B82F6', // blue
-    'Reading': '#10B981', // green
-    'Writing': '#8B5CF6', // purple
-    'Science': '#F59E0B', // amber
-    'Social Studies': '#EF4444', // red
-    'Art': '#EC4899', // pink
-    'Music': '#06B6D4', // cyan
-    'Physical Education': '#14B8A6', // teal
-  };
-  
-  return colors[subject] || '#6B7280'; // gray default
-};
-
-// Helper function to get a color class based on performance
-const getPerformanceColor = (performance: string): string => {
-  switch (performance) {
-    case 'excellent':
-      return 'bg-green-50 text-green-600 border-green-200 dark:bg-green-900/20 dark:text-green-400 dark:border-green-800';
-    case 'good':
-      return 'bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800';
-    case 'needs improvement':
-      return 'bg-amber-50 text-amber-600 border-amber-200 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-800';
-    default:
-      return '';
-  }
-};
-
-const DailyProgress: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'create' | 'view'>('create');
-  const { role } = useAuth();
-  
-  if (role !== 'teacher') {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p>Unauthorized access. Only teachers can view this page.</p>
-      </div>
-    );
-  }
-  
-  return (
-    <div className="container mx-auto py-8 px-4 animate-fade-in">
-      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'create' | 'view')} className="space-y-8">
-        <div className="flex justify-between items-center">
-          <h1 className="text-3xl font-bold tracking-tight">Daily Progress</h1>
-          <TabsList>
-            <TabsTrigger value="create" className="data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
-              Create New
-            </TabsTrigger>
-            <TabsTrigger value="view" className="data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
-              View Entries
-            </TabsTrigger>
-          </TabsList>
-        </div>
-        
-        <TabsContent value="create">
-          <CreateDailyProgress />
-        </TabsContent>
-        
-        <TabsContent value="view">
-          <ViewDailyProgress />
-        </TabsContent>
-      </Tabs>
-    </div>
-  );
-};
-
-export default DailyProgress;
+export default CreateDailyProgress;

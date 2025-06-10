@@ -11,6 +11,7 @@ import Dashboard from "./pages/Dashboard";
 import DailyProgress from "./pages/DailyProgress";
 import WeeklyFeedback from "./pages/WeeklyFeedback";
 import StudentProfile from "./pages/StudentProfile";
+import Students from "./pages/Students";
 import NotFound from "./pages/NotFound";
 import Navbar from "./components/layout/Navbar";
 import PageTransition from "./components/layout/PageTransition";
@@ -44,6 +45,14 @@ const AppRoutes = () => {
         element={
           <ProtectedRoute>
             <Dashboard />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/students"
+        element={
+          <ProtectedRoute>
+            <Students />
           </ProtectedRoute>
         }
       />

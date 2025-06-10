@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -80,8 +79,8 @@ const StudentProfile: React.FC = () => {
                 <p className="text-muted-foreground">{student.grade} • Age {student.age}</p>
               </div>
               <div className="flex space-x-2">
-                <Badge text={student.grade} />
-                <Badge text="Active Student" variant="outline" />
+                <Badge>{student.grade}</Badge>
+                <Badge variant="outline">Active Student</Badge>
               </div>
             </div>
             
@@ -119,6 +118,7 @@ const StudentProfile: React.FC = () => {
           </CardContent>
         </Card>
         
+        
         <Card className="md:col-span-2 hover-card">
           <CardHeader>
             <CardTitle>Academic Overview</CardTitle>
@@ -155,6 +155,7 @@ const StudentProfile: React.FC = () => {
                   </CardContent>
                 </Card>
               </div>
+              
               
               <div>
                 <h3 className="text-lg font-medium mb-4">Subject Performance</h3>
@@ -234,9 +235,10 @@ const StudentProfile: React.FC = () => {
                         <div className="flex justify-between items-center mb-4">
                           <h3 className="text-lg font-semibold">{format(new Date(entry.date), 'MMMM d, yyyy')}</h3>
                           <Badge 
-                            text={entry.attendance} 
                             variant={entry.attendance === 'present' ? 'default' : entry.attendance === 'tardy' ? 'secondary' : 'destructive'} 
-                          />
+                          >
+                            {entry.attendance}
+                          </Badge>
                         </div>
                         
                         <div className="space-y-4">
@@ -245,10 +247,11 @@ const StudentProfile: React.FC = () => {
                               <div className="flex justify-between">
                                 <span className="font-medium">{activity.subject}</span>
                                 <Badge 
-                                  text={activity.performance} 
                                   variant="outline" 
                                   className={`${getPerformanceColor(activity.performance)}`}
-                                />
+                                >
+                                  {activity.performance}
+                                </Badge>
                               </div>
                               <p className="text-sm mt-1">{activity.description}</p>
                               <p className="text-sm italic text-muted-foreground mt-1">{activity.notes}</p>
@@ -265,6 +268,7 @@ const StudentProfile: React.FC = () => {
             </CardContent>
           </Card>
         </TabsContent>
+        
         
         <TabsContent value="feedback" className="space-y-6">
           <Card>

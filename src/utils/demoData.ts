@@ -1,4 +1,3 @@
-
 // Demo users for authentication
 export const users = [
   {
@@ -28,7 +27,10 @@ export const students = [
     grade: '5th',
     age: 10,
     avatar: '/placeholder.svg',
-    parentId: '2'
+    parentId: '2',
+    email: 'emma.smith@school.edu',
+    phone: '(555) 123-4567',
+    address: '123 Main St, Anytown, USA'
   },
   {
     id: '2',
@@ -36,7 +38,10 @@ export const students = [
     grade: '5th',
     age: 10,
     avatar: '/placeholder.svg',
-    parentId: '3'
+    parentId: '3',
+    email: 'lucas.johnson@school.edu',
+    phone: '(555) 234-5678',
+    address: '456 Oak Ave, Somewhere, USA'
   },
   {
     id: '3',
@@ -44,7 +49,10 @@ export const students = [
     grade: '5th',
     age: 11,
     avatar: '/placeholder.svg',
-    parentId: '4'
+    parentId: '4',
+    email: 'sophia.williams@school.edu',
+    phone: '(555) 345-6789',
+    address: '789 Pine Rd, Elsewhere, USA'
   }
 ];
 

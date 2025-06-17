@@ -1,54 +1,46 @@
-import express from 'express';
+// server/index.ts
+import express, { Request, Response } from 'express';
 import cors from 'cors';
 import bodyParser from 'body-parser';
 import dotenv from 'dotenv';
-import { db } from './db.js';
+import { db } from './db';
 import { eq, desc } from 'drizzle-orm';
-import { studentsTable, dailyProgress, weeklyFeedback } from './schema.js';
+import { studentsTable, dailyProgress, weeklyFeedback } from './schema';
 
-// Load environment variables
 dotenv.config();
 
 const app = express();
 const port = process.env.PORT || 3001;
 
-// Middleware
 app.use(cors());
 app.use(bodyParser.json());
 
-// API Routes
-// Get all students
+// GET all students
 app.get('/api/students', async (req, res) => {
   try {
     const result = await db.select().from(studentsTable);
     res.json(result);
   } catch (err) {
-    console.error('Error executing query', err);
+    console.error('Error:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
 
-// Get a single student by ID
+// GET student by ID
 app.get('/api/students/:id', async (req, res) => {
   try {
-    const { id } = req.params;
-    const result = await db
-      .select()
-      .from(studentsTable)
-      .where(eq(studentsTable.id, Number(id)));
+    const id = Number(req.params.id);
+    const result = await db.select().from(studentsTable).where(eq(studentsTable.id, id));
 
-    if (result.length === 0) {
-      return res.status(404).json({ error: 'Student not found' });
-    }
-
+    if (result.length === 0) return res.status(404).json({ error: 'Student not found' });
     res.json(result[0]);
   } catch (err) {
-    console.error('Error executing query', err);
+    console.error('Error:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
 
-// Create a new student
+// POST create student
 app.post('/api/students', async (req, res) => {
   try {
     const { name, grade, parent_id } = req.body;
@@ -58,87 +50,78 @@ app.post('/api/students', async (req, res) => {
       .returning();
     res.status(201).json(result[0]);
   } catch (err) {
-    console.error('Error executing query', err);
+    console.error('Error:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
 
-// Update a student
+// PUT update student
 app.put('/api/students/:id', async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = Number(req.params.id);
     const { name, grade, parent_id } = req.body;
     const result = await db
       .update(studentsTable)
       .set({ name, grade, parentId: parent_id })
-      .where(eq(studentsTable.id, Number(id)))
+      .where(eq(studentsTable.id, id))
       .returning();
 
-    if (result.length === 0) {
-      return res.status(404).json({ error: 'Student not found' });
-    }
-
+    if (result.length === 0) return res.status(404).json({ error: 'Student not found' });
     res.json(result[0]);
   } catch (err) {
-    console.error('Error executing query', err);
+    console.error('Error:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
 
-// Get daily progress for a student
+// GET daily progress
 app.get('/api/students/:studentId/progress', async (req, res) => {
   try {
-    const { studentId } = req.params;
+    const studentId = Number(req.params.studentId);
     const result = await db
       .select()
       .from(dailyProgress)
-      .where(eq(dailyProgress.studentId, Number(studentId)))
+      .where(eq(dailyProgress.studentId, studentId))
       .orderBy(desc(dailyProgress.date));
     res.json(result);
   } catch (err) {
-    console.error('Error executing query', err);
+    console.error('Error:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
 
-// Create daily progress entry
+// POST daily progress
 app.post('/api/progress', async (req, res) => {
   try {
     const { student_id, date, activities, mood, notes } = req.body;
     const result = await db
       .insert(dailyProgress)
-      .values({
-        studentId: student_id,
-        date,
-        activities,
-        mood,
-        notes,
-      })
+      .values({ studentId: student_id, date, activities, mood, notes })
       .returning();
     res.status(201).json(result[0]);
   } catch (err) {
-    console.error('Error executing query', err);
+    console.error('Error:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
 
-// Get weekly feedback for a student
+// GET weekly feedback
 app.get('/api/students/:studentId/feedback', async (req, res) => {
   try {
-    const { studentId } = req.params;
+    const studentId = Number(req.params.studentId);
     const result = await db
       .select()
       .from(weeklyFeedback)
-      .where(eq(weeklyFeedback.studentId, Number(studentId)))
+      .where(eq(weeklyFeedback.studentId, studentId))
       .orderBy(desc(weeklyFeedback.weekEnding));
     res.json(result);
   } catch (err) {
-    console.error('Error executing query', err);
+    console.error('Error:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
 
-// Create weekly feedback
+// POST weekly feedback
 app.post('/api/feedback', async (req, res) => {
   try {
     const { student_id, week_ending, academic_progress, behavior, recommendations } = req.body;
@@ -154,12 +137,11 @@ app.post('/api/feedback', async (req, res) => {
       .returning();
     res.status(201).json(result[0]);
   } catch (err) {
-    console.error('Error executing query', err);
+    console.error('Error:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
 
-// Start server
 app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
+  console.log(`🚀 Server running on port ${port}`);
 });

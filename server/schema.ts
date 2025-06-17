@@ -21,7 +21,7 @@ export const dailyProgress = pgTable('daily_progress', {
   id: serial('id').primaryKey(),
   studentId: integer('student_id').references(() => studentsTable.id).notNull(),
   date: date('date').notNull(),
-  activities: jsonb('activities').notNull(),
+  activities: jsonb('activities').$type<Record<string, string>>().notNull(),  // ✅ type-safe
   mood: varchar('mood', { length: 20 }).notNull(),
   notes: text('notes'),
   createdAt: timestamp('created_at').defaultNow(),

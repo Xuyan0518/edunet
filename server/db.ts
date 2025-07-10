@@ -1,18 +1,23 @@
-import { drizzle } from 'drizzle-orm/node-postgres';
-import pg from 'pg'; // ✅ default import for CommonJS compatibility
+import { neon, neonConfig } from '@neondatabase/serverless';
+import { drizzle } from 'drizzle-orm/neon-http';
 import * as schema from './schema';
 import dotenv from 'dotenv';
 
+// Load environment variables
 dotenv.config();
 
-const { Pool } = pg;
+// Configure connection settings (important for serverless)
+neonConfig.fetchConnectionCache = true; // Enable connection pooling
+neonConfig.pipelineConnect = false; // Disable for non-WebSocket environments
 
-const pool = new Pool({
-  user: process.env.DB_USER || 'postgres',
-  host: process.env.DB_HOST || 'localhost',
-  database: process.env.DB_NAME || 'mydb',
-  password: process.env.DB_PASSWORD || 'password',
-  port: process.env.DB_PORT ? Number(process.env.DB_PORT) : 5432,
+// Create Neon client
+const sql = neon(process.env.DATABASE_URL!);
+
+// Initialize Drizzle with Neon
+export const db = drizzle(sql, { 
+  schema,
+  logger: process.env.NODE_ENV !== 'production' // Enable logging in dev
 });
 
-export const db = drizzle(pool, { schema });
+// Type exports for your database
+export type Database = typeof db;

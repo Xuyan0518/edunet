@@ -8,6 +8,13 @@
       "when": 1749571750097,
       "tag": "0000_breezy_living_tribunal",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1753267214269,
+      "tag": "0001_rainy_yellowjacket",
+      "breakpoints": true
     }
   ]
 }

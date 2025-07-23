@@ -9,11 +9,24 @@ export const users = pgTable('users', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
+export const teacher = pgTable('teacher', {
+  id: serial('id').primaryKey(),
+  name: varchar('name', { length: 100 }).notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+})
+
+export const parentsTable = pgTable('parents', {
+  id: serial('id').primaryKey(),
+  name: varchar('name', { length: 100 }).notNull(),
+  email: varchar('email', { length: 100 }).unique().notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
 export const studentsTable = pgTable('students', {
   id: serial('id').primaryKey(),
   name: varchar('name', { length: 100 }).notNull(),
   grade: varchar('grade', { length: 20 }).notNull(),
-  parentId: integer('parent_id').references(() => users.id),
+  parentId: integer('parent_id').references(() => parentsTable.id),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -36,3 +49,4 @@ export const weeklyFeedback = pgTable('weekly_feedback', {
   recommendations: text('recommendations'),
   createdAt: timestamp('created_at').defaultNow(),
 });
+

@@ -4,9 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently -n VITE,STUDIO -c blue,green \"npm run dev:vite\" \"npm run dev:studio\"",
+    "dev": "concurrently -n VITE,API,STUDIO -c blue,green,magenta \"npm run dev:vite\" \"npm run dev:api\" \"npm run dev:studio\"",
     "dev:vite": "vite",
     "dev:studio": "drizzle-kit studio --config drizzle.config.ts",
+    "dev:api": "tsx watch server/index.ts",
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",

@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { pgTable, uuid, varchar, integer, timestamp, jsonb, text, date } from 'drizzle-orm/pg-core';
 import { v4 as uuidv4 } from 'uuid';
+// Fix uuid import for ESM compatibility
+import { randomUUID } from 'node:crypto';
 
 // Zod Schemas (updated for UUIDs)
 export const UserSchema = z.object({
@@ -13,13 +15,16 @@ export const UserSchema = z.object({
 
 export const TeacherSchema = z.object({
   id: z.string().uuid().optional(),
-  name: z.string().min(2).max(100)
+  name: z.string().min(2).max(100),
+  email: z.string().email().max(100),
+  password: z.string().min(6).max(100) 
 });
 
 export const ParentSchema = z.object({
   id: z.string().uuid().optional(),
   name: z.string().min(2).max(100),
-  email: z.string().email().max(100)
+  email: z.string().email().max(100),
+  password: z.string().min(6).max(100) 
 });
 
 export const StudentSchema = z.object({
@@ -49,7 +54,7 @@ export const WeeklyFeedbackSchema = z.object({
 
 // Drizzle Tables with UUIDs
 export const users = pgTable('users', {
-  id: uuid('id').primaryKey().$defaultFn(uuidv4), // Auto-generates UUID
+  id: uuid('id').primaryKey().$defaultFn(() => randomUUID()), // Auto-generates UUID
   name: varchar('name', { length: 100 }).notNull(),
   email: varchar('email', { length: 100 }).notNull().unique(),
   password: varchar('password', { length: 100 }).notNull(),
@@ -57,21 +62,24 @@ export const users = pgTable('users', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
-export const teacher = pgTable('teacher', {
-  id: uuid('id').primaryKey().$defaultFn(uuidv4),
+export const teachersTable = pgTable('teacher', {
+  id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
   name: varchar('name', { length: 100 }).notNull(),
+  email: varchar('email', { length: 100 }).unique().notNull(),
+  password: varchar('password', { length: 100 }).notNull(),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
 export const parentsTable = pgTable('parents', {
-  id: uuid('id').primaryKey().$defaultFn(uuidv4),
+  id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
   name: varchar('name', { length: 100 }).notNull(),
   email: varchar('email', { length: 100 }).unique().notNull(),
+  password: varchar('password', { length: 100 }).notNull(),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
 export const studentsTable = pgTable('students', {
-  id: uuid('id').primaryKey().$defaultFn(uuidv4),
+  id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
   name: varchar('name', { length: 100 }).notNull(),
   grade: varchar('grade', { length: 20 }).notNull(),
   parentId: uuid('parent_id').references(() => parentsTable.id),
@@ -79,7 +87,7 @@ export const studentsTable = pgTable('students', {
 });
 
 export const dailyProgress = pgTable('daily_progress', {
-  id: uuid('id').primaryKey().$defaultFn(uuidv4),
+  id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
   studentId: uuid('student_id').references(() => studentsTable.id).notNull(),
   date: date('date').notNull(),
   activities: jsonb('activities').$type<Record<string, string>>().notNull(),
@@ -89,7 +97,7 @@ export const dailyProgress = pgTable('daily_progress', {
 });
 
 export const weeklyFeedback = pgTable('weekly_feedback', {
-  id: uuid('id').primaryKey().$defaultFn(uuidv4),
+  id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
   studentId: uuid('student_id').references(() => studentsTable.id).notNull(),
   weekEnding: date('week_ending').notNull(),
   academicProgress: text('academic_progress').notNull(),

@@ -1,9 +1,8 @@
-
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
@@ -15,6 +14,7 @@ import Students from "./pages/Students";
 import NotFound from "./pages/NotFound";
 import Navbar from "./components/layout/Navbar";
 import PageTransition from "./components/layout/PageTransition";
+import Signup from "./pages/Signup";
 
 const queryClient = new QueryClient();
 
@@ -40,6 +40,7 @@ const AppRoutes = () => {
     <Routes>
       <Route path="/" element={<Navigate to="/login" replace />} />
       <Route path="/login" element={<Login />} />
+      <Route path="/signup" element={<Signup />} />
       <Route
         path="/dashboard"
         element={
@@ -90,11 +91,11 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
-      <BrowserRouter>
+      <Router>
         <AuthProvider>
           <AppRoutes />
         </AuthProvider>
-      </BrowserRouter>
+      </Router>
     </TooltipProvider>
   </QueryClientProvider>
 );

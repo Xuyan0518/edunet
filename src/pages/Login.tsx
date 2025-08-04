@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -8,12 +7,12 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import {Badge} from '@/components/ui/badge';
+import {Badge} from '@/components/ui/badge'; 
 
 const Login: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<'teacher' | 'parent'>('teacher');
+  const [role, setRole] = useState<'teacher' | 'parent'>('parent');
   const [isLoading, setIsLoading] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -51,21 +50,6 @@ const Login: React.FC = () => {
     }
   };
 
-  // Demo accounts for easy login
-  const demoAccounts = [
-    { role: 'teacher', email: 'teacher@example.com', password: 'password' },
-    { role: 'parent', email: 'parent@example.com', password: 'password' }
-  ];
-
-  const fillDemoAccount = (demoRole: 'teacher' | 'parent') => {
-    const account = demoAccounts.find(a => a.role === demoRole);
-    if (account) {
-      setEmail(account.email);
-      setPassword(account.password);
-      setRole(demoRole as 'teacher' | 'parent');
-    }
-  };
-
   return (
     <div className="min-h-screen flex items-center justify-center bg-background px-4">
       <div className="w-full max-w-md space-y-8">
@@ -87,16 +71,16 @@ const Login: React.FC = () => {
                 <Label htmlFor="role">I am a</Label>
                 <RadioGroup
                   value={role}
-                  onValueChange={(value) => setRole(value as 'teacher' | 'parent')}
+                  onValueChange={(value) => setRole(value as 'parent' | 'teacher')}
                   className="flex space-x-4"
                 >
+                   <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="parent" id="parent" />
+                    <Label htmlFor="parent" className="cursor-pointer">Parent</Label>
+                  </div>
                   <div className="flex items-center space-x-2">
                     <RadioGroupItem value="teacher" id="teacher" />
                     <Label htmlFor="teacher" className="cursor-pointer">Teacher</Label>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="parent" id="parent" />
-                    <Label htmlFor="parent" className="cursor-pointer">Parent</Label>
                   </div>
                 </RadioGroup>
               </div>
@@ -141,25 +125,20 @@ const Login: React.FC = () => {
               >
                 {isLoading ? 'Signing in...' : 'Sign In'}
               </Button>
-              
-              <div className="text-sm text-center space-y-2">
-                <p className="text-muted-foreground">For demo purposes</p>
-                <div className="flex justify-center space-x-2">
-                  <Badge 
-                    variant="outline" 
-                    className="cursor-pointer hover:bg-secondary transition-colors"
-                    onClick={() => fillDemoAccount('teacher')}
-                  >
-                    Teacher Demo
-                  </Badge>
-                  <Badge 
-                    variant="outline" 
-                    className="cursor-pointer hover:bg-secondary transition-colors"
-                    onClick={() => fillDemoAccount('parent')}
-                  >
-                    Parent Demo
-                  </Badge>
-                </div>
+
+              {/* Signup link */}
+              <div className="text-sm text-center">
+                <span>Don't have an account? </span>
+                <a
+                  href="#"
+                  className="text-primary hover:underline"
+                  onClick={e => {
+                    e.preventDefault();
+                    navigate('/signup');
+                  }}
+                >
+                  Sign up
+                </a>
               </div>
             </CardFooter>
           </form>

@@ -8,13 +8,13 @@ import {
   studentsTable,
   dailyProgress,
   weeklyFeedback,
-  teacher,
+  teachersTable,
   parentsTable,
   TeacherSchema,
   ParentSchema,
   StudentSchema,
   DailyProgressSchema,
-  WeeklyFeedbackSchema,
+  WeeklyFeedbackSchema
 } from './schema';
 
 dotenv.config();
@@ -29,7 +29,7 @@ app.use(bodyParser.json());
 
 app.get('/api/teachers', async (_, res) => {
   try {
-    const result = await db.select().from(teacher);
+    const result = await db.select().from(teachersTable);
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: 'Database error' });
@@ -39,7 +39,7 @@ app.get('/api/teachers', async (_, res) => {
 app.get('/api/teachers/:id', async (req, res) => {
   const id = req.params.id;
   try {
-    const result = await db.select().from(teacher).where(eq(teacher.id, id));
+    const result = await db.select().from(teachersTable).where(eq(teachersTable.id, id));
     if (!result.length) return res.status(404).json({ error: 'Teacher not found' });
     res.json(result[0]);
   } catch (err) {
@@ -51,7 +51,7 @@ app.post('/api/teachers', async (req, res) => {
   const parsed = TeacherSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   try {
-    const result = await db.insert(teacher).values(parsed.data).returning();
+    const result = await db.insert(teachersTable).values(parsed.data).returning();
     res.status(201).json(result[0]);
   } catch (err) {
     res.status(500).json({ error: 'Database error' });
@@ -63,7 +63,7 @@ app.put('/api/teachers/:id', async (req, res) => {
   const parsed = TeacherSchema.safeParse({ ...req.body, id });
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   try {
-    const result = await db.update(teacher).set(parsed.data).where(eq(teacher.id, id)).returning();
+    const result = await db.update(teachersTable).set(parsed.data).where(eq(teachersTable.id, id)).returning();
     if (!result.length) return res.status(404).json({ error: 'Teacher not found' });
     res.json(result[0]);
   } catch (err) {
@@ -74,7 +74,7 @@ app.put('/api/teachers/:id', async (req, res) => {
 app.delete('/api/teachers/:id', async (req, res) => {
   const id = req.params.id;
   try {
-    const result = await db.delete(teacher).where(eq(teacher.id, id)).returning();
+    const result = await db.delete(teachersTable).where(eq(teachersTable.id, id)).returning();
     if (!result.length) return res.status(404).json({ error: 'Teacher not found' });
     res.json({ message: 'Teacher deleted successfully' });
   } catch (err) {
@@ -118,10 +118,14 @@ app.post('/api/parents', async (req, res) => {
   const parsed = ParentSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   try {
-    const result = await db.insert(parentsTable).values(parsed.data).returning();
+    // Directly save password (no encryption)
+    const result = await db.insert(parentsTable).values({
+      ...parsed.data,
+      password: req.body.password,
+    }).returning();
     res.status(201).json(result[0]);
   } catch (err) {
-    if (err.message.includes('duplicate key')) return res.status(400).json({ error: 'Email already exists' });
+    if (err.message && err.message.includes('duplicate key')) return res.status(400).json({ error: 'Email already exists' });
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -331,68 +335,33 @@ app.delete('/api/feedback/:id', async (req, res) => {
   }
 });
 
-// ========== WEEKLY FEEDBACK ROUTES ==========
-
-app.get('/api/feedback', async (_, res) => {
+app.post('/api/login', async (req, res) => {
+  const { email, password, role } = req.body;
   try {
-    const result = await db.select().from(weeklyFeedback).orderBy(desc(weeklyFeedback.weekEnding));
-    res.json(result);
+    if (role === 'parent') {
+      // Log the actual login attempt
+      console.log('Parent login attempt:', { email, password, role });
+      const parent = await db.select().from(parentsTable)
+        .where(eq(parentsTable.email, email));
+      if (!parent.length || parent[0].password !== password) {
+        return res.status(401).json({ error: 'Invalid credentials or not a parent' });
+      }
+      const { password: _, ...parentInfo } = parent[0];
+      return res.json({ user: parentInfo, role: 'parent' });
+    } else {
+      console.log('Teacher login attempt:', { email, password, role });
+      const teacher = await db.select().from(teachersTable)
+        .where(eq(teachersTable.email, email));
+      if (!teacher.length || teacher[0].password !== password) {
+        return res.status(401).json({ error: 'Invalid credentials or not a teacher' });
+      }
+      const { password: _, ...teacherInfo } = teacher[0];
+      return res.json({ user: teacherInfo, role: 'Teacher' });
+    }
   } catch (err) {
-    console.error('Error:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
-
-app.post('/api/feedback', async (req, res) => {
-  const parsed = WeeklyFeedbackSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-
-  try {
-    const data = {
-      ...parsed.data,
-      weekEnding: parsed.data.weekEnding.toISOString(),
-    };
-    const result = await db.insert(weeklyFeedback).values(data).returning();
-    res.status(201).json(result[0]);
-  } catch (err) {
-    console.error('Error:', err);
-    res.status(500).json({ error: 'Database error' });
-  }
-});
-
-app.put('/api/feedback/:id', async (req, res) => {
-  const parsed = WeeklyFeedbackSchema.safeParse({ ...req.body, id: req.params.id });
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-
-  try {
-    const data = {
-      ...parsed.data,
-      weekEnding: parsed.data.weekEnding.toISOString(),
-    };
-    const result = await db.update(weeklyFeedback)
-      .set(data)
-      .where(eq(weeklyFeedback.id, req.params.id))
-      .returning();
-
-    if (!result.length) return res.status(404).json({ error: 'Not found' });
-    res.json(result[0]);
-  } catch (err) {
-    console.error('Error:', err);
-    res.status(500).json({ error: 'Database error' });
-  }
-});
-
-app.delete('/api/feedback/:id', async (req, res) => {
-  try {
-    const result = await db.delete(weeklyFeedback).where(eq(weeklyFeedback.id, req.params.id)).returning();
-    if (!result.length) return res.status(404).json({ error: 'Not found' });
-    res.json({ success: true });
-  } catch (err) {
-    console.error('Error:', err);
-    res.status(500).json({ error: 'Database error' });
-  }
-});
-
 
 app.listen(port, () => {
   console.log(`🚀 Server running on port ${port}`);

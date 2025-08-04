@@ -1,8 +1,6 @@
-
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner'; // Fix the import
-import { users } from '@/utils/demoData';
 
 export type UserRole = 'teacher' | 'parent' | null;
 
@@ -40,29 +38,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const login = async (email: string, password: string, role: UserRole): Promise<boolean> => {
-    // Simulate authentication
     try {
-      // For demo, we're just checking if the user exists in our mock data
-      const foundUser = users.find(u => u.email === email && u.role === role);
-      
-      if (foundUser) {
-        setUser(foundUser);
+      const res = await fetch('http://localhost:3003/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, role }),
+      });
+      const data = await res.json();
+      if (res.ok && data.user) {
+        setUser(data.user);
         setIsAuthenticated(true);
-        
-        // Store user in localStorage
-        localStorage.setItem('educonnect-user', JSON.stringify(foundUser));
-        
-        toast.success(`Welcome back, ${foundUser.name}!`);
+        localStorage.setItem('educonnect-user', JSON.stringify(data.user));
+        toast.success(`Welcome back, ${data.user.name}!`);
         return true;
       } else {
-        toast.error('Invalid credentials. Please try again.');
+        toast.error(data.error || 'Invalid credentials. Please try again.');
         return false;
       }
     } catch (error) {
       toast.error('Login failed. Please try again.');
       return false;
     }
-  };
+  }; 
 
   const logout = () => {
     setUser(null);

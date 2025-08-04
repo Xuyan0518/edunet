@@ -1,53 +1,237 @@
-// server/index.ts
-import express, { Request, Response } from 'express';
+import express from 'express';
 import cors from 'cors';
 import bodyParser from 'body-parser';
 import dotenv from 'dotenv';
 import { db } from './db';
 import { eq, desc } from 'drizzle-orm';
-import { studentsTable, dailyProgress, weeklyFeedback } from './schema';
+import {
+  studentsTable,
+  dailyProgress,
+  weeklyFeedback,
+  teacher,
+  parentsTable,
+  TeacherSchema,
+  ParentSchema,
+  StudentSchema,
+  DailyProgressSchema,
+  WeeklyFeedbackSchema,
+} from './schema';
 
 dotenv.config();
 
 const app = express();
-const port = process.env.PORT || 3001;
+const port = process.env.API_PORT || 3003;
 
-app.use(cors());
+app.use(cors({ origin: 'http://localhost:3001' }));
 app.use(bodyParser.json());
 
-// GET all students
-app.get('/api/students', async (req, res) => {
+// ========== TEACHER ROUTES ==========
+
+app.get('/api/teachers', async (_, res) => {
+  try {
+    const result = await db.select().from(teacher);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.get('/api/teachers/:id', async (req, res) => {
+  const id = req.params.id;
+  try {
+    const result = await db.select().from(teacher).where(eq(teacher.id, id));
+    if (!result.length) return res.status(404).json({ error: 'Teacher not found' });
+    res.json(result[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.post('/api/teachers', async (req, res) => {
+  const parsed = TeacherSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  try {
+    const result = await db.insert(teacher).values(parsed.data).returning();
+    res.status(201).json(result[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.put('/api/teachers/:id', async (req, res) => {
+  const id = req.params.id;
+  const parsed = TeacherSchema.safeParse({ ...req.body, id });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  try {
+    const result = await db.update(teacher).set(parsed.data).where(eq(teacher.id, id)).returning();
+    if (!result.length) return res.status(404).json({ error: 'Teacher not found' });
+    res.json(result[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.delete('/api/teachers/:id', async (req, res) => {
+  const id = req.params.id;
+  try {
+    const result = await db.delete(teacher).where(eq(teacher.id, id)).returning();
+    if (!result.length) return res.status(404).json({ error: 'Teacher not found' });
+    res.json({ message: 'Teacher deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// ========== PARENT ROUTES ==========
+
+app.get('/api/parents', async (_, res) => {
+  try {
+    const result = await db.select().from(parentsTable);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.get('/api/parents/:id', async (req, res) => {
+  const id = req.params.id;
+  try {
+    const result = await db.select().from(parentsTable).where(eq(parentsTable.id, id));
+    if (!result.length) return res.status(404).json({ error: 'Parent not found' });
+    res.json(result[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.get('/api/parents/:id/students', async (req, res) => {
+  const parentId = req.params.id;
+  try {
+    const result = await db.select().from(studentsTable).where(eq(studentsTable.parentId, parentId));
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.post('/api/parents', async (req, res) => {
+  const parsed = ParentSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  try {
+    const result = await db.insert(parentsTable).values(parsed.data).returning();
+    res.status(201).json(result[0]);
+  } catch (err) {
+    if (err.message.includes('duplicate key')) return res.status(400).json({ error: 'Email already exists' });
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.put('/api/parents/:id', async (req, res) => {
+  const id = req.params.id;
+  const parsed = ParentSchema.safeParse({ ...req.body, id });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  try {
+    const result = await db.update(parentsTable).set(parsed.data).where(eq(parentsTable.id, id)).returning();
+    if (!result.length) return res.status(404).json({ error: 'Parent not found' });
+    res.json(result[0]);
+  } catch (err) {
+    if (err.message.includes('duplicate key')) return res.status(400).json({ error: 'Email already exists' });
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.delete('/api/parents/:id', async (req, res) => {
+  const id = req.params.id;
+  try {
+    const students = await db.select().from(studentsTable).where(eq(studentsTable.parentId, id));
+    if (students.length) return res.status(400).json({ error: 'Cannot delete parent with associated students' });
+    const result = await db.delete(parentsTable).where(eq(parentsTable.id, id)).returning();
+    if (!result.length) return res.status(404).json({ error: 'Parent not found' });
+    res.json({ message: 'Parent deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// ========== STUDENT ROUTES ==========
+
+app.get('/api/students', async (_, res) => {
   try {
     const result = await db.select().from(studentsTable);
     res.json(result);
   } catch (err) {
-    console.error('Error:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
 
-// GET student by ID
 app.get('/api/students/:id', async (req, res) => {
+  const id = req.params.id;
   try {
-    const id = Number(req.params.id);
     const result = await db.select().from(studentsTable).where(eq(studentsTable.id, id));
-
-    if (result.length === 0) return res.status(404).json({ error: 'Student not found' });
+    if (!result.length) return res.status(404).json({ error: 'Student not found' });
     res.json(result[0]);
   } catch (err) {
-    console.error('Error:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
 
-// POST create student
 app.post('/api/students', async (req, res) => {
+  const parsed = StudentSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   try {
-    const { name, grade, parent_id } = req.body;
-    const result = await db
-      .insert(studentsTable)
-      .values({ name, grade, parentId: parent_id })
-      .returning();
+    const result = await db.insert(studentsTable).values(parsed.data).returning();
+    res.status(201).json(result[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.put('/api/students/:id', async (req, res) => {
+  const id = req.params.id;
+  const parsed = StudentSchema.safeParse({ ...req.body, id });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  try {
+    const result = await db.update(studentsTable).set(parsed.data).where(eq(studentsTable.id, id)).returning();
+    if (!result.length) return res.status(404).json({ error: 'Student not found' });
+    res.json(result[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.delete('/api/students/:id', async (req, res) => {
+  const id = req.params.id;
+  try {
+    const result = await db.delete(studentsTable).where(eq(studentsTable.id, id)).returning();
+    if (!result.length) return res.status(404).json({ error: 'Student not found' });
+    res.json({ message: 'Student deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// ========== DAILY PROGRESS ROUTES ==========
+
+
+app.get('/api/progress', async (_, res) => {
+  try {
+    const result = await db.select().from(dailyProgress).orderBy(desc(dailyProgress.date));
+    res.json(result);
+  } catch (err) {
+    console.error('Error:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.post('/api/progress', async (req, res) => {
+  const parsed = DailyProgressSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  try {
+    const data = {
+      ...parsed.data,
+      date: parsed.data.date.toISOString(),
+    };
+    const result = await db.insert(dailyProgress).values(data).returning();
     res.status(201).json(result[0]);
   } catch (err) {
     console.error('Error:', err);
@@ -55,18 +239,17 @@ app.post('/api/students', async (req, res) => {
   }
 });
 
-// PUT update student
-app.put('/api/students/:id', async (req, res) => {
+app.put('/api/progress/:id', async (req, res) => {
+  const id = req.params.id;
+  const parsed = DailyProgressSchema.safeParse({ ...req.body, id });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   try {
-    const id = Number(req.params.id);
-    const { name, grade, parent_id } = req.body;
-    const result = await db
-      .update(studentsTable)
-      .set({ name, grade, parentId: parent_id })
-      .where(eq(studentsTable.id, id))
-      .returning();
-
-    if (result.length === 0) return res.status(404).json({ error: 'Student not found' });
+    const data = {
+      ...parsed.data,
+      date: parsed.data.date.toISOString(),
+    };
+    const result = await db.update(dailyProgress).set(data).where(eq(dailyProgress.id, id)).returning();
+    if (!result.length) return res.status(404).json({ error: 'Progress not found' });
     res.json(result[0]);
   } catch (err) {
     console.error('Error:', err);
@@ -74,15 +257,23 @@ app.put('/api/students/:id', async (req, res) => {
   }
 });
 
-// GET daily progress
-app.get('/api/students/:studentId/progress', async (req, res) => {
+app.delete('/api/progress/:id', async (req, res) => {
+  const id = req.params.id;
   try {
-    const studentId = Number(req.params.studentId);
-    const result = await db
-      .select()
-      .from(dailyProgress)
-      .where(eq(dailyProgress.studentId, studentId))
-      .orderBy(desc(dailyProgress.date));
+    const result = await db.delete(dailyProgress).where(eq(dailyProgress.id, id)).returning();
+    if (!result.length) return res.status(404).json({ error: 'Progress not found' });
+    res.json({ message: 'Progress deleted successfully' });
+  } catch (err) {
+    console.error('Error:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// ========== WEEKLY FEEDBACK ROUTES ==========
+
+app.get('/api/feedback', async (_, res) => {
+  try {
+    const result = await db.select().from(weeklyFeedback).orderBy(desc(weeklyFeedback.weekEnding));
     res.json(result);
   } catch (err) {
     console.error('Error:', err);
@@ -90,57 +281,118 @@ app.get('/api/students/:studentId/progress', async (req, res) => {
   }
 });
 
-// POST daily progress
-app.post('/api/progress', async (req, res) => {
-  try {
-    const { student_id, date, activities, mood, notes } = req.body;
-    const result = await db
-      .insert(dailyProgress)
-      .values({ studentId: student_id, date, activities, mood, notes })
-      .returning();
-    res.status(201).json(result[0]);
-  } catch (err) {
-    console.error('Error:', err);
-    res.status(500).json({ error: 'Database error' });
-  }
-});
-
-// GET weekly feedback
-app.get('/api/students/:studentId/feedback', async (req, res) => {
-  try {
-    const studentId = Number(req.params.studentId);
-    const result = await db
-      .select()
-      .from(weeklyFeedback)
-      .where(eq(weeklyFeedback.studentId, studentId))
-      .orderBy(desc(weeklyFeedback.weekEnding));
-    res.json(result);
-  } catch (err) {
-    console.error('Error:', err);
-    res.status(500).json({ error: 'Database error' });
-  }
-});
-
-// POST weekly feedback
 app.post('/api/feedback', async (req, res) => {
+  const parsed = WeeklyFeedbackSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
   try {
-    const { student_id, week_ending, academic_progress, behavior, recommendations } = req.body;
-    const result = await db
-      .insert(weeklyFeedback)
-      .values({
-        studentId: student_id,
-        weekEnding: week_ending,
-        academicProgress: academic_progress,
-        behavior,
-        recommendations,
-      })
-      .returning();
+    const data = {
+      ...parsed.data,
+      weekEnding: parsed.data.weekEnding.toISOString(),
+    };
+    const result = await db.insert(weeklyFeedback).values(data).returning();
     res.status(201).json(result[0]);
   } catch (err) {
     console.error('Error:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
+
+app.put('/api/feedback/:id', async (req, res) => {
+  const parsed = WeeklyFeedbackSchema.safeParse({ ...req.body, id: req.params.id });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  try {
+    const data = {
+      ...parsed.data,
+      weekEnding: parsed.data.weekEnding.toISOString(),
+    };
+    const result = await db.update(weeklyFeedback)
+      .set(data)
+      .where(eq(weeklyFeedback.id, req.params.id))
+      .returning();
+
+    if (!result.length) return res.status(404).json({ error: 'Not found' });
+    res.json(result[0]);
+  } catch (err) {
+    console.error('Error:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.delete('/api/feedback/:id', async (req, res) => {
+  try {
+    const result = await db.delete(weeklyFeedback).where(eq(weeklyFeedback.id, req.params.id)).returning();
+    if (!result.length) return res.status(404).json({ error: 'Not found' });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// ========== WEEKLY FEEDBACK ROUTES ==========
+
+app.get('/api/feedback', async (_, res) => {
+  try {
+    const result = await db.select().from(weeklyFeedback).orderBy(desc(weeklyFeedback.weekEnding));
+    res.json(result);
+  } catch (err) {
+    console.error('Error:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.post('/api/feedback', async (req, res) => {
+  const parsed = WeeklyFeedbackSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  try {
+    const data = {
+      ...parsed.data,
+      weekEnding: parsed.data.weekEnding.toISOString(),
+    };
+    const result = await db.insert(weeklyFeedback).values(data).returning();
+    res.status(201).json(result[0]);
+  } catch (err) {
+    console.error('Error:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.put('/api/feedback/:id', async (req, res) => {
+  const parsed = WeeklyFeedbackSchema.safeParse({ ...req.body, id: req.params.id });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  try {
+    const data = {
+      ...parsed.data,
+      weekEnding: parsed.data.weekEnding.toISOString(),
+    };
+    const result = await db.update(weeklyFeedback)
+      .set(data)
+      .where(eq(weeklyFeedback.id, req.params.id))
+      .returning();
+
+    if (!result.length) return res.status(404).json({ error: 'Not found' });
+    res.json(result[0]);
+  } catch (err) {
+    console.error('Error:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.delete('/api/feedback/:id', async (req, res) => {
+  try {
+    const result = await db.delete(weeklyFeedback).where(eq(weeklyFeedback.id, req.params.id)).returning();
+    if (!result.length) return res.status(404).json({ error: 'Not found' });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
 
 app.listen(port, () => {
   console.log(`🚀 Server running on port ${port}`);

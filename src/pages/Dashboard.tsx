@@ -33,94 +33,94 @@ const DashboardCard: React.FC<DashboardCardProps> = ({ title, description, icon,
   );
 };
 
-const RecentActivity: React.FC = () => {
-  const [selectedTab, setSelectedTab] = useState('progress');
+// const RecentActivity: React.FC = () => {
+//   const [selectedTab, setSelectedTab] = useState('progress');
 
-  return (
-    <Card className="col-span-2 hover-card">
-      <CardHeader>
-        <CardTitle>Recent Activity</CardTitle>
-        <CardDescription>Stay up-to-date on the latest student activities</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <Tabs defaultValue={selectedTab} className="space-y-4" onValueChange={setSelectedTab}>
-          <TabsList>
-            <TabsTrigger value="progress">Daily Progress</TabsTrigger>
-            <TabsTrigger value="feedback">Weekly Feedback</TabsTrigger>
-          </TabsList>
-          <TabsContent value="progress">
-            {dailyProgress.slice(0, 3).map((progress) => (
-              <div key={progress.id} className="py-2 border-b last:border-b-0">
-                <p className="text-sm font-medium">{progress.date}</p>
-                <p className="text-xs text-muted-foreground">
-                  {students.find((student) => student.id === progress.studentId)?.name}:{' '}
-                  {progress.activities.length} Activities
-                </p>
-              </div>
-            ))}
-          </TabsContent>
-          <TabsContent value="feedback">
-            {weeklyFeedback.slice(0, 3).map((feedback) => (
-              <div key={feedback.id} className="py-2 border-b last:border-b-0">
-                <p className="text-sm font-medium">Week of {feedback.weekStarting}</p>
-                <p className="text-xs text-muted-foreground">
-                  {students.find((student) => student.id === feedback.studentId)?.name}:{' '}
-                  {feedback.summary}
-                </p>
-              </div>
-            ))}
-          </TabsContent>
-        </Tabs>
-      </CardContent>
-    </Card>
-  );
-};
+//   return (
+//     <Card className="col-span-2 hover-card">
+//       <CardHeader>
+//         <CardTitle>Recent Activity</CardTitle>
+//         <CardDescription>Stay up-to-date on the latest student activities</CardDescription>
+//       </CardHeader>
+//       <CardContent>
+//         <Tabs defaultValue={selectedTab} className="space-y-4" onValueChange={setSelectedTab}>
+//           <TabsList>
+//             <TabsTrigger value="progress">Daily Progress</TabsTrigger>
+//             <TabsTrigger value="feedback">Weekly Feedback</TabsTrigger>
+//           </TabsList>
+//           <TabsContent value="progress">
+//             {dailyProgress.slice(0, 3).map((progress) => (
+//               <div key={progress.id} className="py-2 border-b last:border-b-0">
+//                 <p className="text-sm font-medium">{progress.date}</p>
+//                 <p className="text-xs text-muted-foreground">
+//                   {students.find((student) => student.id === progress.studentId)?.name}:{' '}
+//                   {progress.activities.length} Activities
+//                 </p>
+//               </div>
+//             ))}
+//           </TabsContent>
+//           <TabsContent value="feedback">
+//             {weeklyFeedback.slice(0, 3).map((feedback) => (
+//               <div key={feedback.id} className="py-2 border-b last:border-b-0">
+//                 <p className="text-sm font-medium">Week of {feedback.weekStarting}</p>
+//                 <p className="text-xs text-muted-foreground">
+//                   {students.find((student) => student.id === feedback.studentId)?.name}:{' '}
+//                   {feedback.summary}
+//                 </p>
+//               </div>
+//             ))}
+//           </TabsContent>
+//         </Tabs>
+//       </CardContent>
+//     </Card>
+//   );
+// };
 
-const QuickActions: React.FC = () => {
-  return (
-    <Card className="hover-card">
-      <CardHeader>
-        <CardTitle>Quick Actions</CardTitle>
-        <CardDescription>Manage your tasks quickly</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <Button asChild className="w-full">
-          <Link to="/daily-progress">
-            <Plus className="mr-2 h-4 w-4" />
-            Add Daily Progress
-          </Link>
-        </Button>
-        <Button asChild className="w-full">
-          <Link to="/weekly-feedback">
-            <MessageSquare className="mr-2 h-4 w-4" />
-            Add Weekly Feedback
-          </Link>
-        </Button>
-      </CardContent>
-    </Card>
-  );
-};
+// const QuickActions: React.FC = () => {
+//   return (
+//     <Card className="hover-card">
+//       <CardHeader>
+//         <CardTitle>Quick Actions</CardTitle>
+//         <CardDescription>Manage your tasks quickly</CardDescription>
+//       </CardHeader>
+//       <CardContent className="space-y-4">
+//         <Button asChild className="w-full">
+//           <Link to="/daily-progress">
+//             <Plus className="mr-2 h-4 w-4" />
+//             Add Daily Progress
+//           </Link>
+//         </Button>
+//         <Button asChild className="w-full">
+//           <Link to="/weekly-feedback">
+//             <MessageSquare className="mr-2 h-4 w-4" />
+//             Add Weekly Feedback
+//           </Link>
+//         </Button>
+//       </CardContent>
+//     </Card>
+//   );
+// };
 
-const UpcomingEvents: React.FC = () => {
-  return (
-    <Card className="hover-card">
-      <CardHeader>
-        <CardTitle>Upcoming Events</CardTitle>
-        <CardDescription>Important dates and events</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="py-2 border-b last:border-b-0">
-          <p className="text-sm font-medium">October 26, 2023</p>
-          <p className="text-xs text-muted-foreground">Parent-Teacher Conference</p>
-        </div>
-        <div className="py-2 border-b last:border-b-0">
-          <p className="text-sm font-medium">November 15, 2023</p>
-          <p className="text-xs text-muted-foreground">School Play</p>
-        </div>
-      </CardContent>
-    </Card>
-  );
-};
+// const UpcomingEvents: React.FC = () => {
+//   return (
+//     <Card className="hover-card">
+//       <CardHeader>
+//         <CardTitle>Upcoming Events</CardTitle>
+//         <CardDescription>Important dates and events</CardDescription>
+//       </CardHeader>
+//       <CardContent className="space-y-4">
+//         <div className="py-2 border-b last:border-b-0">
+//           <p className="text-sm font-medium">October 26, 2023</p>
+//           <p className="text-xs text-muted-foreground">Parent-Teacher Conference</p>
+//         </div>
+//         <div className="py-2 border-b last:border-b-0">
+//           <p className="text-sm font-medium">November 15, 2023</p>
+//           <p className="text-xs text-muted-foreground">School Play</p>
+//         </div>
+//       </CardContent>
+//     </Card>
+//   );
+// };
 
 const Dashboard: React.FC = () => {
   const { user, role } = useAuth();
@@ -146,7 +146,7 @@ const Dashboard: React.FC = () => {
               icon={<Users className="h-6 w-6 text-blue-500" />}
               link="/students"
             />
-            <DashboardCard
+            {/* <DashboardCard
               title="Daily Progress"
               description="Record and view daily activities"
               icon={<BookOpen className="h-6 w-6 text-green-500" />}
@@ -163,43 +163,43 @@ const Dashboard: React.FC = () => {
               description="View school events"
               icon={<Calendar className="h-6 w-6 text-red-500" />}
               link="/calendar"
-            />
+            /> */}
           </>
         ) : (
           <>
             <DashboardCard
-              title="Student Profile"
+              title="You are signed in as a parent"
               description="View your child's profile"
               icon={<Users className="h-6 w-6 text-blue-500" />}
               link="/student-profile"
             />
-            <DashboardCard
+            {/* <DashboardCard
               title="Daily Progress"
               description="Track daily activities"
               icon={<BookOpen className="h-6 w-6 text-green-500" />}
               link="/student-profile"
-            />
-            <DashboardCard
+            /> */}
+            {/* <DashboardCard
               title="Weekly Feedback"
               description="Review weekly performance"
               icon={<MessageSquare className="h-6 w-6 text-purple-500" />}
               link="/student-profile"
-            />
-            <DashboardCard
+            /> */}
+            {/* <DashboardCard
               title="Achievements"
               description="View student achievements"
               icon={<BookCheck className="h-6 w-6 text-orange-500" />}
               link="/achievements"
-            />
+            /> */}
           </>
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <RecentActivity />
         <QuickActions />
         <UpcomingEvents />
-      </div>
+      </div> */}
     </div>
   );
 };

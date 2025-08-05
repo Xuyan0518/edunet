@@ -337,31 +337,54 @@ app.delete('/api/feedback/:id', async (req, res) => {
 
 app.post('/api/login', async (req, res) => {
   const { email, password, role } = req.body;
+
   try {
     if (role === 'parent') {
-      // Log the actual login attempt
       console.log('Parent login attempt:', { email, password, role });
+
       const parent = await db.select().from(parentsTable)
         .where(eq(parentsTable.email, email));
+
       if (!parent.length || parent[0].password !== password) {
         return res.status(401).json({ error: 'Invalid credentials or not a parent' });
       }
+
       const { password: _, ...parentInfo } = parent[0];
-      return res.json({ user: parentInfo, role: 'parent' });
-    } else {
+      return res.json({
+        user: {
+          ...parentInfo,
+          role: 'parent'
+        }
+      });
+    }
+
+    if (role === 'teacher') {
       console.log('Teacher login attempt:', { email, password, role });
+
       const teacher = await db.select().from(teachersTable)
         .where(eq(teachersTable.email, email));
+
       if (!teacher.length || teacher[0].password !== password) {
         return res.status(401).json({ error: 'Invalid credentials or not a teacher' });
       }
+
       const { password: _, ...teacherInfo } = teacher[0];
-      return res.json({ user: teacherInfo, role: 'Teacher' });
+      return res.json({
+        user: {
+          ...teacherInfo,
+          role: 'teacher' // ✅ lowercase
+        }
+      });
     }
+
+    return res.status(400).json({ error: 'Invalid role' });
+
   } catch (err) {
+    console.error('Login error:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
+
 
 app.listen(port, () => {
   console.log(`🚀 Server running on port ${port}`);

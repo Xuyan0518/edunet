@@ -6,17 +6,13 @@ import { useAuth } from '@/context/AuthContext';
 import { dailyProgress, students, weeklyFeedback } from '@/utils/demoData';
 import {Badge} from '@/components/ui/badge';
 import { format } from 'date-fns';
+import { useNavigate } from 'react-router-dom';
+import { Button } from '@/components/ui/button';
 
 const StudentProfile: React.FC = () => {
   const { user, role } = useAuth();
-  
-  if (role !== 'parent') {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p>Unauthorized access. Only parents can view this page.</p>
-      </div>
-    );
-  }
+  console.log('Current role:', role); 
+  const navigate = useNavigate();
   
   // Find the student that belongs to this parent
   const studentId = user?.children?.[0];
@@ -59,9 +55,16 @@ const StudentProfile: React.FC = () => {
   
   return (
     <div className="container mx-auto py-8 px-4 animate-fade-in">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight">Student Profile</h1>
-        <p className="text-muted-foreground mt-1">Comprehensive view of your child's academic journey</p>
+      <div className="mb-8 flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Student Profile</h1>
+          <p className="text-muted-foreground mt-1">Comprehensive view of your child's academic journey</p>
+        </div>
+        {role === 'teacher' && (
+          <Button onClick={() => navigate('/add-student')}>
+            Add Student
+          </Button>
+        )}
       </div>
       
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-8">

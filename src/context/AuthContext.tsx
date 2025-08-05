@@ -45,6 +45,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         body: JSON.stringify({ email, password, role }),
       });
       const data = await res.json();
+      console.log('Login response:', JSON.stringify(data));
       if (res.ok && data.user) {
         setUser(data.user);
         setIsAuthenticated(true);
@@ -82,6 +83,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
+  console.log('useAuth context:', context); 
   if (context === undefined) {
     throw new Error('useAuth must be used within an AuthProvider');
   }

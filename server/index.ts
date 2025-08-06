@@ -3,7 +3,7 @@ import cors from 'cors';
 import bodyParser from 'body-parser';
 import dotenv from 'dotenv';
 import { db } from './db';
-import { eq, desc, and, isNull, isNotNull } from 'drizzle-orm';
+import { eq, desc, and, isNull } from 'drizzle-orm';
 import {
   studentsTable,
   dailyProgress,

@@ -13,25 +13,34 @@ export const UserSchema = z.object({
   role: z.enum(['admin', 'teacher', 'parent'])
 });
 
+export const AdminSchema = z.object({
+  id: z.string().uuid().optional(),
+  name: z.string().min(2).max(100),
+  email: z.string().email().max(100),
+  password: z.string().min(6).max(100),
+});
+
 export const TeacherSchema = z.object({
   id: z.string().uuid().optional(),
   name: z.string().min(2).max(100),
   email: z.string().email().max(100),
-  password: z.string().min(6).max(100) 
+  password: z.string().min(6).max(100),
+  status: z.enum(['pending', 'approved', 'rejected']).optional().default('pending')
 });
 
 export const ParentSchema = z.object({
   id: z.string().uuid().optional(),
   name: z.string().min(2).max(100),
   email: z.string().email().max(100),
-  password: z.string().min(6).max(100) 
+  password: z.string().min(6).max(100),
+  status: z.enum(['pending', 'approved', 'rejected']).optional().default('pending')
 });
 
 export const StudentSchema = z.object({
   id: z.string().uuid().optional(),
   name: z.string().min(2).max(100),
   grade: z.string().max(20),
-  parentId: z.string().uuid() // Changed from number
+  parentId: z.string().uuid().nullable().optional(),
 });
 
 export const DailyProgressSchema = z.object({
@@ -62,11 +71,20 @@ export const users = pgTable('users', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
+export const adminsTable = pgTable('admins', {
+  id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
+  name: varchar('name', { length: 100 }).notNull(),
+  email: varchar('email', { length: 100 }).unique().notNull(),
+  password: varchar('password', { length: 100 }).notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
 export const teachersTable = pgTable('teacher', {
   id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
   name: varchar('name', { length: 100 }).notNull(),
   email: varchar('email', { length: 100 }).unique().notNull(),
   password: varchar('password', { length: 100 }).notNull(),
+  status: varchar('status', { length: 20 }).default('pending').notNull(),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -75,6 +93,7 @@ export const parentsTable = pgTable('parents', {
   name: varchar('name', { length: 100 }).notNull(),
   email: varchar('email', { length: 100 }).unique().notNull(),
   password: varchar('password', { length: 100 }).notNull(),
+  status: varchar('status', { length: 20 }).default('pending').notNull(), 
   createdAt: timestamp('created_at').defaultNow(),
 });
 

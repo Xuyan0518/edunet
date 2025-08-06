@@ -15,7 +15,7 @@ export interface Student {
   id: number;
   name: string;
   grade: string;
-  parent_id: number;
+  parent_id?: string | null;
   created_at: string;
 }
 
@@ -62,19 +62,22 @@ export const api = {
     }
   },
 
-  async createStudent(student: Omit<Student, 'id' | 'created_at'>): Promise<Student | null> {
+  async createStudent(student: { name: string; grade: string }) {
     try {
-      const response = await fetch(`${API_URL}/students`, {
+      const response = await fetch('http://localhost:3003/api/students', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(student),
       });
-      if (!response.ok) throw new Error(`HTTP error ${response.status}`);
-      const data = await response.json();
-      toast.success('Student created successfully');
-      return data;
+
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`Failed to create student: ${error}`);
+      }
+
+      return await response.json();
     } catch (error) {
-      return handleError(error);
+      console.error('createStudent error:', error);
     }
   },
 

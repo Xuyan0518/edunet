@@ -1,7 +1,7 @@
 
 import { toast } from 'sonner';
 
-const API_URL = 'http://localhost:3001/api';
+const API_URL = 'http://localhost:3003/api';
 
 // Error handler helper
 const handleError = (error: unknown) => {
@@ -62,7 +62,7 @@ export const api = {
     }
   },
 
-  async createStudent(student: { name: string; grade: string }) {
+  async createStudent(student: { name: string; grade: string; parentId?: string | null }) {
     try {
       const response = await fetch('http://localhost:3003/api/students', {
         method: 'POST',
@@ -95,6 +95,12 @@ export const api = {
     } catch (error) {
       return handleError(error);
     }
+  },
+
+  async getUnassignedParents(): Promise<{ id: string; name: string }[]> {
+    const res = await fetch(`${API_URL}/parents/unassigned`);
+    if (!res.ok) throw new Error('Failed to fetch');
+    return res.json();
   },
 
   // Daily Progress

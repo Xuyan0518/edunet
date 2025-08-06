@@ -3,7 +3,7 @@ import cors from 'cors';
 import bodyParser from 'body-parser';
 import dotenv from 'dotenv';
 import { db } from './db';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, and, isNull, isNotNull } from 'drizzle-orm';
 import {
   studentsTable,
   dailyProgress,
@@ -88,6 +88,26 @@ app.delete('/api/teachers/:id', async (req, res) => {
 });
 
 // ========== PARENT ROUTES ==========
+app.get('/api/parents/unassigned', async (req, res) => {
+  try {
+    const unassignedParents = await db
+      .select()
+      .from(parentsTable)
+      .leftJoin(studentsTable, eq(parentsTable.id, studentsTable.parentId))
+      .where(
+        and(
+          eq(parentsTable.status, 'approved'),
+          isNull(studentsTable.parentId) 
+        )
+      );
+    
+    const flattenedParents = unassignedParents.map(p => p.parents);
+    res.status(200).json(flattenedParents);
+  } catch (error) {
+    console.error('Error fetching available parents:', error);
+    res.status(500).json({ error: 'Failed to fetch available parents' });
+  }
+});
 
 app.get('/api/parents', async (_, res) => {
   try {

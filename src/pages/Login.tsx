@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import {Badge} from '@/components/ui/badge'; 
+import { Badge } from '@/components/ui/badge';
 
 const Login: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -21,7 +21,7 @@ const Login: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    
+
     try {
       // Simple validation
       if (!email.trim() || !password.trim()) {
@@ -32,9 +32,9 @@ const Login: React.FC = () => {
         });
         return;
       }
-      
+
       const success = await login(email, password, role);
-      
+
       if (success) {
         navigate('/dashboard');
       }
@@ -57,7 +57,7 @@ const Login: React.FC = () => {
           <h1 className="text-4xl font-bold tracking-tight text-foreground">EduNet</h1>
           <p className="text-muted-foreground">Bridging the gap between teachers and parents</p>
         </div>
-        
+
         <Card className="glass-card shadow-lg animate-fade-in">
           <CardHeader>
             <CardTitle className="text-2xl text-center">Sign In</CardTitle>
@@ -74,7 +74,7 @@ const Login: React.FC = () => {
                   onValueChange={(value) => setRole(value as 'parent' | 'teacher')}
                   className="flex space-x-4"
                 >
-                   <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2">
                     <RadioGroupItem value="parent" id="parent" />
                     <Label htmlFor="parent" className="cursor-pointer">Parent</Label>
                   </div>
@@ -84,7 +84,7 @@ const Login: React.FC = () => {
                   </div>
                 </RadioGroup>
               </div>
-              
+
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
                 <Input
@@ -97,7 +97,7 @@ const Login: React.FC = () => {
                   className="focus-within-ring"
                 />
               </div>
-              
+
               <div className="space-y-2">
                 <Label htmlFor="password">Password</Label>
                 <Input
@@ -110,7 +110,7 @@ const Login: React.FC = () => {
                   className="focus-within-ring"
                 />
               </div>
-              
+
               <div className="text-sm text-right">
                 <a href="#" className="text-primary hover:underline transition-all">
                   Forgot your password?
@@ -118,9 +118,9 @@ const Login: React.FC = () => {
               </div>
             </CardContent>
             <CardFooter className="flex flex-col space-y-4">
-              <Button 
-                type="submit" 
-                className="w-full" 
+              <Button
+                type="submit"
+                className="w-full"
                 disabled={isLoading}
               >
                 {isLoading ? 'Signing in...' : 'Sign In'}
@@ -138,6 +138,15 @@ const Login: React.FC = () => {
                   }}
                 >
                   Sign up
+                </a>
+              </div>
+              <div className="text-sm text-center mt-4">
+                <span>Are you an admin? </span>
+                <a
+                  href="/admin/login"
+                  className="text-primary hover:underline"
+                >
+                  Admin login
                 </a>
               </div>
             </CardFooter>

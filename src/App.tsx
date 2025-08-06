@@ -16,6 +16,8 @@ import Navbar from "./components/layout/Navbar";
 import PageTransition from "./components/layout/PageTransition";
 import Signup from "./pages/Signup";
 import AddStudent from "@/pages/AddStudent";
+import AdminLogin from '@/pages/admin/AdminLogin';
+import AdminDashboard from '@/pages/admin/AdminDashboard';
 
 const queryClient = new QueryClient();
 
@@ -42,6 +44,8 @@ const AppRoutes = () => {
       <Route path="/" element={<Navigate to="/login" replace />} />
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
+      <Route path="/admin/login" element={<AdminLogin />} />
+      <Route path="/admin/dashboard" element={<AdminDashboard />} />
       <Route
         path="/dashboard"
         element={

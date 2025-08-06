@@ -14,7 +14,8 @@ import {
   ParentSchema,
   StudentSchema,
   DailyProgressSchema,
-  WeeklyFeedbackSchema
+  WeeklyFeedbackSchema,
+  adminsTable
 } from './schema';
 
 dotenv.config();
@@ -51,7 +52,11 @@ app.post('/api/teachers', async (req, res) => {
   const parsed = TeacherSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   try {
-    const result = await db.insert(teachersTable).values(parsed.data).returning();
+    const result = await db.insert(teachersTable).values({
+      ...parsed.data,
+      password: req.body.password,
+      status: 'pending'
+    }).returning();
     res.status(201).json(result[0]);
   } catch (err) {
     res.status(500).json({ error: 'Database error' });
@@ -122,6 +127,7 @@ app.post('/api/parents', async (req, res) => {
     const result = await db.insert(parentsTable).values({
       ...parsed.data,
       password: req.body.password,
+      status: 'pending'
     }).returning();
     res.status(201).json(result[0]);
   } catch (err) {
@@ -214,9 +220,69 @@ app.delete('/api/students/:id', async (req, res) => {
   }
 });
 
+// ========== ADMIN ROUTES ==========
+app.post('/api/admin/login', async (req, res) => {
+  const { email, password } = req.body;
+
+  try {
+    const admins = await db.select().from(adminsTable).where(eq(adminsTable.email, email));
+
+    if (admins.length === 0) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    const admin = admins[0];
+
+    if (admin.password !== password) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    // Exclude password from response
+    const { password: _, ...adminInfo } = admin;
+
+    // Here you could generate a token (JWT) if you want
+
+    return res.json({
+      user: {
+        ...adminInfo,
+        role: 'admin',
+      }
+    });
+
+  } catch (error) {
+    console.error('Login error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+
+app.get('/api/admin/pending', async (req, res) => {
+  const parents = await db.select().from(parentsTable).where(eq(parentsTable.status, 'pending'));
+  const teachers = await db.select().from(teachersTable).where(eq(teachersTable.status, 'pending'));
+  res.json({ parents, teachers });
+});
+
+app.post('/api/admin/approve', async (req, res) => {
+  const { id, role } = req.body;
+  if (role === 'parent') {
+    await db.update(parentsTable).set({ status: 'approved' }).where(eq(parentsTable.id, id));
+  } else if (role === 'teacher') {
+    await db.update(teachersTable).set({ status: 'approved' }).where(eq(teachersTable.id, id));
+  }
+  res.json({ success: true });
+});
+
+app.post('/api/admin/reject', async (req, res) => {
+  const { id, role } = req.body;
+  if (role === 'parent') {
+    await db.update(parentsTable).set({ status: 'rejected' }).where(eq(parentsTable.id, id));
+  } else if (role === 'teacher') {
+    await db.update(teachersTable).set({ status: 'rejected' }).where(eq(teachersTable.id, id));
+  }
+  res.json({ success: true });
+});
+
 // ========== DAILY PROGRESS ROUTES ==========
-
-
 app.get('/api/progress', async (_, res) => {
   try {
     const result = await db.select().from(dailyProgress).orderBy(desc(dailyProgress.date));
@@ -335,6 +401,8 @@ app.delete('/api/feedback/:id', async (req, res) => {
   }
 });
 
+// ========== LOGIN ROUTE ==========
+
 app.post('/api/login', async (req, res) => {
   const { email, password, role } = req.body;
 
@@ -345,8 +413,8 @@ app.post('/api/login', async (req, res) => {
       const parent = await db.select().from(parentsTable)
         .where(eq(parentsTable.email, email));
 
-      if (!parent.length || parent[0].password !== password) {
-        return res.status(401).json({ error: 'Invalid credentials or not a parent' });
+      if (!parent.length || parent[0].password !== password || parent[0].status !== 'approved') {
+        return res.status(401).json({ error: 'Not approved or invalid credentials' });
       }
 
       const { password: _, ...parentInfo } = parent[0];
@@ -364,15 +432,15 @@ app.post('/api/login', async (req, res) => {
       const teacher = await db.select().from(teachersTable)
         .where(eq(teachersTable.email, email));
 
-      if (!teacher.length || teacher[0].password !== password) {
-        return res.status(401).json({ error: 'Invalid credentials or not a teacher' });
+      if (!teacher.length || teacher[0].password !== password || teacher[0].status !== 'approved') {
+        return res.status(401).json({ error: 'Not approved or invalid credentials' });
       }
 
       const { password: _, ...teacherInfo } = teacher[0];
       return res.json({
         user: {
           ...teacherInfo,
-          role: 'teacher' // ✅ lowercase
+          role: 'teacher'
         }
       });
     }

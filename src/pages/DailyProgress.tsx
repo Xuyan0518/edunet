@@ -61,7 +61,7 @@ const CreateDailyProgress: React.FC = () => {
     // Fetch students from the API
     const fetchStudents = async () => {
       try {
-        const response = await fetch('http://localhost:3001/api/students');
+        const response = await fetch("/api/students");
         if (!response.ok) {
           throw new Error('Network response was not ok');
         }
@@ -96,7 +96,7 @@ const CreateDailyProgress: React.FC = () => {
     setActivities(updatedActivities);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     // Validation
@@ -135,17 +135,33 @@ const CreateDailyProgress: React.FC = () => {
       activities,
     };
 
-    // In a real app, you would send this to the server
-    console.log('Submitting daily progress:', progressEntry);
+    try {
+      const response = await fetch("/api/progress", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(progressEntry),
+      });
 
-    // Show success message
-    toast({
-      title: "Success",
-      description: "Daily progress has been saved successfully",
-    });
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error("Server error:", errorData);
+        throw new Error(errorData.error || "Failed to save progress");
+      }
 
-    // Navigate back to dashboard
-    navigate('/dashboard');
+      toast({
+        title: "Success",
+        description: "Daily progress has been saved successfully",
+      });
+
+      navigate("/dashboard");
+    } catch (err) {
+      console.error("Error submitting progress:", err);
+      toast({
+        title: "Error",
+        description: "Failed to save progress. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   return (
@@ -174,7 +190,7 @@ const CreateDailyProgress: React.FC = () => {
                   </SelectTrigger>
                   <SelectContent>
                     {students.map((student) => (
-                      <SelectItem key={student.id} value={student.name}>
+                      <SelectItem key={student.id} value={student.id}>
                         {student.name}
                       </SelectItem>
                     ))}
@@ -234,13 +250,13 @@ const CreateDailyProgress: React.FC = () => {
                 <div className="flex items-center space-x-2">
                   <input
                     type="radio"
-                    id="tardy"
-                    value="tardy"
-                    checked={attendance === 'tardy'}
-                    onChange={() => setAttendance('tardy')}
+                    id="late"
+                    value="late"
+                    checked={attendance === 'late'}
+                    onChange={() => setAttendance('late')}
                     className="h-4 w-4 text-amber-500"
                   />
-                  <Label htmlFor="tardy" className="cursor-pointer">Tardy</Label>
+                  <Label htmlFor="late" className="cursor-pointer">Late</Label>
                 </div>
               </div>
             </div>

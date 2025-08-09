@@ -12,7 +12,8 @@
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",
-    "db:generate": "drizzle-kit generate:pg",
+    "db:generate": "drizzle-kit generate --config drizzle.config.ts",
+    "db:migrate": "tsx server/migrate.ts",
     "studio": "npm run dev:studio"
   },
   "dependencies": {

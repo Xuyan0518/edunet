@@ -18,6 +18,9 @@ import Signup from "./pages/Signup";
 import AddStudent from "@/pages/AddStudent";
 import AdminLogin from '@/pages/admin/AdminLogin';
 import AdminDashboard from '@/pages/admin/AdminDashboard';
+import StudentDetail from './pages/StudentDetail';
+
+
 
 const queryClient = new QueryClient();
 
@@ -83,6 +86,14 @@ const AppRoutes = () => {
         element={
           <ProtectedRoute>
             <StudentProfile />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/student/:id"
+        element={
+          <ProtectedRoute>
+            <StudentDetail />
           </ProtectedRoute>
         }
       />

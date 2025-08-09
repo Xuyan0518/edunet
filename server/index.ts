@@ -314,16 +314,21 @@ app.get('/api/progress', async (_, res) => {
 });
 
 app.post('/api/progress', async (req, res) => {
-  const parsed = DailyProgressSchema.safeParse(req.body);
+  const body = {...req.body, date: new Date(req.body.date)};
+  const parsed = DailyProgressSchema.safeParse(body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
   try {
     const data = {
       ...parsed.data,
-      date: parsed.data.date.toISOString(),
+      date: parsed.data.date.toISOString(), // convert Date to string for DB
     };
     const result = await db.insert(dailyProgress).values(data).returning();
     res.status(201).json(result[0]);
   } catch (err) {
+    if (err.code === '23505') { // unique_violation
+      throw new Error("A daily progress entry already exists for this student on this date.");
+    }
     console.error('Error:', err);
     res.status(500).json({ error: 'Database error' });
   }
@@ -355,6 +360,44 @@ app.delete('/api/progress/:id', async (req, res) => {
     res.json({ message: 'Progress deleted successfully' });
   } catch (err) {
     console.error('Error:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.get('/api/progress/student', async (req, res) => {
+  const { studentId, date } = req.query;
+
+  if (!studentId || !date) {
+    return res.status(400).json({ error: 'Missing studentId or date query parameter' });
+  }
+
+  try {
+    // Convert date string to Date object
+    const targetDate = new Date(date as string);
+    if (isNaN(targetDate.getTime())) {
+      return res.status(400).json({ error: 'Invalid date format' });
+    }
+
+    const formattedDate = targetDate.toISOString().split('T')[0];
+
+    const progress = await db
+      .select()
+      .from(dailyProgress)
+      .where(
+        and(
+          eq(dailyProgress.studentId, studentId),
+          eq(dailyProgress.date, formattedDate),
+        )
+      )
+      .limit(1);
+
+    if (progress.length === 0) {
+      return res.status(404).json({ error: 'No progress found for this student on this date' });
+    }
+
+    res.json(progress[0]);
+  } catch (err) {
+    console.error('Error fetching student progress:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });

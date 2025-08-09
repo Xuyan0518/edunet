@@ -1,6 +1,6 @@
 {
-  "id": "1ecdade1-a92b-42b7-8c1b-916b1dc1209e",
-  "prevId": "73081555-b50d-4b9f-ad28-ba0ed4eed62e",
+  "id": "9cd168f3-6107-497f-a7fe-5d73739ff3c8",
+  "prevId": "4084b5a8-4270-47f5-ba88-bedd7ac5913c",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -78,23 +78,17 @@
           "primaryKey": false,
           "notNull": true
         },
+        "attendance": {
+          "name": "attendance",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": true
+        },
         "activities": {
           "name": "activities",
           "type": "jsonb",
           "primaryKey": false,
           "notNull": true
-        },
-        "mood": {
-          "name": "mood",
-          "type": "varchar(20)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "notes": {
-          "name": "notes",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         },
         "created_at": {
           "name": "created_at",
@@ -104,7 +98,29 @@
           "default": "now()"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "daily_progress_student_date_idx": {
+          "name": "daily_progress_student_date_idx",
+          "columns": [
+            {
+              "expression": "student_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "date",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "daily_progress_student_id_students_id_fk": {
           "name": "daily_progress_student_id_students_id_fk",

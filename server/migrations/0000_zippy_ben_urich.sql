@@ -1,3 +1,12 @@
+CREATE TABLE "admins" (
+	"id" uuid PRIMARY KEY NOT NULL,
+	"name" varchar(100) NOT NULL,
+	"email" varchar(100) NOT NULL,
+	"password" varchar(100) NOT NULL,
+	"created_at" timestamp DEFAULT now(),
+	CONSTRAINT "admins_email_unique" UNIQUE("email")
+);
+--> statement-breakpoint
 CREATE TABLE "daily_progress" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"student_id" uuid NOT NULL,
@@ -12,6 +21,8 @@ CREATE TABLE "parents" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"name" varchar(100) NOT NULL,
 	"email" varchar(100) NOT NULL,
+	"password" varchar(100) NOT NULL,
+	"status" varchar(20) DEFAULT 'pending' NOT NULL,
 	"created_at" timestamp DEFAULT now(),
 	CONSTRAINT "parents_email_unique" UNIQUE("email")
 );
@@ -27,7 +38,11 @@ CREATE TABLE "students" (
 CREATE TABLE "teacher" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"name" varchar(100) NOT NULL,
-	"created_at" timestamp DEFAULT now()
+	"email" varchar(100) NOT NULL,
+	"password" varchar(100) NOT NULL,
+	"status" varchar(20) DEFAULT 'pending' NOT NULL,
+	"created_at" timestamp DEFAULT now(),
+	CONSTRAINT "teacher_email_unique" UNIQUE("email")
 );
 --> statement-breakpoint
 CREATE TABLE "users" (

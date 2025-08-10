@@ -336,7 +336,8 @@ app.post('/api/progress', async (req, res) => {
 
 app.put('/api/progress/:id', async (req, res) => {
   const id = req.params.id;
-  const parsed = DailyProgressSchema.safeParse({ ...req.body, id });
+  const bodyWithDate = { ...req.body, id, date: new Date(req.body.date) };
+  const parsed = DailyProgressSchema.safeParse(bodyWithDate);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   try {
     const data = {

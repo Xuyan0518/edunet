@@ -54,7 +54,7 @@ const StudentProfile: React.FC = () => {
             <Card
               key={student.id}
               className="hover-card cursor-pointer"
-              onClick={() => navigate(`/student/${student.id}`)}
+              onClick={() => navigate(`/student/${student.id}`, { state: { student } })}
             >
               <CardHeader>
                 <CardTitle>{student.name}</CardTitle>

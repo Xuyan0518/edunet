@@ -23,7 +23,7 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 import { Calendar as CalendarIcon, Plus, MinusCircle, CheckCircle2 } from "lucide-react";
 import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
-
+import { useToast } from '@/hooks/use-toast';
 
 type Activity = {
   subject: string;
@@ -46,17 +46,6 @@ type Student = {
   grade: string;
 };
 
-const subjectOptions = [
-  { value: "Math", label: "Math" },
-  { value: "Reading", label: "Reading" },
-  { value: "Writing", label: "Writing" },
-  { value: "Science", label: "Science" },
-  { value: "Social Studies", label: "Social Studies" },
-  { value: "Art", label: "Art" },
-  { value: "Music", label: "Music" },
-  { value: "Physical Education", label: "Physical Education" },
-];
-
 const performanceOptions = [
   { value: "excellent", label: "Excellent" },
   { value: "good", label: "Good" },
@@ -74,6 +63,8 @@ const StudentDetail: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [originalProgress, setOriginalProgress] = useState<DailyProgress | null>(null);
+
+  const { toast } = useToast();
 
   // Fetch student if not passed via location state (like on refresh)
   console.log("selected student: ", student)
@@ -121,6 +112,14 @@ const StudentDetail: React.FC = () => {
   const saveProgress = async () => {
     console.log("progress: ", JSON.stringify(progress, null, 2))
     if (!progress) return;
+    if (progress.activities.some((a) => !a.subject || !a.description || !a.performance)) {
+      toast({
+        title: 'Error',
+        description: 'Please fill out all required fields for each activity',
+        variant: 'destructive',
+      });
+      return;
+    }
     try {
       const res = await fetch(`/api/progress/${progress.id}`, {
         method: "PUT",
@@ -129,7 +128,10 @@ const StudentDetail: React.FC = () => {
       });
       if (!res.ok) throw new Error("Failed to save progress");
       setEditMode(false);
-      alert("Progress saved successfully");
+      toast({
+          title: 'Success',
+          description: 'Progress updated successfully'
+        });
     } catch (err) {
       console.error(err);
       alert("Error saving progress");
@@ -263,27 +265,18 @@ const StudentDetail: React.FC = () => {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label>Subject</Label>
-                          <Select
+                          <Input
                             value={activity.subject}
-                            onValueChange={(val) => {
+                            onChange={(e) => {
                               if (!editMode) return;
                               const updated = [...progress.activities];
-                              updated[idx].subject = val;
+                              updated[idx].subject = e.target.value;
                               setProgress({ ...progress, activities: updated });
                             }}
+                            placeholder="Enter subject"
                             disabled={!editMode}
-                          >
-                            <SelectTrigger className="focus-within-ring">
-                              <SelectValue placeholder="Select a subject" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {subjectOptions.map((option) => (
-                                <SelectItem key={option.value} value={option.value}>
-                                  {option.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                            className="focus-within-ring"
+                          />
                         </div>
 
                         <div className="space-y-2">

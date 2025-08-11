@@ -4,6 +4,7 @@ import bodyParser from 'body-parser';
 import dotenv from 'dotenv';
 import { db } from './db';
 import { eq, desc, and, isNull } from 'drizzle-orm';
+import { format } from 'date-fns';
 import {
   studentsTable,
   dailyProgress,
@@ -321,7 +322,7 @@ app.post('/api/progress', async (req, res) => {
   try {
     const data = {
       ...parsed.data,
-      date: parsed.data.date.toISOString(), // convert Date to string for DB
+      date: format(parsed.data.date, 'yyyy-MM-dd'), // convert Date to string for DB
     };
     const result = await db.insert(dailyProgress).values(data).returning();
     res.status(201).json(result[0]);
@@ -342,13 +343,13 @@ app.put('/api/progress/:id', async (req, res) => {
   try {
     const data = {
       ...parsed.data,
-      date: parsed.data.date.toISOString(),
+      date: format(parsed.data.date, 'yyyy-MM-dd'),
     };
     const result = await db.update(dailyProgress).set(data).where(eq(dailyProgress.id, id)).returning();
     if (!result.length) return res.status(404).json({ error: 'Progress not found' });
     res.json(result[0]);
   } catch (err) {
-    console.error('Error:', err);
+    console.error('Error: progress for the date selected already existed', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -379,7 +380,7 @@ app.get('/api/progress/student', async (req, res) => {
       return res.status(400).json({ error: 'Invalid date format' });
     }
 
-    const formattedDate = targetDate.toISOString().split('T')[0];
+    const formattedDate = format(targetDate, 'yyyy-MM-dd');
 
     const progress = await db
       .select()

@@ -417,13 +417,15 @@ app.get('/api/feedback', async (_, res) => {
 });
 
 app.post('/api/feedback', async (req, res) => {
-  const parsed = WeeklyFeedbackSchema.safeParse(req.body);
+  const body = {...req.body, weekStarting: new Date(req.body.weekStarting), weekEnding: new Date(req.body.weekEnding)}
+  const parsed = WeeklyFeedbackSchema.safeParse(body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
   try {
     const data = {
       ...parsed.data,
-      weekEnding: parsed.data.weekEnding.toISOString(),
+      weekStarting: format(parsed.data.weekStarting, 'yyyy-MM-dd'),
+      weekEnding: format(parsed.data.weekEnding, 'yyyy-MM-dd'),
     };
     const result = await db.insert(weeklyFeedback).values(data).returning();
     res.status(201).json(result[0]);
@@ -434,13 +436,15 @@ app.post('/api/feedback', async (req, res) => {
 });
 
 app.put('/api/feedback/:id', async (req, res) => {
-  const parsed = WeeklyFeedbackSchema.safeParse({ ...req.body, id: req.params.id });
+  const body = {...req.body, id: req.params.id, weekStarting: new Date(req.body.week_starting), weekEnding: new Date(req.body.week_ending)}
+  const parsed = WeeklyFeedbackSchema.safeParse(body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
   try {
     const data = {
       ...parsed.data,
-      weekEnding: parsed.data.weekEnding.toISOString(),
+      weekStarting: format(parsed.data.weekStarting, 'yyyy-MM-dd'),
+      weekEnding: format(parsed.data.weekEnding, 'yyyy-MM-dd'),
     };
     const result = await db.update(weeklyFeedback)
       .set(data)

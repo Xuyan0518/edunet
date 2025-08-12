@@ -60,11 +60,14 @@ export const DailyProgressSchema = z.object({
 
 export const WeeklyFeedbackSchema = z.object({
   id: z.string().uuid().optional(),
-  studentId: z.string().uuid(), // Changed from number
+  studentId: z.string().uuid(), 
+  weekStarting: z.date(),
   weekEnding: z.date(),
-  academicProgress: z.string(),
-  behavior: z.string(),
-  recommendations: z.string().optional()
+  summary: z.string(),
+  strengths: z.array(z.string()),
+  areasToImprove: z.array(z.string()),
+  teacherNotes: z.string().optional(),
+  nextWeekFocus: z.string().optional()
 });
 
 // Drizzle Tables with UUIDs
@@ -132,10 +135,13 @@ export const dailyProgress = pgTable('daily_progress', {
 export const weeklyFeedback = pgTable('weekly_feedback', {
   id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
   studentId: uuid('student_id').references(() => studentsTable.id).notNull(),
+  weekStarting: date('week_starting').notNull(),
   weekEnding: date('week_ending').notNull(),
-  academicProgress: text('academic_progress').notNull(),
-  behavior: text('behavior').notNull(),
-  recommendations: text('recommendations'),
+  summary: text('summary').notNull(),
+  strengths: jsonb('strengths').$type<string[]>().notNull(),
+  areasToImprove: jsonb('areas_to_improve').$type<string[]>().notNull(),
+  teacherNotes: text('teacher_notes'),
+  nextWeekFocus: text('next_week_focus'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 

@@ -86,6 +86,14 @@ const AppRoutes = () => {
           </ProtectedRoute>
         }
       />
+      <Route
+        path="/student/:id"
+        element={
+          <ProtectedRoute>
+            <StudentProfile />
+          </ProtectedRoute>
+        }
+      />
       <Route path="/add-student" element={<AddStudent />} />
       <Route path="*" element={<NotFound />} />
     </Routes>

@@ -13,6 +13,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "db:generate": "drizzle-kit generate:pg",
+    "db:migrate": "drizzle-kit migrate",
     "studio": "npm run dev:studio"
   },
   "dependencies": {

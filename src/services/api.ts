@@ -12,7 +12,7 @@ const handleError = (error: unknown) => {
 
 // Student interfaces
 export interface Student {
-  id: number;
+  id: string;
   name: string;
   grade: string;
   parent_id?: string | null;
@@ -20,8 +20,8 @@ export interface Student {
 }
 
 export interface DailyProgress {
-  id: number;
-  student_id: number;
+  id: string;
+  student_id: string;
   date: string;
   activities: Record<string, string>;
   mood: string;
@@ -30,8 +30,8 @@ export interface DailyProgress {
 }
 
 export interface WeeklyFeedback {
-  id: number;
-  student_id: number;
+  id: string;
+  student_id: string;
   week_ending: string;
   academic_progress: string;
   behavior: string;
@@ -52,7 +52,7 @@ export const api = {
     }
   },
 
-  async getStudent(id: number): Promise<Student | null> {
+  async getStudent(id: string): Promise<Student | null> {
     try {
       const response = await fetch(`${API_URL}/students/${id}`);
       if (!response.ok) throw new Error(`HTTP error ${response.status}`);
@@ -81,7 +81,7 @@ export const api = {
     }
   },
 
-  async updateStudent(id: number, student: Partial<Student>): Promise<Student | null> {
+  async updateStudent(id: string, student: Partial<Student>): Promise<Student | null> {
     try {
       const response = await fetch(`${API_URL}/students/${id}`, {
         method: 'PUT',
@@ -104,7 +104,7 @@ export const api = {
   },
 
   // Daily Progress
-  async getStudentProgress(studentId: number): Promise<DailyProgress[] | null> {
+  async getStudentProgress(studentId: string): Promise<DailyProgress[] | null> {
     try {
       const response = await fetch(`${API_URL}/students/${studentId}/progress`);
       if (!response.ok) throw new Error(`HTTP error ${response.status}`);
@@ -131,7 +131,7 @@ export const api = {
   },
 
   // Weekly Feedback
-  async getStudentFeedback(studentId: number): Promise<WeeklyFeedback[] | null> {
+  async getStudentFeedback(studentId: string): Promise<WeeklyFeedback[] | null> {
     try {
       const response = await fetch(`${API_URL}/students/${studentId}/feedback`);
       if (!response.ok) throw new Error(`HTTP error ${response.status}`);

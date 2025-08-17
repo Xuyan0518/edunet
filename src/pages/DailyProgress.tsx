@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -34,9 +34,12 @@ const performanceOptions = [
 ];
 
 
-const CreateDailyProgress: React.FC = () => {
+const DailyProgress: React.FC = () => {
+  const [searchParams] = useSearchParams();
+  const location = useLocation();
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
   const [selectedStudent, setSelectedStudent] = useState<string>('');
+  const [selectedStudentDisplay, setSelectedStudentDisplay] = useState<string>('');
   const [attendance, setAttendance] = useState<string>('present');
   const [activities, setActivities] = useState<Activity[]>([{ subject: '', description: '', performance: '', notes: '' }]);
   const [students, setStudents] = useState<{ id: string; name: string }[]>([]);
@@ -56,6 +59,16 @@ const CreateDailyProgress: React.FC = () => {
         if (!response.ok) throw new Error('Network response was not ok');
         const data = await response.json();
         setStudents(data);
+        
+        // If we have a student ID from URL and students are loaded, ensure it's set
+        if (studentIdFromUrl && data.length > 0) {
+          setSelectedStudent(studentIdFromUrl);
+          // Also set the display value
+          const student = data.find(s => s.id === studentIdFromUrl);
+          if (student) {
+            setSelectedStudentDisplay(student.name);
+          }
+        }
       } catch (error) {
         console.error('Error fetching students:', error);
         toast({
@@ -66,7 +79,23 @@ const CreateDailyProgress: React.FC = () => {
       }
     };
     fetchStudents();
-  }, [toast]);
+  }, [toast, searchParams, location.search]); // Add dependencies back
+
+  // Update display value when students are loaded and we have a selected student
+  useEffect(() => {
+    if (selectedStudent && students.length > 0) {
+      const student = students.find(s => s.id === selectedStudent);
+      if (student) {
+        setSelectedStudentDisplay(student.name);
+      }
+    }
+  }, [students, selectedStudent]);
+
+  // Helper function to get student name from ID
+  const getStudentName = (studentId: string) => {
+    const student = students.find(s => s.id === studentId);
+    return student ? student.name : '';
+  };
 
   // Fetch existing progress when student or date changes
   useEffect(() => {
@@ -155,6 +184,7 @@ const CreateDailyProgress: React.FC = () => {
       });
       return false;
     }
+
     if (activities.some((a) => !a.subject || !a.description || !a.performance)) {
       toast({
         title: 'Error',
@@ -496,4 +526,4 @@ const CreateDailyProgress: React.FC = () => {
 
 }
 
-export default CreateDailyProgress;
+export default DailyProgress;

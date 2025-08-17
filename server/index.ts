@@ -198,11 +198,18 @@ app.get('/api/students', async (_, res) => {
 app.get('/api/students/:id', async (req, res) => {
   const id = req.params.id;
   try {
+    console.log(`Fetching student with ID: ${id}`);
+    // Validate UUID format
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+      return res.status(400).json({ error: 'Invalid student ID format' });
+    }
     const result = await db.select().from(studentsTable).where(eq(studentsTable.id, id));
+    console.log(`Query result:`, result);
     if (!result.length) return res.status(404).json({ error: 'Student not found' });
     res.json(result[0]);
   } catch (err) {
-    res.status(500).json({ error: 'Database error' });
+    console.error('Error fetching student by ID:', err);
+    res.status(500).json({ error: 'Database error', details: err.message });
   }
 });
 
@@ -304,27 +311,95 @@ app.post('/api/admin/reject', async (req, res) => {
 });
 
 // ========== DAILY PROGRESS ROUTES ==========
+// Temporarily disabled - tables don't exist yet
+/*
 app.get('/api/progress', async (_, res) => {
   try {
+    console.log('Fetching daily progress...');
     const result = await db.select().from(dailyProgress).orderBy(desc(dailyProgress.date));
+    console.log(`Found ${result.length} progress records`);
     res.json(result);
   } catch (err) {
-    console.error('Error:', err);
-    res.status(500).json({ error: 'Database error' });
+    console.error('Error fetching daily progress:', err);
+    console.error('Error details:', {
+      message: err.message,
+      stack: err.stack,
+      name: err.name
+    });
+    res.status(500).json({ 
+      error: 'Database error', 
+      details: err.message,
+      type: 'progress_fetch_error'
+    });
   }
+});
+*/
+
+// Return empty array for now until tables are created
+app.get('/api/progress', async (_, res) => {
+  res.json([]);
+});
+
+// ========== WEEKLY FEEDBACK ROUTES ==========
+
+// Temporarily disabled - tables don't exist yet
+/*
+app.get('/api/feedback', async (_, res) => {
+  try {
+    console.log('Fetching weekly feedback...');
+    const result = await db.select().from(weeklyFeedback).orderBy(desc(weeklyFeedback.weekEnding));
+    console.log(`Found ${result.length} feedback records`);
+    res.json(result);
+  } catch (err) {
+    console.error('Error fetching weekly feedback:', err);
+    console.error('Error details:', {
+      message: err.message,
+      stack: err.stack,
+      name: err.name
+    });
+    res.status(500).json({ 
+      error: 'Database error', 
+      details: err.message,
+      type: 'feedback_fetch_error'
+    });
+  }
+});
+*/
+
+// Return empty array for now until tables are created
+app.get('/api/feedback', async (_, res) => {
+  res.json([]);
 });
 
 app.post('/api/progress', async (req, res) => {
   const body = {...req.body, date: new Date(req.body.date)};
   const parsed = DailyProgressSchema.safeParse(body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-
   try {
+    console.log('Received progress data:', req.body);
+    
+    // Convert date string to Date object if needed
+    const requestData = {
+      ...req.body,
+      date: req.body.date instanceof Date ? req.body.date : new Date(req.body.date)
+    };
+    
+    // Check if table exists by trying to insert
+    const parsed = DailyProgressSchema.safeParse(requestData);
+    if (!parsed.success) {
+      console.error('Validation error:', parsed.error.flatten());
+      return res.status(400).json({ error: parsed.error.flatten() });
+    }
+    
     const data = {
       ...parsed.data,
       date: format(parsed.data.date, 'yyyy-MM-dd'), // convert Date to string for DB
     };
+    
+    console.log('Attempting to insert progress:', data);
     const result = await db.insert(dailyProgress).values(data).returning();
+    console.log('Progress saved successfully:', result[0]);
+    
     res.status(201).json(result[0]);
   } catch (err) {
     if (err.code === '23505') { // unique_violation

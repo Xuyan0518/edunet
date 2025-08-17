@@ -124,8 +124,25 @@ const StudentProfile: React.FC = () => {
   } else {
     // Parent sees only their children
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p>No student profile found.</p>
+      <div className="container mx-auto py-8 px-4 animate-fade-in">
+        <h1 className="text-3xl font-bold tracking-tight mb-4">My Child(ren)</h1>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {childrenStudents.map(student => (
+            <Card
+              key={student.id}
+              className="hover-card cursor-pointer"
+              onClick={() => navigate(`/student/${student.id}`, { state: { student } })}
+            >
+              <CardHeader>
+                <CardTitle>{student.name}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p>Grade: {student.grade}</p>
+                <Badge>{student.grade}</Badge>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       </div>
     );
   }

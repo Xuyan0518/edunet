@@ -1,6 +1,6 @@
 {
-  "id": "c4067b34-f139-4abc-aece-ebe23f05f846",
-  "prevId": "00000000-0000-0000-0000-000000000000",
+  "id": "83275f54-b556-49cc-aa22-af3de5f0ced1",
+  "prevId": "9cd168f3-6107-497f-a7fe-5d73739ff3c8",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -78,23 +78,17 @@
           "primaryKey": false,
           "notNull": true
         },
+        "attendance": {
+          "name": "attendance",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": true
+        },
         "activities": {
           "name": "activities",
           "type": "jsonb",
           "primaryKey": false,
           "notNull": true
-        },
-        "mood": {
-          "name": "mood",
-          "type": "varchar(20)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "notes": {
-          "name": "notes",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         },
         "created_at": {
           "name": "created_at",
@@ -104,7 +98,29 @@
           "default": "now()"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "daily_progress_student_date_idx": {
+          "name": "daily_progress_student_date_idx",
+          "columns": [
+            {
+              "expression": "student_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "date",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "daily_progress_student_id_students_id_fk": {
           "name": "daily_progress_student_id_students_id_fk",
@@ -376,26 +392,44 @@
           "primaryKey": false,
           "notNull": true
         },
+        "week_starting": {
+          "name": "week_starting",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
         "week_ending": {
           "name": "week_ending",
           "type": "date",
           "primaryKey": false,
           "notNull": true
         },
-        "academic_progress": {
-          "name": "academic_progress",
+        "summary": {
+          "name": "summary",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "behavior": {
-          "name": "behavior",
-          "type": "text",
+        "strengths": {
+          "name": "strengths",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": true
         },
-        "recommendations": {
-          "name": "recommendations",
+        "areas_to_improve": {
+          "name": "areas_to_improve",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "teacher_notes": {
+          "name": "teacher_notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "next_week_focus": {
+          "name": "next_week_focus",
           "type": "text",
           "primaryKey": false,
           "notNull": false

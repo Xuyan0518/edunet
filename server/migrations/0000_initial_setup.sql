@@ -9,16 +9,29 @@ CREATE TABLE users (
   created_at timestamp DEFAULT now()
 );
 
-CREATE TABLE parents (
+CREATE TABLE admins (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name varchar(100) NOT NULL,
   email varchar(100) NOT NULL UNIQUE,
+  password varchar(100) NOT NULL,
   created_at timestamp DEFAULT now()
 );
 
 CREATE TABLE teacher (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name varchar(100) NOT NULL,
+  email varchar(100) NOT NULL UNIQUE,
+  password varchar(100) NOT NULL,
+  status varchar(20) NOT NULL DEFAULT 'pending',
+  created_at timestamp DEFAULT now()
+);
+
+CREATE TABLE parents (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name varchar(100) NOT NULL,
+  email varchar(100) NOT NULL UNIQUE,
+  password varchar(100) NOT NULL,
+  status varchar(20) NOT NULL DEFAULT 'pending',
   created_at timestamp DEFAULT now()
 );
 

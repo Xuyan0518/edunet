@@ -4,6 +4,7 @@ import bodyParser from 'body-parser';
 import dotenv from 'dotenv';
 import { db } from './db';
 import { eq, desc, and, isNull } from 'drizzle-orm';
+import { format } from 'date-fns';
 import {
   studentsTable,
   dailyProgress,
@@ -371,6 +372,9 @@ app.get('/api/feedback', async (_, res) => {
 });
 
 app.post('/api/progress', async (req, res) => {
+  const body = {...req.body, date: new Date(req.body.date)};
+  const parsed = DailyProgressSchema.safeParse(body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   try {
     console.log('Received progress data:', req.body);
     
@@ -389,7 +393,7 @@ app.post('/api/progress', async (req, res) => {
     
     const data = {
       ...parsed.data,
-      date: parsed.data.date.toISOString(),
+      date: format(parsed.data.date, 'yyyy-MM-dd'), // convert Date to string for DB
     };
     
     console.log('Attempting to insert progress:', data);
@@ -398,50 +402,29 @@ app.post('/api/progress', async (req, res) => {
     
     res.status(201).json(result[0]);
   } catch (err) {
-    console.error('Error saving progress:', err);
-    console.error('Full error details:', {
-      message: err.message,
-      stack: err.stack,
-      name: err.name,
-      code: err.code,
-      detail: err.detail
-    });
-    
-    // Check if it's a table doesn't exist error
-    if (err.message && (
-      err.message.includes('relation "daily_progress" does not exist') ||
-      err.message.includes('Failed query: insert into "daily_progress"') ||
-      err.message.includes('table "daily_progress" does not exist')
-    )) {
-      return res.status(500).json({ 
-        error: 'Progress tracking is not yet set up. Please create the required database tables first.',
-        type: 'table_missing_error',
-        details: 'The daily_progress table does not exist in the database. Please run the migration to create it.'
-      });
+    if (err.code === '23505') { // unique_violation
+      throw new Error("A daily progress entry already exists for this student on this date.");
     }
-    
-    res.status(500).json({ 
-      error: 'Database error', 
-      details: err.message,
-      type: 'progress_save_error'
-    });
+    console.error('Error:', err);
+    res.status(500).json({ error: 'Database error' });
   }
 });
 
 app.put('/api/progress/:id', async (req, res) => {
   const id = req.params.id;
-  const parsed = DailyProgressSchema.safeParse({ ...req.body, id });
+  const bodyWithDate = { ...req.body, id, date: new Date(req.body.date) };
+  const parsed = DailyProgressSchema.safeParse(bodyWithDate);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   try {
     const data = {
       ...parsed.data,
-      date: parsed.data.date.toISOString(),
+      date: format(parsed.data.date, 'yyyy-MM-dd'),
     };
     const result = await db.update(dailyProgress).set(data).where(eq(dailyProgress.id, id)).returning();
     if (!result.length) return res.status(404).json({ error: 'Progress not found' });
     res.json(result[0]);
   } catch (err) {
-    console.error('Error:', err);
+    console.error('Error: progress for the date selected already existed', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -458,14 +441,66 @@ app.delete('/api/progress/:id', async (req, res) => {
   }
 });
 
+app.get('/api/progress/student', async (req, res) => {
+  const { studentId, date } = req.query;
+
+  if (!studentId || !date) {
+    return res.status(400).json({ error: 'Missing studentId or date query parameter' });
+  }
+
+  try {
+    // Convert date string to Date object
+    const targetDate = new Date(date as string);
+    if (isNaN(targetDate.getTime())) {
+      return res.status(400).json({ error: 'Invalid date format' });
+    }
+
+    const formattedDate = format(targetDate, 'yyyy-MM-dd');
+
+    const progress = await db
+      .select()
+      .from(dailyProgress)
+      .where(
+        and(
+          eq(dailyProgress.studentId, studentId),
+          eq(dailyProgress.date, formattedDate),
+        )
+      )
+      .limit(1);
+
+    if (progress.length === 0) {
+      return res.status(404).json({ error: 'No progress found for this student on this date' });
+    }
+
+    res.json(progress[0]);
+  } catch (err) {
+    console.error('Error fetching student progress:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// ========== WEEKLY FEEDBACK ROUTES ==========
+
+app.get('/api/feedback', async (_, res) => {
+  try {
+    const result = await db.select().from(weeklyFeedback).orderBy(desc(weeklyFeedback.weekEnding));
+    res.json(result);
+  } catch (err) {
+    console.error('Error:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
 app.post('/api/feedback', async (req, res) => {
-  const parsed = WeeklyFeedbackSchema.safeParse(req.body);
+  const body = {...req.body, weekStarting: new Date(req.body.weekStarting), weekEnding: new Date(req.body.weekEnding)}
+  const parsed = WeeklyFeedbackSchema.safeParse(body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
   try {
     const data = {
       ...parsed.data,
-      weekEnding: parsed.data.weekEnding.toISOString(),
+      weekStarting: format(parsed.data.weekStarting, 'yyyy-MM-dd'),
+      weekEnding: format(parsed.data.weekEnding, 'yyyy-MM-dd'),
     };
     const result = await db.insert(weeklyFeedback).values(data).returning();
     res.status(201).json(result[0]);
@@ -476,13 +511,15 @@ app.post('/api/feedback', async (req, res) => {
 });
 
 app.put('/api/feedback/:id', async (req, res) => {
-  const parsed = WeeklyFeedbackSchema.safeParse({ ...req.body, id: req.params.id });
+  const body = {...req.body, id: req.params.id, weekStarting: new Date(req.body.week_starting), weekEnding: new Date(req.body.week_ending)}
+  const parsed = WeeklyFeedbackSchema.safeParse(body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
   try {
     const data = {
       ...parsed.data,
-      weekEnding: parsed.data.weekEnding.toISOString(),
+      weekStarting: format(parsed.data.weekStarting, 'yyyy-MM-dd'),
+      weekEnding: format(parsed.data.weekEnding, 'yyyy-MM-dd'),
     };
     const result = await db.update(weeklyFeedback)
       .set(data)

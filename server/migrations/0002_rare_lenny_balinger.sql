@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "daily_progress_student_date_idx" ON "daily_progress" USING btree ("student_id","date");

@@ -1,5 +1,4 @@
-
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -13,7 +12,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { format, addDays } from 'date-fns';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
-import { students, weeklyFeedback } from '@/utils/demoData';
+import { weeklyFeedback } from '@/utils/demoData';
 import {Badge} from '@/components/ui/badge';
 import { useAuth } from '@/context/AuthContext';
 
@@ -24,25 +23,43 @@ interface WeeklyFeedbackEntry {
   summary: string;
   strengths: string[];
   areasToImprove: string[];
-  weeklyTasksSummary: string;
   teacherNotes: string;
   nextWeekFocus: string;
 }
 
 const CreateWeeklyFeedback: React.FC = () => {
+  const [students, setStudents] = useState<{ id: string; name: string }[]>([]);
   const [selectedStudent, setSelectedStudent] = useState<string>('');
   const [weekStarting, setWeekStarting] = useState<Date | undefined>(new Date());
   const [weekEnding, setWeekEnding] = useState<Date | undefined>(addDays(new Date(), 4)); // Default to 5-day week
   const [summary, setSummary] = useState<string>('');
   const [strengths, setStrengths] = useState<string[]>(['']);
   const [areasToImprove, setAreasToImprove] = useState<string[]>(['']);
-  const [weeklyTasksSummary, setWeeklyTasksSummary] = useState<string>('');
   const [teacherNotes, setTeacherNotes] = useState<string>('');
   const [nextWeekFocus, setNextWeekFocus] = useState<string>('');
   
   const navigate = useNavigate();
   const { toast } = useToast();
   
+  useEffect(() => {
+      const fetchStudents = async () => {
+        try {
+          const response = await fetch('/api/students');
+          if (!response.ok) throw new Error('Network response was not ok');
+          const data = await response.json();
+          setStudents(data);
+        } catch (error) {
+          console.error('Error fetching students:', error);
+          toast({
+            title: 'Error',
+            description: 'Failed to fetch students',
+            variant: 'destructive',
+          });
+        }
+      };
+      fetchStudents();
+    }, [toast]);
+
   const handleAddStrength = () => {
     setStrengths([...strengths, '']);
   };
@@ -75,7 +92,7 @@ const CreateWeeklyFeedback: React.FC = () => {
     setAreasToImprove(updatedAreas);
   };
   
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     // Validation
@@ -122,25 +139,31 @@ const CreateWeeklyFeedback: React.FC = () => {
     // Create feedback entry object
     const feedbackEntry: WeeklyFeedbackEntry = {
       studentId: selectedStudent,
-      weekStarting: weekStarting.toISOString().split('T')[0],
-      weekEnding: weekEnding.toISOString().split('T')[0],
+      weekStarting: format(weekStarting, 'yyyy-MM-dd'),
+      weekEnding: format(weekEnding, 'yyyy-MM-dd'),
       summary,
       strengths: filteredStrengths,
       areasToImprove: filteredAreasToImprove,
-      weeklyTasksSummary,
       teacherNotes,
       nextWeekFocus,
     };
-    
-    // In a real app, you would send this to the server
+
     console.log('Submitting weekly feedback:', feedbackEntry);
     
-    // Show success message
-    toast({
-      title: "Success",
-      description: "Weekly feedback has been saved successfully",
-    });
-    
+    const response = await fetch('/api/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(feedbackEntry),
+    })
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to save progress');
+    } else {
+      toast({
+        title: "Success",
+        description: "Weekly feedback has been saved successfully",
+      });
+    }
     // Navigate back to dashboard
     navigate('/dashboard');
   };
@@ -336,16 +359,6 @@ const CreateWeeklyFeedback: React.FC = () => {
             <CardDescription>Provide more context and future plans</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="space-y-2">
-              <Label htmlFor="weekly-tasks">Weekly Tasks Summary</Label>
-              <Textarea
-                id="weekly-tasks"
-                value={weeklyTasksSummary}
-                onChange={(e) => setWeeklyTasksSummary(e.target.value)}
-                placeholder="Summarize the tasks, assignments, and activities covered this week..."
-                className="min-h-[100px] focus-within-ring"
-              />
-            </div>
             
             <div className="space-y-2">
               <Label htmlFor="teacher-notes">Teacher Notes</Label>
@@ -386,7 +399,7 @@ const CreateWeeklyFeedback: React.FC = () => {
 
 const ViewWeeklyFeedback: React.FC = () => {
   // Group weekly feedback by student
-  const feedbackByStudent: Record<string, typeof weeklyFeedback> = {};
+  const feedbackByStudent: Record<string, type> = {};
   
   weeklyFeedback.forEach(feedback => {
     if (!feedbackByStudent[feedback.studentId]) {
@@ -423,7 +436,9 @@ const ViewWeeklyFeedback: React.FC = () => {
                 <CardHeader>
                   <div className="flex justify-between items-center">
                     <CardTitle>{student?.name}</CardTitle>
-                    <Badge text={`${entries.length} Reports`} variant="outline" />
+                    <Badge variant="outline">
+                      {entries.length} Reports
+                    </Badge>
                   </div>
                   <CardDescription>{student?.grade} • Age {student?.age}</CardDescription>
                 </CardHeader>

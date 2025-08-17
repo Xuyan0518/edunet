@@ -1,9 +1,61 @@
 {
-  "id": "73081555-b50d-4b9f-ad28-ba0ed4eed62e",
-  "prevId": "903f6dca-ccb0-4b3c-bdd1-b9f0da312c60",
+  "id": "4084b5a8-4270-47f5-ba88-bedd7ac5913c",
+  "prevId": "c4067b34-f139-4abc-aece-ebe23f05f846",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
+    "public.admins": {
+      "name": "admins",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "email": {
+          "name": "email",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "password": {
+          "name": "password",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "admins_email_unique": {
+          "name": "admins_email_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "email"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.daily_progress": {
       "name": "daily_progress",
       "schema": "",
@@ -26,23 +78,17 @@
           "primaryKey": false,
           "notNull": true
         },
+        "attendance": {
+          "name": "attendance",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": true
+        },
         "activities": {
           "name": "activities",
           "type": "jsonb",
           "primaryKey": false,
           "notNull": true
-        },
-        "mood": {
-          "name": "mood",
-          "type": "varchar(20)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "notes": {
-          "name": "notes",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         },
         "created_at": {
           "name": "created_at",
@@ -101,6 +147,13 @@
           "type": "varchar(100)",
           "primaryKey": false,
           "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
         },
         "created_at": {
           "name": "created_at",
@@ -211,6 +264,13 @@
           "type": "varchar(100)",
           "primaryKey": false,
           "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
         },
         "created_at": {
           "name": "created_at",

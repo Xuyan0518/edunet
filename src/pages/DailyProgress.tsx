@@ -6,14 +6,11 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Calendar as CalendarIcon, Plus, MinusCircle, CheckCircle2 } from 'lucide-react';
+import { Calendar as CalendarIcon, Plus, MinusCircle, CheckCircle2, Edit2, XCircle } from 'lucide-react';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { format } from 'date-fns';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
-import { Badge } from '@/components/ui/badge';
-import { useAuth } from '@/context/AuthContext';
 
 interface Activity {
   subject: string;
@@ -23,8 +20,9 @@ interface Activity {
 }
 
 interface DailyProgressEntry {
+  id?: string; // for existing entries
   studentId: string;
-  date: string;
+  date: string; // yyyy-MM-dd
   attendance: string;
   activities: Activity[];
 }
@@ -35,16 +33,6 @@ const performanceOptions = [
   { value: 'needs improvement', label: 'Needs Improvement' },
 ];
 
-const subjectOptions = [
-  { value: 'Math', label: 'Math' },
-  { value: 'Reading', label: 'Reading' },
-  { value: 'Writing', label: 'Writing' },
-  { value: 'Science', label: 'Science' },
-  { value: 'Social Studies', label: 'Social Studies' },
-  { value: 'Art', label: 'Art' },
-  { value: 'Music', label: 'Music' },
-  { value: 'Physical Education', label: 'Physical Education' },
-];
 
 const DailyProgress: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -53,46 +41,22 @@ const DailyProgress: React.FC = () => {
   const [selectedStudent, setSelectedStudent] = useState<string>('');
   const [selectedStudentDisplay, setSelectedStudentDisplay] = useState<string>('');
   const [attendance, setAttendance] = useState<string>('present');
-  const [activities, setActivities] = useState<Activity[]>([
-    { subject: '', description: '', performance: '', notes: '' }
-  ]);
-  const [students, setStudents] = useState<{ id: string, name: string }[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [activities, setActivities] = useState<Activity[]>([{ subject: '', description: '', performance: '', notes: '' }]);
+  const [students, setStudents] = useState<{ id: string; name: string }[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [existingProgressId, setExistingProgressId] = useState<string | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [backupProgress, setBackupProgress] = useState<DailyProgressEntry | null>(null);
+
   const navigate = useNavigate();
   const { toast } = useToast();
 
+  // Fetch students on mount
   useEffect(() => {
-    // Get student ID from URL using multiple methods
-    let studentIdFromUrl = searchParams.get('student');
-    
-    // Fallback: parse URL manually if useSearchParams doesn't work
-    if (!studentIdFromUrl) {
-      const urlParams = new URLSearchParams(location.search);
-      studentIdFromUrl = urlParams.get('student');
-    }
-    
-    console.log('Student ID from URL:', studentIdFromUrl);
-    
-    if (studentIdFromUrl) {
-      setSelectedStudent(studentIdFromUrl);
-      console.log('Setting selected student to:', studentIdFromUrl);
-      
-      // If students are already loaded, also set the display value
-      if (students.length > 0) {
-        const student = students.find(s => s.id === studentIdFromUrl);
-        if (student) {
-          setSelectedStudentDisplay(student.name);
-        }
-      }
-    }
-
-    // Fetch students from the API
     const fetchStudents = async () => {
       try {
-        const response = await fetch('http://localhost:3003/api/students');
-        if (!response.ok) {
-          throw new Error('Network response was not ok');
-        }
+        const response = await fetch('/api/students');
+        if (!response.ok) throw new Error('Network response was not ok');
         const data = await response.json();
         setStudents(data);
         
@@ -108,13 +72,12 @@ const DailyProgress: React.FC = () => {
       } catch (error) {
         console.error('Error fetching students:', error);
         toast({
-          title: "Error",
-          description: "Failed to fetch students",
-          variant: "destructive",
+          title: 'Error',
+          description: 'Failed to fetch students',
+          variant: 'destructive',
         });
       }
     };
-
     fetchStudents();
   }, [toast, searchParams, location.search]); // Add dependencies back
 
@@ -134,14 +97,68 @@ const DailyProgress: React.FC = () => {
     return student ? student.name : '';
   };
 
+  // Fetch existing progress when student or date changes
+  useEffect(() => {
+    if (!selectedStudent || !selectedDate) {
+      setExistingProgressId(null);
+      setIsEditing(false);
+      resetForm();
+      return;
+    }
+
+    const fetchProgress = async () => {
+      setIsLoading(true);
+      try {
+        const dateStr = format(selectedDate, 'yyyy-MM-dd');
+        const url = `/api/progress/student?studentId=${encodeURIComponent(selectedStudent)}&date=${encodeURIComponent(dateStr)}`;
+        const response = await fetch(url);
+        if (response.ok) {
+          const data: DailyProgressEntry = await response.json();
+          setExistingProgressId(data.id || null);
+          setAttendance(data.attendance);
+          setActivities(data.activities.length ? data.activities : [{ subject: '', description: '', performance: '', notes: '' }]);
+          setIsEditing(false); // view mode initially
+        } else if (response.status === 404) {
+          // No existing progress, reset form for new entry
+          setExistingProgressId(null);
+          setIsEditing(true); // allow entering new data
+          resetForm();
+        } else {
+          throw new Error('Failed to fetch progress');
+        }
+      } catch (error) {
+        console.error('Error fetching progress:', error);
+        toast({
+          title: 'Error',
+          description: 'Failed to fetch progress entry',
+          variant: 'destructive',
+        });
+        setExistingProgressId(null);
+        setIsEditing(true);
+        resetForm();
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchProgress();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedStudent, selectedDate]);
+
+  const resetForm = () => {
+    setAttendance('present');
+    setActivities([{ subject: '', description: '', performance: '', notes: '' }]);
+  };
+
   const handleAddActivity = () => {
     setActivities([...activities, { subject: '', description: '', performance: '', notes: '' }]);
   };
 
   const handleRemoveActivity = (index: number) => {
+    if (activities.length <= 1 ) return;
     const updatedActivities = [...activities];
     updatedActivities.splice(index, 1);
-    setActivities(updatedActivities);
+    setActivities(updatedActivities.length ? updatedActivities : [{ subject: '', description: '', performance: '', notes: '' }]);
   };
 
   const handleActivityChange = (index: number, field: keyof Activity, value: string) => {
@@ -150,325 +167,241 @@ const DailyProgress: React.FC = () => {
     setActivities(updatedActivities);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    // Validation
+  const validateForm = () => {
     if (!selectedStudent) {
       toast({
-        title: "Error",
-        description: "Please select a student",
-        variant: "destructive",
+        title: 'Error',
+        description: 'Please select a student',
+        variant: 'destructive',
       });
-      return;
+      return false;
     }
-
     if (!selectedDate) {
       toast({
-        title: "Error",
-        description: "Please select a date",
-        variant: "destructive",
+        title: 'Error',
+        description: 'Please select a date',
+        variant: 'destructive',
       });
-      return;
+      return false;
     }
 
-    // Validate that the date is valid
-    if (isNaN(selectedDate.getTime())) {
+    if (activities.some((a) => !a.subject || !a.description || !a.performance)) {
       toast({
-        title: "Error",
-        description: "Please select a valid date",
-        variant: "destructive",
+        title: 'Error',
+        description: 'Please fill out all required fields for each activity',
+        variant: 'destructive',
       });
-      return;
+      return false;
     }
+    return true;
+  };
 
-    if (activities.some(activity => !activity.subject || !activity.description || !activity.performance)) {
-      toast({
-        title: "Error",
-        description: "Please fill out all required fields for each activity",
-        variant: "destructive",
-      });
-      return;
-    }
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!validateForm()) return;
 
-    // Ensure at least one activity is added
-    if (activities.length === 0) {
-      toast({
-        title: "Error",
-        description: "Please add at least one activity",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setLoading(true);
+    const progressEntry: DailyProgressEntry = {
+      studentId: selectedStudent,
+      date: format(selectedDate!, 'yyyy-MM-dd'),
+      attendance,
+      activities,
+    };
 
     try {
-      // Create progress entry object for API
-      const activitiesObject = activities.reduce((acc, activity) => {
-        if (activity.subject && activity.description && activity.performance) {
-          acc[activity.subject] = `${activity.description} - Performance: ${activity.performance}${activity.notes ? ` - Notes: ${activity.notes}` : ''}`;
-        }
-        return acc;
-      }, {} as Record<string, string>);
-
-      console.log('Activities object built:', activitiesObject);
-
-      // Ensure activities object is not empty
-      if (Object.keys(activitiesObject).length === 0) {
+      let response;
+      if (existingProgressId && isEditing) {
+        // Update existing progress with PUT
+        response = await fetch(`/api/progress/${existingProgressId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(progressEntry),
+        });
+      } else if (!existingProgressId) {
+        // Create new progress with POST
+        response = await fetch('/api/progress', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(progressEntry),
+        });
+      } else {
+        // Not editing existing, no action
         toast({
-          title: "Error",
-          description: "Please add at least one valid activity",
-          variant: "destructive",
+          title: 'Info',
+          description: 'No changes to save',
+          variant: 'default',
         });
         return;
       }
 
-      const progressData = {
-        studentId: selectedStudent,
-        date: selectedDate.toISOString(), // Send as ISO string, backend will convert to Date
-        activities: activitiesObject,
-        mood: attendance, // Using attendance as mood for now
-        notes: `Attendance: ${attendance}. Activities completed: ${activities.length}`
-      };
-
-      console.log('Sending progress data to API:', progressData);
-      console.log('Date type:', typeof progressData.date, 'Date value:', progressData.date);
-      console.log('Student ID type:', typeof progressData.studentId, 'Student ID value:', progressData.studentId);
-      console.log('Activities:', progressData.activities);
-      console.log('Mood:', progressData.mood);
-      console.log('Notes:', progressData.notes);
-
-      // Send to API
-      const response = await fetch('http://localhost:3003/api/progress', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(progressData),
-      });
-
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        
-        console.log('Backend error response:', errorData);
-        
-        if (errorData.type === 'table_missing_error') {
-          toast({
-            title: "Setup Required",
-            description: "Progress tracking is not yet set up. Please contact an administrator.",
-            variant: "destructive",
-          });
-          return;
-        }
-        
-        // Log the validation error details
-        if (errorData.error) {
-          console.error('Validation error details:', errorData.error);
-        }
-        
-        throw new Error(`Failed to save progress: ${response.status} - ${JSON.stringify(errorData.error) || 'Unknown error'}`);
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to save progress');
       }
 
-      const savedProgress = await response.json();
-      console.log('Progress saved successfully:', savedProgress);
+      const savedData = await response.json();
 
-      // Show success message
       toast({
-        title: "Success",
-        description: "Daily progress has been saved successfully",
+        title: 'Success',
+        description: `Progress ${existingProgressId ? 'updated' : 'created'} successfully`,
       });
 
-      // Navigate back to students page
-      navigate('/students');
-    } catch (error) {
-      console.error('Error saving progress:', error);
+      // Update state to reflect saved data
+      setExistingProgressId(savedData.id || existingProgressId);
+      setIsEditing(false);
+      setBackupProgress(null);
+    } catch (err) {
+      console.error('Error saving progress:', err);
       toast({
-        title: "Error",
-        description: "Failed to save daily progress. Please try again.",
-        variant: "destructive",
+        title: 'Error',
+        description: 'Failed to save progress. Please try again.',
+        variant: 'destructive',
       });
-    } finally {
-      setLoading(false);
     }
   };
 
   return (
-    <div className="container mx-auto py-8 px-4 animate-fade-in">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight">Create Daily Progress Entry</h1>
-        <p className="text-muted-foreground mt-1">Record a student's daily activities and performance</p>
-      </div>
+  <div className="container mx-auto py-8 px-4 animate-fade-in max-w-4xl">
+    <div className="mb-8">
+      <h1 className="text-3xl font-bold tracking-tight">Daily Progress Entry</h1>
+      <p className="text-muted-foreground mt-1">
+        {existingProgressId && !isEditing
+          ? 'Viewing existing progress. Click Edit to modify.'
+          : existingProgressId && isEditing
+          ? 'Editing existing progress.'
+          : 'Create a new progress entry.'}
+      </p>
+    </div>
 
-      <form onSubmit={handleSubmit} className="space-y-8">
-        <Card className="hover-card">
-          <CardHeader>
-            <CardTitle>Student Information</CardTitle>
-            <CardDescription>Select a student and date for this progress entry</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-2">
-                <Label htmlFor="student">Student</Label>
-                {selectedStudent ? (
-                  <div className="space-y-2">
-                    <Input
-                      id="student"
-                      value={selectedStudentDisplay}
-                      disabled
-                      className="bg-gray-50"
-                    />
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm text-green-600">
-                        ✓ Student pre-selected from dashboard
-                      </p>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setSelectedStudent('');
-                          setSelectedStudentDisplay('');
-                        }}
-                        className="h-6 px-2 text-xs"
-                      >
-                        Change
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <Select 
-                    value={selectedStudent} 
-                    onValueChange={(value) => {
-                      setSelectedStudent(value);
-                      const student = students.find(s => s.id === value);
-                      setSelectedStudentDisplay(student ? student.name : '');
-                    }}
+    <form onSubmit={handleSubmit} className="space-y-8">
+      <Card className="hover-card">
+        <CardHeader>
+          <CardTitle>Student Information</CardTitle>
+          <CardDescription>Select a student and date for this progress entry</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <Label htmlFor="student">Student</Label>
+              <Select
+                value={selectedStudent}
+                onValueChange={(val) => {
+                  setSelectedStudent(val);
+                  setIsEditing(false);
+                  setExistingProgressId(null);
+                }}
+                disabled={isLoading}
+              >
+                <SelectTrigger id="student" className="focus-within-ring">
+                  <SelectValue placeholder="Select a student" />
+                </SelectTrigger>
+                <SelectContent>
+                  {students.map((student) => (
+                    <SelectItem key={student.id} value={student.id}>
+                      {student.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Date</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="w-full justify-start text-left font-normal focus-within-ring"
+                    disabled={isLoading}
                   >
-                    <SelectTrigger id="student" className="focus-within-ring">
-                      <SelectValue placeholder="Select a student" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {students.map((student) => (
-                        <SelectItem key={student.id} value={student.id}>
-                          {student.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label>Date</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className="w-full justify-start text-left font-normal focus-within-ring"
-                    >
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {selectedDate ? format(selectedDate, 'PPP') : <span>Pick a date</span>}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <Calendar
-                      mode="single"
-                      selected={selectedDate}
-                      onSelect={setSelectedDate}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
-              </div>
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {selectedDate ? format(selectedDate, 'PPP') : <span>Pick a date</span>}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0">
+                  <Calendar mode="single" selected={selectedDate} onSelect={setSelectedDate} initialFocus />
+                </PopoverContent>
+              </Popover>
             </div>
+          </div>
 
-            <div>
-              <Label>Attendance</Label>
-              <div className="flex space-x-4 mt-2">
-                <div className="flex items-center space-x-2">
+          <div>
+            <Label>Attendance</Label>
+            <div className="flex space-x-4 mt-2">
+              {['present', 'absent', 'late'].map((status) => (
+                <div className="flex items-center space-x-2" key={status}>
                   <input
                     type="radio"
-                    id="present"
-                    value="present"
-                    checked={attendance === 'present'}
-                    onChange={() => setAttendance('present')}
-                    className="h-4 w-4 text-primary"
+                    id={status}
+                    value={status}
+                    checked={attendance === status}
+                    onChange={() => setAttendance(status)}
+                    disabled={!isEditing}
+                    className={`h-4 w-4 ${
+                      status === 'present'
+                        ? 'text-primary'
+                        : status === 'absent'
+                        ? 'text-destructive'
+                        : 'text-amber-500'
+                    }`}
                   />
-                  <Label htmlFor="present" className="cursor-pointer">Present</Label>
+                  <Label htmlFor={status} className="cursor-pointer capitalize">
+                    {status}
+                  </Label>
                 </div>
-                <div className="flex items-center space-x-2">
-                  <input
-                    type="radio"
-                    id="absent"
-                    value="absent"
-                    checked={attendance === 'absent'}
-                    onChange={() => setAttendance('absent')}
-                    className="h-4 w-4 text-destructive"
-                  />
-                  <Label htmlFor="absent" className="cursor-pointer">Absent</Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <input
-                    type="radio"
-                    id="tardy"
-                    value="tardy"
-                    checked={attendance === 'tardy'}
-                    onChange={() => setAttendance('tardy')}
-                    className="h-4 w-4 text-amber-500"
-                  />
-                  <Label htmlFor="tardy" className="cursor-pointer">Tardy</Label>
-                </div>
-              </div>
+              ))}
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </CardContent>
+      </Card>
 
-        <Card className="hover-card">
-          <CardHeader>
-            <CardTitle>Activities</CardTitle>
-            <CardDescription>Record activities and performance for the day</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            {activities.map((activity, index) => (
-              <div key={index} className="space-y-4 p-4 border border-border rounded-md relative">
+      <Card className="hover-card">
+        <CardHeader>
+          <CardTitle>Activities</CardTitle>
+        </CardHeader>
+        <CardDescription className="px-6 pt-0 pb-4">
+          {isEditing
+            ? 'Fill in the activities and performance details.'
+            : 'View the recorded activities and performance.'}
+        </CardDescription>
+        <CardContent className="space-y-6">
+          {activities.map((activity, index) => (
+            <div
+              key={index}
+              className="space-y-4 p-4 border border-border rounded-md relative bg-muted"
+              aria-disabled={!isEditing}
+            >
+              {isEditing && activities.length > 1&& (
                 <div className="absolute top-4 right-4">
-                  {index > 0 && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleRemoveActivity(index)}
-                    >
-                      <MinusCircle className="h-5 w-5 text-destructive" />
-                    </Button>
-                  )}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => handleRemoveActivity(index)}
+                    aria-label="Remove activity"
+                  >
+                    <MinusCircle className="h-5 w-5 text-destructive" />
+                  </Button>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor={`subject-${index}`}>Subject</Label>
+                  <Input
+                    id={`subject-${index}`}
+                    value={activity.subject}
+                    onChange={(e) => handleActivityChange(index, 'subject', e.target.value)}
+                    placeholder="Enter subject"
+                    className="focus-within-ring"
+                    readOnly={!isEditing}
+                  />
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor={`subject-${index}`}>Subject</Label>
-                    <Select 
-                      value={activity.subject} 
-                      onValueChange={(value) => handleActivityChange(index, 'subject', value)}
-                    >
-                      <SelectTrigger id={`subject-${index}`} className="focus-within-ring">
-                        <SelectValue placeholder="Select a subject" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {subjectOptions.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor={`performance-${index}`}>Performance</Label>
-                    <Select 
-                      value={activity.performance} 
+                <div className="space-y-2">
+                  <Label htmlFor={`performance-${index}`}>Performance</Label>
+                  {isEditing ? (
+                    <Select
+                      value={activity.performance}
                       onValueChange={(value) => handleActivityChange(index, 'performance', value)}
                     >
                       <SelectTrigger id={`performance-${index}`} className="focus-within-ring">
@@ -482,11 +415,15 @@ const DailyProgress: React.FC = () => {
                         ))}
                       </SelectContent>
                     </Select>
-                  </div>
+                  ) : (
+                    <Input id={`performance-${index}`} value={activity.performance} readOnly />
+                  )}
                 </div>
+              </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor={`description-${index}`}>Description</Label>
+              <div className="space-y-2">
+                <Label htmlFor={`description-${index}`}>Description</Label>
+                {isEditing ? (
                   <Input
                     id={`description-${index}`}
                     value={activity.description}
@@ -494,54 +431,99 @@ const DailyProgress: React.FC = () => {
                     placeholder="Describe the activity"
                     className="focus-within-ring"
                   />
-                </div>
+                ) : (
+                  <Input id={`description-${index}`} value={activity.description} readOnly />
+                )}
+              </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor={`notes-${index}`}>Teacher Notes</Label>
+              <div className="space-y-2">
+                <Label htmlFor={`notes-${index}`}>Teacher Notes</Label>
+                {isEditing ? (
                   <Textarea
                     id={`notes-${index}`}
                     value={activity.notes}
                     onChange={(e) => handleActivityChange(index, 'notes', e.target.value)}
-                    placeholder="Additional notes or observations"
+                    placeholder="Additional notes"
                     className="focus-within-ring"
+                    rows={3}
                   />
-                </div>
+                ) : (
+                  <Textarea id={`notes-${index}`} value={activity.notes} readOnly rows={3} />
+                )}
               </div>
-            ))}
+            </div>
+          ))}
 
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleAddActivity}
-              className="w-full"
-            >
+          {isEditing && (
+            <Button type="button" variant="outline" onClick={handleAddActivity} className='w-full'>
               <Plus className="h-4 w-4 mr-2" />
-              Add Another Activity
+              Add Activity
             </Button>
-          </CardContent>
-          <CardFooter className="flex justify-end space-x-4">
-            <Button variant="outline" type="button" onClick={() => navigate('/dashboard')}>
-              Cancel
-            </Button>
-            <Button 
-              type="submit" 
-              className="w-full"
-              disabled={loading}
+          )}
+        </CardContent>
+
+        <CardFooter className="flex justify-end gap-2">
+          {/* If viewing existing progress and NOT editing, show Edit button */}
+          {!isEditing && existingProgressId && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setBackupProgress({
+                  id: existingProgressId || undefined,
+                  studentId: selectedStudent,
+                  date: selectedDate ? format(selectedDate, 'yyyy-MM-dd') : '',
+                  attendance,
+                  activities: [...activities],
+                });
+                setIsEditing(true);
+              }}
             >
-              {loading ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                  Saving Progress...
-                </>
-              ) : (
-                'Save Daily Progress'
-              )}
+              <Edit2 size={16} className="mr-2" />
+              Edit
             </Button>
-          </CardFooter>
-        </Card>
-      </form>
-    </div>
-  );
-};
+          )}
+
+          {/* If editing existing progress, show Cancel and Update buttons */}
+          {isEditing && existingProgressId && (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  if (backupProgress) {
+                    setAttendance(backupProgress.attendance);
+                    setActivities(backupProgress.activities);
+                    setSelectedStudent(backupProgress.studentId);
+                    setSelectedDate(new Date(backupProgress.date));
+                    setExistingProgressId(backupProgress.id || null);
+                  }
+                  setIsEditing(false);
+                  setBackupProgress(null);
+                }}
+              >
+                <XCircle size={16} className="mr-2" />
+                Cancel Edit
+              </Button>
+              <Button type="submit" disabled={isLoading}>
+                Update Progress
+              </Button>
+            </>
+          )}
+
+          {/* If creating new record */}
+          {!existingProgressId && (
+            <Button type="submit" disabled={isLoading}>
+              Save Progress
+            </Button>
+          )}
+        </CardFooter>
+      </Card>
+    </form>
+  </div>
+);
+
+
+}
 
 export default DailyProgress;

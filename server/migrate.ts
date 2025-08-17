@@ -16,17 +16,18 @@ const pool = new pg.Pool({
 const db = drizzle(pool);
 
 async function main() {
-  console.log('Dropping existing tables if any...');
-  await db.execute(sql`
-    DROP TABLE IF EXISTS
-      "daily_progress",
-      "weekly_feedback",
-      "students",
-      "parents",
-      "teacher",
-      "users"
-    CASCADE;
-  `);
+  // console.log('Dropping existing tables if any...');
+  // await db.execute(sql`
+  //   DROP TABLE IF EXISTS
+  //     "daily_progress",
+  //     "weekly_feedback",
+  //     "students",
+  //     "parents",
+  //     "teacher",
+  //     "users",
+  //     "admins"
+  //   CASCADE;
+  // `);
 
   console.log('Migrating database...');
   await migrate(db, {

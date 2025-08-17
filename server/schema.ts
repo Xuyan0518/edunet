@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { pgTable, uuid, varchar, integer, timestamp, jsonb, text, date } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, integer, timestamp, jsonb, text, date, uniqueIndex } from 'drizzle-orm/pg-core';
 import { v4 as uuidv4 } from 'uuid';
 // Fix uuid import for ESM compatibility
 import { randomUUID } from 'node:crypto';
@@ -47,18 +47,27 @@ export const DailyProgressSchema = z.object({
   id: z.string().uuid().optional(),
   studentId: z.string().uuid(), // Changed from number
   date: z.date(),
-  activities: z.record(z.string()),
-  mood: z.string().max(20),
-  notes: z.string().optional()
+  attendance: z.enum(["present", "absent", "late"]),
+  activities: z.array(
+    z.object({
+      subject: z.string(),
+      description: z.string(),
+      performance: z.string(),
+      notes: z.string().optional()
+    })
+  ),
 });
 
 export const WeeklyFeedbackSchema = z.object({
   id: z.string().uuid().optional(),
-  studentId: z.string().uuid(), // Changed from number
+  studentId: z.string().uuid(), 
+  weekStarting: z.date(),
   weekEnding: z.date(),
-  academicProgress: z.string(),
-  behavior: z.string(),
-  recommendations: z.string().optional()
+  summary: z.string(),
+  strengths: z.array(z.string()),
+  areasToImprove: z.array(z.string()),
+  teacherNotes: z.string().optional(),
+  nextWeekFocus: z.string().optional()
 });
 
 // Drizzle Tables with UUIDs
@@ -109,19 +118,30 @@ export const dailyProgress = pgTable('daily_progress', {
   id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
   studentId: uuid('student_id').references(() => studentsTable.id).notNull(),
   date: date('date').notNull(),
-  activities: jsonb('activities').$type<Record<string, string>>().notNull(),
-  mood: varchar('mood', { length: 20 }).notNull(),
-  notes: text('notes'),
+  attendance: varchar('attendance', { length: 10 }).notNull(),
+  activities: jsonb('activities').$type<
+    {
+      subject: string;
+      description: string;
+      performance: string;
+      notes?: string;
+    }[]
+  >().notNull(),
   createdAt: timestamp('created_at').defaultNow(),
-});
+}, (table) => ({
+  studentDateUnique: uniqueIndex('daily_progress_student_date_idx').on(table.studentId, table.date),
+}));
 
 export const weeklyFeedback = pgTable('weekly_feedback', {
   id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
   studentId: uuid('student_id').references(() => studentsTable.id).notNull(),
+  weekStarting: date('week_starting').notNull(),
   weekEnding: date('week_ending').notNull(),
-  academicProgress: text('academic_progress').notNull(),
-  behavior: text('behavior').notNull(),
-  recommendations: text('recommendations'),
+  summary: text('summary').notNull(),
+  strengths: jsonb('strengths').$type<string[]>().notNull(),
+  areasToImprove: jsonb('areas_to_improve').$type<string[]>().notNull(),
+  teacherNotes: text('teacher_notes'),
+  nextWeekFocus: text('next_week_focus'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 

@@ -13,6 +13,7 @@ const StudentProfile: React.FC = () => {
   const navigate = useNavigate();
   const [student, setStudent] = useState<Student | null>(null);
   const [loading, setLoading] = useState(true);
+  const [childrenStudentsList, setChildrenStudentsList] = useState<Student[]>([]);
 
   useEffect(() => {
     if (id) {
@@ -127,7 +128,7 @@ const StudentProfile: React.FC = () => {
       <div className="container mx-auto py-8 px-4 animate-fade-in">
         <h1 className="text-3xl font-bold tracking-tight mb-4">My Child(ren)</h1>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {childrenStudents.map(student => (
+          {(childrenStudentsList || []).map(student => (
             <Card
               key={student.id}
               className="hover-card cursor-pointer"

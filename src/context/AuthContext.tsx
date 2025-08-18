@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner'; // Fix the import
+import { buildApiUrl } from '@/config/api';
 
 export type UserRole = 'teacher' | 'parent' | null;
 
@@ -39,7 +40,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (email: string, password: string, role: UserRole): Promise<boolean> => {
     try {
-      const res = await fetch('http://localhost:3003/api/login', {
+      const res = await fetch(buildApiUrl('login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password, role }),

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
+import { buildApiUrl } from '@/config/api';
 
 type User = {
   id: string;
@@ -16,7 +17,7 @@ const AdminDashboard: React.FC = () => {
 
   const fetchPending = async () => {
     try {
-      const res = await fetch('http://localhost:3003/api/admin/pending');
+      const res = await fetch(buildApiUrl('admin/pending'));
       const data = await res.json();
       setParents(data.parents);
       setTeachers(data.teachers);
@@ -27,7 +28,7 @@ const AdminDashboard: React.FC = () => {
 
   const handleAction = async (id: string, role: string, action: 'approve' | 'reject') => {
     try {
-      await fetch(`http://localhost:3003/api/admin/${action}`, {
+      await fetch(buildApiUrl(`admin/${action}`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, role }),

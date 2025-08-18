@@ -19,6 +19,7 @@ import AddStudent from "@/pages/AddStudent";
 import AdminLogin from '@/pages/admin/AdminLogin';
 import AdminDashboard from '@/pages/admin/AdminDashboard';
 import StudentDetail from './pages/StudentDetail';
+import DailyProgressPage from '@/pages/DailyProgress';
 
 
 
@@ -49,6 +50,7 @@ const AppRoutes = () => {
       <Route path="/signup" element={<Signup />} />
       <Route path="/admin/login" element={<AdminLogin />} />
       <Route path="/admin/dashboard" element={<AdminDashboard />} />
+      <Route path="/daily-progress" element={<DailyProgressPage />} />
       <Route
         path="/dashboard"
         element={

@@ -1,7 +1,9 @@
 
 import { toast } from 'sonner';
 
-const API_URL = 'http://localhost:3003/api';
+import { buildApiUrl } from '@/config/api';
+
+// ... existing code ...
 
 // Error handler helper
 const handleError = (error: unknown) => {
@@ -44,7 +46,7 @@ export const api = {
   // Students
   async getStudents(): Promise<Student[] | null> {
     try {
-      const response = await fetch(`${API_URL}/students`);
+      const response = await fetch(buildApiUrl('students'));
       if (!response.ok) throw new Error(`HTTP error ${response.status}`);
       return await response.json();
     } catch (error) {
@@ -54,7 +56,7 @@ export const api = {
 
   async getStudent(id: string): Promise<Student | null> {
     try {
-      const response = await fetch(`${API_URL}/students/${id}`);
+      const response = await fetch(buildApiUrl(`students/${id}`));
       if (!response.ok) throw new Error(`HTTP error ${response.status}`);
       return await response.json();
     } catch (error) {
@@ -64,7 +66,7 @@ export const api = {
 
   async createStudent(student: { name: string; grade: string; parentId?: string | null }) {
     try {
-      const response = await fetch('http://localhost:3003/api/students', {
+      const response = await fetch(buildApiUrl('students'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(student),
@@ -83,7 +85,7 @@ export const api = {
 
   async updateStudent(id: string, student: Partial<Student>): Promise<Student | null> {
     try {
-      const response = await fetch(`${API_URL}/students/${id}`, {
+      const response = await fetch(buildApiUrl(`students/${id}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(student),
@@ -98,15 +100,29 @@ export const api = {
   },
 
   async getUnassignedParents(): Promise<{ id: string; name: string }[]> {
-    const res = await fetch(`${API_URL}/parents/unassigned`);
-    if (!res.ok) throw new Error('Failed to fetch');
-    return res.json();
+    try {
+      const response = await fetch(buildApiUrl('parents/unassigned'));
+      if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  async getChildren(): Promise<Student[] | null> {
+    try {
+      const response = await fetch(buildApiUrl('students/children'));
+      if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      return handleError(error);
+    }
   },
 
   // Daily Progress
   async getStudentProgress(studentId: string): Promise<DailyProgress[] | null> {
     try {
-      const response = await fetch(`${API_URL}/students/${studentId}/progress`);
+      const response = await fetch(buildApiUrl(`students/${studentId}/progress`));
       if (!response.ok) throw new Error(`HTTP error ${response.status}`);
       return await response.json();
     } catch (error) {
@@ -116,7 +132,7 @@ export const api = {
 
   async createProgress(progress: Omit<DailyProgress, 'id' | 'created_at'>): Promise<DailyProgress | null> {
     try {
-      const response = await fetch(`${API_URL}/progress`, {
+      const response = await fetch(buildApiUrl('progress'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(progress),
@@ -133,7 +149,7 @@ export const api = {
   // Weekly Feedback
   async getStudentFeedback(studentId: string): Promise<WeeklyFeedback[] | null> {
     try {
-      const response = await fetch(`${API_URL}/students/${studentId}/feedback`);
+      const response = await fetch(buildApiUrl(`students/${studentId}/feedback`));
       if (!response.ok) throw new Error(`HTTP error ${response.status}`);
       return await response.json();
     } catch (error) {
@@ -143,7 +159,7 @@ export const api = {
 
   async createFeedback(feedback: Omit<WeeklyFeedback, 'id' | 'created_at'>): Promise<WeeklyFeedback | null> {
     try {
-      const response = await fetch(`${API_URL}/feedback`, {
+      const response = await fetch(buildApiUrl('feedback'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(feedback),

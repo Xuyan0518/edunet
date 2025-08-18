@@ -15,6 +15,7 @@ import { useToast } from '@/hooks/use-toast';
 import { weeklyFeedback } from '@/utils/demoData';
 import {Badge} from '@/components/ui/badge';
 import { useAuth } from '@/context/AuthContext';
+import { buildApiUrl } from '@/config/api';
 
 interface WeeklyFeedbackEntry {
   studentId: string;
@@ -44,7 +45,7 @@ const CreateWeeklyFeedback: React.FC = () => {
   useEffect(() => {
       const fetchStudents = async () => {
         try {
-          const response = await fetch('/api/students');
+          const response = await fetch(buildApiUrl('students'));
           if (!response.ok) throw new Error('Network response was not ok');
           const data = await response.json();
           setStudents(data);
@@ -150,7 +151,7 @@ const CreateWeeklyFeedback: React.FC = () => {
 
     console.log('Submitting weekly feedback:', feedbackEntry);
     
-    const response = await fetch('/api/feedback', {
+    const response = await fetch(buildApiUrl('feedback'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(feedbackEntry),

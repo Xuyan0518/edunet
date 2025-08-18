@@ -311,6 +311,65 @@ app.post('/api/admin/reject', async (req, res) => {
 });
 
 // ========== DAILY PROGRESS ROUTES ==========
+// More specific routes must come before general routes
+app.get('/api/progress/student', async (req, res) => {
+  const { studentId, date } = req.query;
+
+  console.log('Progress student request:', { studentId, date });
+
+  if (!studentId || !date) {
+    return res.status(400).json({ error: 'Missing studentId or date query parameter' });
+  }
+
+  try {
+    // Convert date string to Date object
+    const targetDate = new Date(date as string);
+    if (isNaN(targetDate.getTime())) {
+      return res.status(400).json({ error: 'Invalid date format' });
+    }
+
+    const formattedDate = format(targetDate, 'yyyy-MM-dd');
+    console.log('Formatted date:', formattedDate);
+
+    // Debug: Check if student exists first
+    const studentCheck = await db
+      .select()
+      .from(studentsTable)
+      .where(eq(studentsTable.id, studentId))
+      .limit(1);
+    
+    console.log('Student check result:', studentCheck);
+    console.log('Student ID type:', typeof studentId);
+    console.log('Student ID value:', studentId);
+
+    const progress = await db
+      .select()
+      .from(dailyProgress)
+      .where(
+        and(
+          eq(dailyProgress.studentId, studentId),
+          eq(dailyProgress.date, formattedDate),
+        )
+      )
+      .limit(1);
+
+    console.log('Query result:', progress);
+
+    // Debug: Check if there's any data in daily_progress table
+    const allProgress = await db.select().from(dailyProgress).limit(5);
+    console.log('All progress records (first 5):', allProgress);
+
+    if (progress.length === 0) {
+      return res.status(404).json({ error: 'No progress found for this student on this date' });
+    }
+
+    res.json(progress[0]);
+  } catch (err) {
+    console.error('Error fetching student progress:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
 // Temporarily disabled - tables don't exist yet
 /*
 app.get('/api/progress', async (_, res) => {
@@ -437,44 +496,6 @@ app.delete('/api/progress/:id', async (req, res) => {
     res.json({ message: 'Progress deleted successfully' });
   } catch (err) {
     console.error('Error:', err);
-    res.status(500).json({ error: 'Database error' });
-  }
-});
-
-app.get('/api/progress/student', async (req, res) => {
-  const { studentId, date } = req.query;
-
-  if (!studentId || !date) {
-    return res.status(400).json({ error: 'Missing studentId or date query parameter' });
-  }
-
-  try {
-    // Convert date string to Date object
-    const targetDate = new Date(date as string);
-    if (isNaN(targetDate.getTime())) {
-      return res.status(400).json({ error: 'Invalid date format' });
-    }
-
-    const formattedDate = format(targetDate, 'yyyy-MM-dd');
-
-    const progress = await db
-      .select()
-      .from(dailyProgress)
-      .where(
-        and(
-          eq(dailyProgress.studentId, studentId),
-          eq(dailyProgress.date, formattedDate),
-        )
-      )
-      .limit(1);
-
-    if (progress.length === 0) {
-      return res.status(404).json({ error: 'No progress found for this student on this date' });
-    }
-
-    res.json(progress[0]);
-  } catch (err) {
-    console.error('Error fetching student progress:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });

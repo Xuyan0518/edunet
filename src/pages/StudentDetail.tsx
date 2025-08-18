@@ -24,6 +24,7 @@ import { Calendar as CalendarIcon, Plus, MinusCircle, CheckCircle2 } from "lucid
 import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
 import { useToast } from '@/hooks/use-toast';
+import { buildApiUrl } from '@/config/api';
 
 type Activity = {
   subject: string;
@@ -70,7 +71,7 @@ const StudentDetail: React.FC = () => {
   console.log("selected student: ", student)
   useEffect(() => {
     if (!student && id) {
-      fetch(`/api/students/${id}`)
+      fetch(buildApiUrl(`students/${id}`))
         .then((res) => {
           if (!res.ok) throw new Error("Failed to fetch student");
           return res.json();
@@ -89,7 +90,7 @@ const StudentDetail: React.FC = () => {
     setProgress(null);
 
     fetch(
-      `/api/progress/student?studentId=${id}&date=${selectedDate}`
+      `${buildApiUrl('progress/student')}?studentId=${id}&date=${selectedDate}`
     )
       .then(async (res) => {
         if (!res.ok) {
@@ -121,7 +122,7 @@ const StudentDetail: React.FC = () => {
       return;
     }
     try {
-      const res = await fetch(`/api/progress/${progress.id}`, {
+      const res = await fetch(buildApiUrl(`progress/${progress.id}`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(progress),

@@ -11,6 +11,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { format } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
+import { buildApiUrl } from '@/config/api';
 
 interface Activity {
   subject: string;
@@ -36,10 +37,10 @@ const performanceOptions = [
 
 const DailyProgress: React.FC = () => {
   const [searchParams] = useSearchParams();
-  const location = useLocation();
+  const studentIdFromUrl = searchParams.get('student') || '';
+
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
-  const [selectedStudent, setSelectedStudent] = useState<string>('');
-  const [selectedStudentDisplay, setSelectedStudentDisplay] = useState<string>('');
+  const [selectedStudent, setSelectedStudent] = useState<string>(studentIdFromUrl);
   const [attendance, setAttendance] = useState<string>('present');
   const [activities, setActivities] = useState<Activity[]>([{ subject: '', description: '', performance: '', notes: '' }]);
   const [students, setStudents] = useState<{ id: string; name: string }[]>([]);
@@ -51,24 +52,14 @@ const DailyProgress: React.FC = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  // Fetch students on mount
+  // Fetch students on component mount
   useEffect(() => {
     const fetchStudents = async () => {
       try {
-        const response = await fetch('/api/students');
+        const response = await fetch(buildApiUrl('students'));
         if (!response.ok) throw new Error('Network response was not ok');
         const data = await response.json();
         setStudents(data);
-        
-        // If we have a student ID from URL and students are loaded, ensure it's set
-        if (studentIdFromUrl && data.length > 0) {
-          setSelectedStudent(studentIdFromUrl);
-          // Also set the display value
-          const student = data.find(s => s.id === studentIdFromUrl);
-          if (student) {
-            setSelectedStudentDisplay(student.name);
-          }
-        }
       } catch (error) {
         console.error('Error fetching students:', error);
         toast({
@@ -79,23 +70,7 @@ const DailyProgress: React.FC = () => {
       }
     };
     fetchStudents();
-  }, [toast, searchParams, location.search]); // Add dependencies back
-
-  // Update display value when students are loaded and we have a selected student
-  useEffect(() => {
-    if (selectedStudent && students.length > 0) {
-      const student = students.find(s => s.id === selectedStudent);
-      if (student) {
-        setSelectedStudentDisplay(student.name);
-      }
-    }
-  }, [students, selectedStudent]);
-
-  // Helper function to get student name from ID
-  const getStudentName = (studentId: string) => {
-    const student = students.find(s => s.id === studentId);
-    return student ? student.name : '';
-  };
+  }, [toast]);
 
   // Fetch existing progress when student or date changes
   useEffect(() => {
@@ -110,7 +85,7 @@ const DailyProgress: React.FC = () => {
       setIsLoading(true);
       try {
         const dateStr = format(selectedDate, 'yyyy-MM-dd');
-        const url = `/api/progress/student?studentId=${encodeURIComponent(selectedStudent)}&date=${encodeURIComponent(dateStr)}`;
+        const url = `${buildApiUrl('progress/student')}?studentId=${encodeURIComponent(selectedStudent)}&date=${encodeURIComponent(dateStr)}`;
         const response = await fetch(url);
         if (response.ok) {
           const data: DailyProgressEntry = await response.json();
@@ -142,6 +117,7 @@ const DailyProgress: React.FC = () => {
     };
 
     fetchProgress();
+    // Disabling exhaustive-deps because we intentionally don't want to re-run this on every toast change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedStudent, selectedDate]);
 
@@ -211,14 +187,14 @@ const DailyProgress: React.FC = () => {
       let response;
       if (existingProgressId && isEditing) {
         // Update existing progress with PUT
-        response = await fetch(`/api/progress/${existingProgressId}`, {
+        response = await fetch(buildApiUrl(`progress/${existingProgressId}`), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(progressEntry),
         });
       } else if (!existingProgressId) {
         // Create new progress with POST
-        response = await fetch('/api/progress', {
+        response = await fetch(buildApiUrl('progress'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(progressEntry),

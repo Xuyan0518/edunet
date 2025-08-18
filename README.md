@@ -52,13 +52,48 @@ npm run dev
 
 ## What technologies are used for this project?
 
-This project is built with .
+This project is built with:
 
 - Vite
 - TypeScript
 - React
 - shadcn-ui
 - Tailwind CSS
+
+## API Configuration
+
+The project uses a centralized API configuration for better maintainability. The API base URL is configured in `src/config/api.ts`.
+
+### Environment Variables
+
+To configure the API URL for different environments, you can set the `VITE_API_URL` environment variable:
+
+```bash
+# Development
+VITE_API_URL=http://localhost:3003/api
+
+# Production
+VITE_API_URL=https://your-api-domain.com/api
+```
+
+### Usage
+
+Instead of hardcoding API URLs, use the `buildApiUrl` helper function:
+
+```typescript
+import { buildApiUrl } from '@/config/api';
+
+// Instead of: fetch('/api/students')
+const response = await fetch(buildApiUrl('students'));
+
+// Instead of: fetch('/api/progress/123')
+const response = await fetch(buildApiUrl('progress/123'));
+```
+
+This approach makes it easy to:
+- Change API endpoints across environments
+- Maintain consistent API URLs throughout the application
+- Avoid hardcoded URLs that can break when deployed
 
 ## How can I deploy this project?
 

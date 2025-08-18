@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
+import { buildApiUrl } from '@/config/api';
 
 const AdminLogin: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -18,7 +19,7 @@ const AdminLogin: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const res = await fetch('http://localhost:3003/api/admin/login', {
+      const res = await fetch(buildApiUrl('admin/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),

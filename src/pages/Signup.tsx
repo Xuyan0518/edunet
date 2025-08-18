@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useToast } from '@/hooks/use-toast';
+import { buildApiUrl } from '@/config/api';
 
 const Signup: React.FC = () => {
   const [role, setRole] = useState<'teacher' | 'parent'>('parent');
@@ -22,8 +23,8 @@ const Signup: React.FC = () => {
 
     const endpoint =
       role === 'parent'
-        ? 'http://localhost:3003/api/parents'
-        : 'http://localhost:3003/api/teachers';
+        ? buildApiUrl('parents')
+        : buildApiUrl('teachers');
 
     try {
       const res = await fetch(endpoint, {

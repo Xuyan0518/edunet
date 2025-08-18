@@ -7,6 +7,7 @@ import { Users, Plus, Clock, Calendar, CheckCircle } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { Student, DailyProgress, WeeklyFeedback, api } from '@/services/api';
+import { buildApiUrl } from '@/config/api';
 
 type FilterType = 'all' | 'pending-daily' | 'pending-weekly';
 
@@ -28,14 +29,14 @@ const Students: React.FC = () => {
         setError(null);
         
         // Always fetch students first
-        const studentsRes = await fetch('http://localhost:3003/api/students');
+        const studentsRes = await fetch(buildApiUrl('students'));
         if (!studentsRes.ok) throw new Error(`Failed to fetch students: ${studentsRes.status}`);
         const studentsData = await studentsRes.json();
         setStudents(studentsData);
         
         // Try to fetch progress and feedback, but don't fail if they error
         try {
-          const progressRes = await fetch('http://localhost:3003/api/progress');
+          const progressRes = await fetch(buildApiUrl('progress'));
           if (progressRes.ok) {
             const progressData = await progressRes.json();
             setDailyProgress(progressData);
@@ -46,7 +47,7 @@ const Students: React.FC = () => {
         }
         
         try {
-          const feedbackRes = await fetch('http://localhost:3003/api/feedback');
+          const feedbackRes = await fetch(buildApiUrl('feedback'));
           if (feedbackRes.ok) {
             const feedbackData = await feedbackRes.json();
             setWeeklyFeedback(feedbackData);
@@ -102,7 +103,7 @@ const Students: React.FC = () => {
     if (!isFeedbackTime) return 'not-time';
     
     // Get the most recent Sunday (start of week)
-    const daysSinceSunday = dayOfWeek === 0 ? 0 : dayOfWeek;
+    const daysSinceSunday = dayOfWeek;
     const lastSunday = new Date(today);
     lastSunday.setDate(today.getDate() - daysSinceSunday);
     const lastSundayStr = lastSunday.toISOString().split('T')[0];

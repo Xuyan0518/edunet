@@ -47,6 +47,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
       const data = await res.json();
       console.log('Login response:', JSON.stringify(data));
+      
       if (res.ok && data.user) {
         setUser(data.user);
         setIsAuthenticated(true);
@@ -54,7 +55,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         toast.success(`Welcome back, ${data.user.name}!`);
         return true;
       } else {
-        toast.error(data.error || 'Invalid credentials. Please try again.');
+        // Handle specific error cases
+        if (data.status === 'pending_approval') {
+          toast.error('Your account is pending admin approval. You will be notified once approved.');
+        } else {
+          toast.error(data.error || 'Invalid credentials. Please try again.');
+        }
         return false;
       }
     } catch (error) {

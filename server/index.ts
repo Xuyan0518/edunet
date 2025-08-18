@@ -18,6 +18,7 @@ import {
   WeeklyFeedbackSchema,
   adminsTable
 } from './schema';
+import { generateVerificationToken, sendVerificationEmail, sendVerificationEmailFallback } from './utils/emailVerification';
 
 dotenv.config();
 
@@ -52,14 +53,56 @@ app.get('/api/teachers/:id', async (req, res) => {
 app.post('/api/teachers', async (req, res) => {
   const parsed = TeacherSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  
   try {
+    console.log('Teacher signup attempt:', { name: req.body.name, email: req.body.email });
+    
+    // Generate verification token
+    const { token, expires } = generateVerificationToken();
+    console.log('Generated verification token:', { token: token.substring(0, 8) + '...', expires });
+    
     const result = await db.insert(teachersTable).values({
-      ...parsed.data,
+      name: parsed.data.name,
+      email: parsed.data.email,
       password: req.body.password,
-      status: 'pending'
+      status: 'pending',
+      emailVerified: 'false',
+      verificationToken: token,
+      verificationTokenExpires: expires
     }).returning();
-    res.status(201).json(result[0]);
+    
+    console.log('Teacher account created in database:', result[0].id);
+    
+    // Send verification email (try Gmail SMTP first, fallback to console)
+    let emailSent = false;
+    if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
+      console.log('Attempting to send email via Gmail SMTP...');
+      emailSent = await sendVerificationEmail(req.body.email, token, req.body.name);
+    } else {
+      console.log('Gmail credentials not found, using fallback...');
+    }
+    
+    if (!emailSent) {
+      console.log('Falling back to console email...');
+      emailSent = await sendVerificationEmailFallback(req.body.email, token, req.body.name);
+    }
+    
+    if (!emailSent) {
+      // If email fails, we should probably delete the user or mark them for manual verification
+      console.error('Failed to send verification email for teacher:', req.body.email);
+    } else {
+      console.log('Verification email sent successfully for teacher:', req.body.email);
+    }
+    
+    res.status(201).json({
+      ...result[0],
+      message: 'Account created successfully. Please check your email to verify your account.'
+    });
   } catch (err) {
+    console.error('Teacher signup error:', err);
+    if (err.message && err.message.includes('duplicate key')) {
+      return res.status(400).json({ error: 'Email already exists' });
+    }
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -143,16 +186,57 @@ app.get('/api/parents/:id/students', async (req, res) => {
 app.post('/api/parents', async (req, res) => {
   const parsed = ParentSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  
   try {
+    console.log('Parent signup attempt:', { name: req.body.name, email: req.body.email });
+    
+    // Generate verification token
+    const { token, expires } = generateVerificationToken();
+    console.log('Generated verification token:', { token: token.substring(0, 8) + '...', expires });
+    
     // Directly save password (no encryption)
     const result = await db.insert(parentsTable).values({
-      ...parsed.data,
+      name: parsed.data.name,
+      email: parsed.data.email,
       password: req.body.password,
-      status: 'pending'
+      status: 'pending',
+      emailVerified: 'false',
+      verificationToken: token,
+      verificationTokenExpires: expires
     }).returning();
-    res.status(201).json(result[0]);
+    
+    console.log('Parent account created in database:', result[0].id);
+    
+    // Send verification email (try Gmail SMTP first, fallback to console)
+    let emailSent = false;
+    if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
+      console.log('Attempting to send email via Gmail SMTP...');
+      emailSent = await sendVerificationEmail(req.body.email, token, req.body.name);
+    } else {
+      console.log('Gmail credentials not found, using fallback...');
+    }
+    
+    if (!emailSent) {
+      console.log('Falling back to console email...');
+      emailSent = await sendVerificationEmailFallback(req.body.email, token, req.body.name);
+    }
+    
+    if (!emailSent) {
+      // If email fails, we should probably delete the user or mark them for manual verification
+      console.error('Failed to send verification email for parent:', req.body.email);
+    } else {
+      console.log('Verification email sent successfully for parent:', req.body.email);
+    }
+    
+    res.status(201).json({
+      ...result[0],
+      message: 'Account created successfully. Please check your email to verify your account.'
+    });
   } catch (err) {
-    if (err.message && err.message.includes('duplicate key')) return res.status(400).json({ error: 'Email already exists' });
+    console.error('Parent signup error:', err);
+    if (err.message && err.message.includes('duplicate key')) {
+      return res.status(400).json({ error: 'Email already exists' });
+    }
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -578,8 +662,19 @@ app.post('/api/login', async (req, res) => {
       const parent = await db.select().from(parentsTable)
         .where(eq(parentsTable.email, email));
 
-      if (!parent.length || parent[0].password !== password || parent[0].status !== 'approved') {
-        return res.status(401).json({ error: 'Not approved or invalid credentials' });
+      if (!parent.length || parent[0].password !== password) {
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
+
+      if (parent[0].emailVerified !== 'true') {
+        return res.status(401).json({ error: 'Please verify your email before logging in. Check your inbox for a verification link.' });
+      }
+
+      if (parent[0].status !== 'approved') {
+        return res.status(401).json({ 
+          error: 'Your account is pending admin approval. You will be notified once approved.',
+          status: 'pending_approval'
+        });
       }
 
       const { password: _, ...parentInfo } = parent[0];
@@ -597,8 +692,19 @@ app.post('/api/login', async (req, res) => {
       const teacher = await db.select().from(teachersTable)
         .where(eq(teachersTable.email, email));
 
-      if (!teacher.length || teacher[0].password !== password || teacher[0].status !== 'approved') {
-        return res.status(401).json({ error: 'Not approved or invalid credentials' });
+      if (!teacher.length || teacher[0].password !== password) {
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
+
+      if (teacher[0].emailVerified !== 'true') {
+        return res.status(401).json({ error: 'Please verify your email before logging in. Check your inbox for a verification link.' });
+      }
+
+      if (teacher[0].status !== 'approved') {
+        return res.status(401).json({ 
+          error: 'Your account is pending admin approval. You will be notified once approved.',
+          status: 'pending_approval'
+        });
       }
 
       const { password: _, ...teacherInfo } = teacher[0];
@@ -615,6 +721,89 @@ app.post('/api/login', async (req, res) => {
   } catch (err) {
     console.error('Login error:', err);
     res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// ========== TEST ENDPOINTS ==========
+
+app.get('/api/test-env', (req, res) => {
+  res.json({
+    resendApiKey: process.env.RESEND_API_KEY ? 'Present' : 'Missing',
+    gmailUser: process.env.GMAIL_USER ? 'Present' : 'Missing',
+    gmailAppPassword: process.env.GMAIL_APP_PASSWORD ? 'Present' : 'Missing',
+    frontendUrl: process.env.FRONTEND_URL || 'Not set',
+    nodeEnv: process.env.NODE_ENV || 'Not set',
+    message: 'Environment variables check'
+  });
+});
+
+app.get('/api/test-gmail', async (req, res) => {
+  try {
+    const { gmailEmailService } = await import('./utils/gmailEmailService');
+    const isConnected = await gmailEmailService.testConnection();
+    
+    res.json({
+      success: isConnected,
+      message: isConnected ? 'Gmail SMTP connection successful' : 'Gmail SMTP connection failed',
+      gmailUser: process.env.GMAIL_USER || 'Not set',
+      gmailAppPassword: process.env.GMAIL_APP_PASSWORD ? 'Present' : 'Missing'
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to test Gmail connection',
+      error: error.message
+    });
+  }
+});
+
+// ========== EMAIL VERIFICATION ROUTES ==========
+
+app.get('/api/verify-email/:token', async (req, res) => {
+  const { token } = req.params;
+  
+  try {
+    // Check if token exists in teachers table
+    let teacher = await db.select().from(teachersTable)
+      .where(eq(teachersTable.verificationToken, token));
+    
+    let parent: any[] = [];
+    if (!teacher.length) {
+      // Check if token exists in parents table
+      parent = await db.select().from(parentsTable)
+        .where(eq(parentsTable.verificationToken, token));
+    }
+    
+    if (!teacher.length && !parent.length) {
+      return res.status(400).json({ error: 'Invalid verification token' });
+    }
+    
+    const user = teacher[0] || parent[0];
+    const table = teacher.length ? teachersTable : parentsTable;
+    
+    // Check if token is expired
+    if (user.verificationTokenExpires && new Date() > new Date(user.verificationTokenExpires)) {
+      return res.status(400).json({ error: 'Verification token has expired' });
+    }
+    
+    // Update user to verified
+    const result = await db.update(table)
+      .set({
+        emailVerified: 'true',
+        verificationToken: null,
+        verificationTokenExpires: null
+      })
+      .where(eq(table.id, user.id))
+      .returning();
+    
+    res.json({
+      message: 'Email verified successfully! You can now log in to your account.',
+      user: result[0]
+    });
+    
+  } catch (err) {
+    console.error('Email verification error:', err);
+    res.status(500).json({ error: 'Database error during verification' });
   }
 });
 

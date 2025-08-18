@@ -27,6 +27,13 @@
       "when": 1754915461240,
       "tag": "0003_dark_romulus",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1755519432272,
+      "tag": "0004_certain_sugar_man",
+      "breakpoints": true
     }
   ]
 }

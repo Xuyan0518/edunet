@@ -25,7 +25,10 @@ export const TeacherSchema = z.object({
   name: z.string().min(2).max(100),
   email: z.string().email().max(100),
   password: z.string().min(6).max(100),
-  status: z.enum(['pending', 'approved', 'rejected']).optional().default('pending')
+  status: z.enum(['pending', 'approved', 'rejected']).optional().default('pending'),
+  emailVerified: z.string().optional().default('false'),
+  verificationToken: z.string().optional(),
+  verificationTokenExpires: z.date().optional()
 });
 
 export const ParentSchema = z.object({
@@ -33,7 +36,10 @@ export const ParentSchema = z.object({
   name: z.string().min(2).max(100),
   email: z.string().email().max(100),
   password: z.string().min(6).max(100),
-  status: z.enum(['pending', 'approved', 'rejected']).optional().default('pending')
+  status: z.enum(['pending', 'approved', 'rejected']).optional().default('pending'),
+  emailVerified: z.string().optional().default('false'),
+  verificationToken: z.string().optional(),
+  verificationTokenExpires: z.date().optional()
 });
 
 export const StudentSchema = z.object({
@@ -94,6 +100,9 @@ export const teachersTable = pgTable('teacher', {
   email: varchar('email', { length: 100 }).unique().notNull(),
   password: varchar('password', { length: 100 }).notNull(),
   status: varchar('status', { length: 20 }).default('pending').notNull(),
+  emailVerified: varchar('email_verified', { length: 5 }).default('false').notNull(),
+  verificationToken: varchar('verification_token', { length: 255 }),
+  verificationTokenExpires: timestamp('verification_token_expires'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -102,7 +111,10 @@ export const parentsTable = pgTable('parents', {
   name: varchar('name', { length: 100 }).notNull(),
   email: varchar('email', { length: 100 }).unique().notNull(),
   password: varchar('password', { length: 100 }).notNull(),
-  status: varchar('status', { length: 20 }).default('pending').notNull(), 
+  status: varchar('status', { length: 20 }).default('pending').notNull(),
+  emailVerified: varchar('email_verified', { length: 5 }).default('false').notNull(),
+  verificationToken: varchar('verification_token', { length: 255 }),
+  verificationTokenExpires: timestamp('verification_token_expires'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 

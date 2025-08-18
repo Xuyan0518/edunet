@@ -20,7 +20,7 @@ import AdminLogin from '@/pages/admin/AdminLogin';
 import AdminDashboard from '@/pages/admin/AdminDashboard';
 import StudentDetail from './pages/StudentDetail';
 import DailyProgressPage from '@/pages/DailyProgress';
-
+import VerifyEmail from './pages/VerifyEmail';
 
 
 const queryClient = new QueryClient();
@@ -48,6 +48,7 @@ const AppRoutes = () => {
       <Route path="/" element={<Navigate to="/login" replace />} />
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
+      <Route path="/verify-email" element={<VerifyEmail />} />
       <Route path="/admin/login" element={<AdminLogin />} />
       <Route path="/admin/dashboard" element={<AdminDashboard />} />
       <Route path="/daily-progress" element={<DailyProgressPage />} />

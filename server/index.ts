@@ -588,7 +588,7 @@ app.delete('/api/progress/:id', async (req, res) => {
 
 app.get('/api/feedback', async (_, res) => {
   try {
-    const result = await db.select().from(weeklyFeedback).orderBy(desc(weeklyFeedback.weekEnding));
+    const result = await db.select().from(weeklyFeedback).orderBy(desc(weeklyFeedback.weekStarting));
     res.json(result);
   } catch (err) {
     console.error('Error:', err);
@@ -616,7 +616,7 @@ app.post('/api/feedback', async (req, res) => {
 });
 
 app.put('/api/feedback/:id', async (req, res) => {
-  const body = {...req.body, id: req.params.id, weekStarting: new Date(req.body.week_starting), weekEnding: new Date(req.body.week_ending)}
+  const body = {...req.body, id: req.params.id, weekStarting: new Date(req.body.weekStarting), weekEnding: new Date(req.body.weekEnding)}
   const parsed = WeeklyFeedbackSchema.safeParse(body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
@@ -649,6 +649,24 @@ app.delete('/api/feedback/:id', async (req, res) => {
     res.status(500).json({ error: 'Database error' });
   }
 });
+
+// GET /api/feedback/one?studentId=...&weekStarting=yyyy-MM-dd
+app.get('/api/feedback/one', async (req, res) => {
+  const { studentId, weekStarting } = req.query;
+  if (!studentId || !weekStarting) return res.status(400).json({ error: 'Missing query' });
+
+  const formattedStartDate = format(weekStarting, 'yyyy-MM-dd')
+  const [row] = await db
+    .select()
+    .from(weeklyFeedback)
+    .where(and(
+      eq(weeklyFeedback.studentId, String(studentId)),
+      eq(weeklyFeedback.weekStarting, formattedStartDate)
+    ))
+    .limit(1);
+  res.json(row || null);
+});
+
 
 // ========== LOGIN ROUTE ==========
 

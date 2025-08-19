@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "uq_weekly_feedback_student_week" ON "weekly_feedback" USING btree ("student_id","week_starting");

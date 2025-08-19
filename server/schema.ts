@@ -3,6 +3,7 @@ import { pgTable, uuid, varchar, integer, timestamp, jsonb, text, date, uniqueIn
 import { v4 as uuidv4 } from 'uuid';
 // Fix uuid import for ESM compatibility
 import { randomUUID } from 'node:crypto';
+import { unique } from 'drizzle-orm/gel-core';
 
 // Zod Schemas (updated for UUIDs)
 export const UserSchema = z.object({
@@ -155,7 +156,9 @@ export const weeklyFeedback = pgTable('weekly_feedback', {
   teacherNotes: text('teacher_notes'),
   nextWeekFocus: text('next_week_focus'),
   createdAt: timestamp('created_at').defaultNow(),
-});
+}, (table) => ({
+  uqStudentWeek: uniqueIndex('uq_weekly_feedback_student_week').on(table.studentId, table.weekStarting),
+}));
 
 // TypeScript Types (automatically includes UUID strings)
 export type User = z.infer<typeof UserSchema>;

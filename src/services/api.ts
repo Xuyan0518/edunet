@@ -18,27 +18,34 @@ export interface Student {
   name: string;
   grade: string;
   parent_id?: string | null;
-  created_at: string;
+  createdAt: string;
 }
 
 export interface DailyProgress {
   id: string;
-  student_id: string;
+  studentId: string; // Maps to student_id in database
   date: string;
-  activities: Record<string, string>;
-  mood: string;
-  notes: string | null;
-  created_at: string;
+  attendance: string; // Database field is attendance
+  activities: Array<{ // Database field is activities (jsonb array)
+    subject: string;
+    description: string;
+    performance: string;
+    notes?: string;
+  }>;
+  createdAt: string; // Maps to created_at in database
 }
 
 export interface WeeklyFeedback {
   id: string;
-  student_id: string;
-  week_ending: string;
-  academic_progress: string;
-  behavior: string;
-  recommendations: string | null;
-  created_at: string;
+  studentId: string; // Maps to student_id in database
+  weekStarting: string; // Database field is week_starting
+  weekEnding: string; // Database field is week_ending
+  summary: string; // Database field is summary
+  strengths: string[]; // Database field is strengths (jsonb array)
+  areasToImprove: string[]; // Database field is areas_to_improve (jsonb array)
+  teacherNotes: string | null; // Database field is teacher_notes
+  nextWeekFocus: string | null; // Database field is next_week_focus
+  createdAt: string; // Maps to created_at in database
 }
 
 // API functions
@@ -130,7 +137,7 @@ export const api = {
     }
   },
 
-  async createProgress(progress: Omit<DailyProgress, 'id' | 'created_at'>): Promise<DailyProgress | null> {
+  async createProgress(progress: Omit<DailyProgress, 'id' | 'createdAt'>): Promise<DailyProgress | null> {
     try {
       const response = await fetch(buildApiUrl('progress'), {
         method: 'POST',
@@ -157,7 +164,7 @@ export const api = {
     }
   },
 
-  async createFeedback(feedback: Omit<WeeklyFeedback, 'id' | 'created_at'>): Promise<WeeklyFeedback | null> {
+  async createFeedback(feedback: Omit<WeeklyFeedback, 'id' | 'createdAt'>): Promise<WeeklyFeedback | null> {
     try {
       const response = await fetch(buildApiUrl('feedback'), {
         method: 'POST',

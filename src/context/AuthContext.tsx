@@ -30,7 +30,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     // Check if user is logged in from localStorage
-    const storedUser = localStorage.getItem('educonnect-user');
+    const storedUser = localStorage.getItem('edunet-user');
     if (storedUser) {
       const parsedUser = JSON.parse(storedUser);
       setUser(parsedUser);
@@ -51,7 +51,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (res.ok && data.user) {
         setUser(data.user);
         setIsAuthenticated(true);
-        localStorage.setItem('educonnect-user', JSON.stringify(data.user));
+        localStorage.setItem('edunet-user', JSON.stringify(data.user));
         toast.success(`Welcome back, ${data.user.name}!`);
         return true;
       } else {

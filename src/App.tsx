@@ -20,6 +20,7 @@ import AdminLogin from '@/pages/admin/AdminLogin';
 import AdminDashboard from '@/pages/admin/AdminDashboard';
 import StudentDetail from './pages/StudentDetail';
 import DailyProgressPage from '@/pages/DailyProgress';
+import ProgressForm from '@/pages/ProgressForm';
 import VerifyEmail from './pages/VerifyEmail';
 
 
@@ -52,6 +53,7 @@ const AppRoutes = () => {
       <Route path="/admin/login" element={<AdminLogin />} />
       <Route path="/admin/dashboard" element={<AdminDashboard />} />
       <Route path="/daily-progress" element={<DailyProgressPage />} />
+      <Route path="/progress-form" element={<ProgressForm />} />
       <Route
         path="/dashboard"
         element={
@@ -96,7 +98,7 @@ const AppRoutes = () => {
         path="/student/:id"
         element={
           <ProtectedRoute>
-            <StudentDetail />
+            <StudentProfile />
           </ProtectedRoute>
         }
       />

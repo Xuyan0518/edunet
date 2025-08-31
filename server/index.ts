@@ -478,9 +478,48 @@ app.get('/api/progress', async (_, res) => {
 });
 */
 
+// Get all progress for a specific student
+app.get('/api/students/:studentId/progress', async (req, res) => {
+  const { studentId } = req.params;
+
+  try {
+    // Check if student exists first
+    const studentCheck = await db
+      .select()
+      .from(studentsTable)
+      .where(eq(studentsTable.id, studentId))
+      .limit(1);
+    
+    if (studentCheck.length === 0) {
+      return res.status(404).json({ error: 'Student not found' });
+    }
+
+    // Get all progress for this student, ordered by date (newest first)
+    const progress = await db
+      .select()
+      .from(dailyProgress)
+      .where(eq(dailyProgress.studentId, studentId))
+      .orderBy(desc(dailyProgress.date));
+
+    console.log(`Found ${progress.length} progress records for student ${studentId}`);
+    res.json(progress);
+  } catch (err) {
+    console.error('Error fetching student progress:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
 // Return empty array for now until tables are created
 app.get('/api/progress', async (_, res) => {
-  res.json([]);
+  try {
+    console.log('Fetching all daily progress...');
+    const result = await db.select().from(dailyProgress).orderBy(desc(dailyProgress.date));
+    console.log(`Found ${result.length} progress records`);
+    res.json(result);
+  } catch (err) {
+    console.error('Error fetching daily progress:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
 });
 
 // ========== WEEKLY FEEDBACK ROUTES ==========
@@ -515,59 +554,65 @@ app.get('/api/feedback', async (_, res) => {
 });
 
 app.post('/api/progress', async (req, res) => {
-  const body = {...req.body, date: new Date(req.body.date)};
-  const parsed = DailyProgressSchema.safeParse(body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   try {
     console.log('Received progress data:', req.body);
     
-    // Convert date string to Date object if needed
-    const requestData = {
-      ...req.body,
-      date: req.body.date instanceof Date ? req.body.date : new Date(req.body.date)
-    };
+    const { studentId, date, attendance, activities } = req.body;
     
-    // Check if table exists by trying to insert
-    const parsed = DailyProgressSchema.safeParse(requestData);
-    if (!parsed.success) {
-      console.error('Validation error:', parsed.error.flatten());
-      return res.status(400).json({ error: parsed.error.flatten() });
+    // Validate required fields
+    if (!studentId || !date || !attendance || !activities) {
+      return res.status(400).json({ error: 'Missing required fields' });
     }
     
-    const data = {
-      ...parsed.data,
-      date: format(parsed.data.date, 'yyyy-MM-dd'), // convert Date to string for DB
-    };
+    // Check if progress already exists for this student and date
+    const existingProgress = await db
+      .select()
+      .from(dailyProgress)
+      .where(and(eq(dailyProgress.studentId, studentId), eq(dailyProgress.date, date)))
+      .limit(1);
     
-    console.log('Attempting to insert progress:', data);
-    const result = await db.insert(dailyProgress).values(data).returning();
-    console.log('Progress saved successfully:', result[0]);
+    if (existingProgress.length > 0) {
+      return res.status(409).json({ error: 'Progress already exists for this student and date' });
+    }
     
-    res.status(201).json(result[0]);
+    // Insert new progress
+    const newProgress = await db.insert(dailyProgress).values({
+      studentId,
+      date: date,
+      attendance,
+      activities,
+    }).returning();
+    
+    console.log('Progress saved successfully:', newProgress[0]);
+    res.status(201).json(newProgress[0]);
   } catch (err) {
-    if (err.code === '23505') { // unique_violation
-      throw new Error("A daily progress entry already exists for this student on this date.");
-    }
-    console.error('Error:', err);
+    console.error('Error creating progress:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
 
 app.put('/api/progress/:id', async (req, res) => {
   const id = req.params.id;
-  const bodyWithDate = { ...req.body, id, date: new Date(req.body.date) };
-  const parsed = DailyProgressSchema.safeParse(bodyWithDate);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   try {
+    const { studentId, date, attendance, activities } = req.body;
+    
+    // Validate required fields
+    if (!studentId || !date || !attendance || !activities) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+    
     const data = {
-      ...parsed.data,
-      date: format(parsed.data.date, 'yyyy-MM-dd'),
+      studentId,
+      date: date,
+      attendance,
+      activities,
     };
+    
     const result = await db.update(dailyProgress).set(data).where(eq(dailyProgress.id, id)).returning();
     if (!result.length) return res.status(404).json({ error: 'Progress not found' });
     res.json(result[0]);
   } catch (err) {
-    console.error('Error: progress for the date selected already existed', err);
+    console.error('Error updating progress:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });

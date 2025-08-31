@@ -23,8 +23,6 @@ const Navbar: React.FC = () => {
 
   const navItems = [
     { name: 'Dashboard', path: '/dashboard', visible: true },
-    { name: 'Daily Progress', path: '/daily-progress', visible: isTeacher },
-    { name: 'Weekly Feedback', path: '/weekly-feedback', visible: isTeacher },
     { name: 'Student Profile', path: '/student-profile', visible: isParent },
   ].filter(item => item.visible);
 
@@ -36,7 +34,7 @@ const Navbar: React.FC = () => {
         <div className="flex justify-between h-16">
           <div className="flex items-center">
             <Link to="/" className="flex-shrink-0 flex items-center">
-              <span className="font-semibold text-xl text-primary tracking-tight">EduConnect</span>
+              <span className="font-semibold text-xl text-primary tracking-tight">EduNet</span>
             </Link>
           </div>
           

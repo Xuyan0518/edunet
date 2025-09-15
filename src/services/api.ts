@@ -172,4 +172,18 @@ export const api = {
       return handleError(error);
     }
   },
+
+  listSubjects: async () =>
+    fetch('/api/subjects').then(r => r.json()),
+
+  // assign (replace) subjects via PUT /api/students/:studentId/subjects
+  replaceStudentSubjects: async (studentId: string, subjectIds: string[]) =>
+    fetch(`/api/students/${studentId}/subjects`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subjectIds }),
+    }).then(async r => {
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    }),
 };

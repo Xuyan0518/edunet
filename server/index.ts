@@ -3,7 +3,7 @@ import cors from 'cors';
 import bodyParser from 'body-parser';
 import dotenv from 'dotenv';
 import { db } from './db';
-import { eq, desc, and, isNull } from 'drizzle-orm';
+import { eq, desc, and, isNull, inArray } from 'drizzle-orm';
 import { format } from 'date-fns';
 import {
   studentsTable,
@@ -18,6 +18,19 @@ import {
   WeeklyFeedbackSchema,
   adminsTable
 } from './schema';
+
+import {
+  subjectsTable,
+  topicsTable,
+  studentSubjectsTable,
+  studentTopicProgressTable,
+  SubjectSchema,
+  TopicSchema,
+  StudentSubjectSchema,
+  StudentTopicProgressSchema,
+  TOPIC_STATUS
+} from './schema';
+
 import { generateVerificationToken, sendVerificationEmail, sendVerificationEmailFallback } from './utils/emailVerification';
 
 dotenv.config();
@@ -332,6 +345,223 @@ app.delete('/api/students/:id', async (req, res) => {
   }
 });
 
+// ====== SUBJECT & TOPIC ROUTES ======
+// List all subjects
+app.get('/api/subjects', async (_, res) => {
+  try {
+    const subjects = await db.select().from(subjectsTable);
+    res.json(subjects);
+  } catch (err) {
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// Get list of subject IDs a student is enrolled in
+app.get('/api/students/:studentId/subjects', async (req, res) => {
+  const { studentId } = req.params;
+  try {
+    const records = await db
+      .select({ subjectId: studentSubjectsTable.subjectId })
+      .from(studentSubjectsTable)
+      .where(eq(studentSubjectsTable.studentId, studentId));
+    res.json(records.map(r => r.subjectId));
+  } catch (err) {
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// Assign subjects to a student (replaces existing assignments)
+app.put('/api/students/:studentId/subjects', async (req, res) => {
+  const { studentId } = req.params;
+  const { subjectIds, resetProgress } = req.body as {
+    subjectIds: string[];
+    /** optional: 'removed' | 'all' | 'keep' */
+    resetProgress?: 'removed' | 'all' | 'keep';
+  };
+
+  if (!Array.isArray(subjectIds)) {
+    return res.status(400).json({ error: 'subjectIds must be an array of subject IDs' });
+  }
+
+  try {
+    // 1) Read current assignments to compute removed set
+    const current = await db
+      .select({ subjectId: studentSubjectsTable.subjectId })
+      .from(studentSubjectsTable)
+      .where(eq(studentSubjectsTable.studentId, studentId));
+
+    const currentIds = current.map(r => r.subjectId);
+    const nextSet = new Set(subjectIds);
+    const removedIds = currentIds.filter(id => !nextSet.has(id));
+
+    // 2) Reset progress (default: for removed subjects; or all; or keep)
+    const mode: 'removed' | 'all' | 'keep' =
+      resetProgress === 'all' ? 'all'
+      : resetProgress === 'keep' ? 'keep'
+      : 'removed';
+
+    if (mode === 'all' || subjectIds.length === 0) {
+      // wipe ALL progress for this student
+      await db
+        .delete(studentTopicProgressTable)
+        .where(eq(studentTopicProgressTable.studentId, studentId));
+    } else if (mode === 'removed' && removedIds.length > 0) {
+      // delete progress only for topics under REMOVED subjects
+      const removedTopicRows = await db
+        .select({ id: topicsTable.id })
+        .from(topicsTable)
+        .where(inArray(topicsTable.subjectId, removedIds));
+
+      const removedTopicIds = removedTopicRows.map(r => r.id);
+      if (removedTopicIds.length > 0) {
+        await db
+          .delete(studentTopicProgressTable)
+          .where(
+            and(
+              eq(studentTopicProgressTable.studentId, studentId),
+              inArray(studentTopicProgressTable.topicId, removedTopicIds),
+            )
+          );
+      }
+    }
+
+    // 3) Replace subject assignments
+    await db
+      .delete(studentSubjectsTable)
+      .where(eq(studentSubjectsTable.studentId, studentId));
+
+    if (subjectIds.length > 0) {
+      const rows = subjectIds.map((sid: string) => ({ studentId, subjectId: sid }));
+      await db.insert(studentSubjectsTable).values(rows);
+    }
+
+    res.json({ message: 'Subjects updated', resetApplied: mode });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+
+// Get full subject with topics and current progress status for a student
+app.get('/api/students/:studentId/subjects/full', async (req, res) => {
+  const { studentId } = req.params;
+  try {
+    const rows = await db
+      .select({
+        subjectId: subjectsTable.id,
+        subjectCode: subjectsTable.code,
+        subjectName: subjectsTable.name,
+        subjectLevel: subjectsTable.level,
+        topicId: topicsTable.id,
+        topicCode: topicsTable.code,
+        topicTitle: topicsTable.title,
+        parentTopicId: topicsTable.parentTopicId,
+        orderIndex: topicsTable.orderIndex,
+        status: studentTopicProgressTable.status
+      })
+      .from(studentSubjectsTable)
+      .where(eq(studentSubjectsTable.studentId, studentId))
+      .leftJoin(subjectsTable, eq(studentSubjectsTable.subjectId, subjectsTable.id))
+      .leftJoin(topicsTable, eq(topicsTable.subjectId, subjectsTable.id))
+      .leftJoin(
+        studentTopicProgressTable,
+        and(
+          eq(studentTopicProgressTable.studentId, studentId),
+          eq(studentTopicProgressTable.topicId, topicsTable.id)
+        )
+      )
+      .orderBy(subjectsTable.name, topicsTable.orderIndex);
+    // Organise results into subject -> topics tree
+    const subjectMap: Record<string, any> = {};
+    const topicMap: Record<string, any> = {};
+    for (const r of rows) {
+      const sid = r.subjectId;
+      if (!sid) continue
+      if (!subjectMap[sid]) {
+        subjectMap[sid] = {
+          subject: {
+            id: r.subjectId,
+            code: r.subjectCode,
+            name: r.subjectName,
+            level: r.subjectLevel
+          },
+          topics: []
+        };
+      }
+      if (r.topicId) {
+        topicMap[r.topicId] = {
+          id: r.topicId,
+          code: r.topicCode,
+          title: r.topicTitle,
+          status: r.status ?? 'not_started',
+          parentTopicId: r.parentTopicId,
+          children: []
+        };
+      }
+    }
+    // Build topic hierarchy and attach to subjects
+    Object.values(topicMap).forEach((node: any) => {
+      if (node.parentTopicId) {
+        const parent = topicMap[node.parentTopicId];
+        if (parent) {
+          parent.children.push(node);
+        }
+      } else {
+        // no parent => top-level topic
+        const sid = rows.find((row: any) => row.topicId === node.id)?.subjectId;
+        if (sid && subjectMap[sid]) {
+          subjectMap[sid].topics.push(node);
+        }
+      }
+    });
+    const result = Object.values(subjectMap);
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// Update or insert progress status for a student's topic
+app.put('/api/students/:studentId/topics/:topicId/progress', async (req, res) => {
+  const { studentId, topicId } = req.params;
+  const { status } = req.body;
+  if (!status || !TOPIC_STATUS.includes(status as any)) {
+    return res.status(400).json({ error: 'Invalid status value' });
+  }
+  try {
+    // Check if record exists
+    const existing = await db
+      .select()
+      .from(studentTopicProgressTable)
+      .where(
+        and(
+          eq(studentTopicProgressTable.studentId, studentId),
+          eq(studentTopicProgressTable.topicId, topicId)
+        )
+      );
+    if (existing.length > 0) {
+      await db
+        .update(studentTopicProgressTable)
+        .set({ status })
+        .where(
+          and(
+            eq(studentTopicProgressTable.studentId, studentId),
+            eq(studentTopicProgressTable.topicId, topicId)
+          )
+        );
+    } else {
+      await db
+        .insert(studentTopicProgressTable)
+        .values({ studentId, topicId, status });
+    }
+    res.json({ message: 'Progress updated' });
+  } catch (err) {
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
 // ========== ADMIN ROUTES ==========
 app.post('/api/admin/login', async (req, res) => {
   const { email, password } = req.body;
@@ -584,6 +814,25 @@ app.delete('/api/progress/:id', async (req, res) => {
   }
 });
 
+// GET /api/progress/list?studentId=...
+app.get('/api/progress/list', async (req, res) => {
+  const { studentId } = req.query;
+  if (!studentId) return res.status(400).json({ error: 'Missing studentId' });
+
+  try {
+    const rows = await db
+      .select()
+      .from(dailyProgress)
+      .where(eq(dailyProgress.studentId, String(studentId)))
+      .orderBy(desc(dailyProgress.date));
+    res.json(rows);
+  } catch (err) {
+    console.error('progress/list error:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+
 // ========== WEEKLY FEEDBACK ROUTES ==========
 
 app.get('/api/feedback', async (_, res) => {
@@ -655,17 +904,47 @@ app.get('/api/feedback/one', async (req, res) => {
   const { studentId, weekStarting } = req.query;
   if (!studentId || !weekStarting) return res.status(400).json({ error: 'Missing query' });
 
-  const formattedStartDate = format(weekStarting, 'yyyy-MM-dd')
-  const [row] = await db
-    .select()
-    .from(weeklyFeedback)
-    .where(and(
-      eq(weeklyFeedback.studentId, String(studentId)),
-      eq(weeklyFeedback.weekStarting, formattedStartDate)
-    ))
-    .limit(1);
-  res.json(row || null);
+  const d = new Date(String(weekStarting));
+  if (isNaN(d.getTime())) {
+    return res.status(400).json({ error: 'Invalid weekStarting date' });
+  }
+
+  const formattedStartDate = format(d, 'yyyy-MM-dd');
+  try {
+    const [row] = await db
+      .select()
+      .from(weeklyFeedback)
+      .where(and(
+        eq(weeklyFeedback.studentId, String(studentId)),
+        eq(weeklyFeedback.weekStarting, formattedStartDate)
+      ))
+      .limit(1);
+
+    res.json(row || null);
+  } catch (err) {
+    console.error('feedback/one error:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
 });
+
+// GET /api/feedback/list?studentId=...
+app.get('/api/feedback/list', async (req, res) => {
+  const { studentId } = req.query;
+  if (!studentId) return res.status(400).json({ error: 'Missing studentId' });
+
+  try {
+    const rows = await db
+      .select()
+      .from(weeklyFeedback)
+      .where(eq(weeklyFeedback.studentId, String(studentId)))
+      .orderBy(desc(weeklyFeedback.weekStarting));
+    res.json(rows);
+  } catch (err) {
+    console.error('feedback/list error:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
 
 
 // ========== LOGIN ROUTE ==========

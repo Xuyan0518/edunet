@@ -77,7 +77,45 @@ export const WeeklyFeedbackSchema = z.object({
   nextWeekFocus: z.string().optional()
 });
 
+// ====== New enums and types for subjects and topics ======
+// Status of a student's progress on a topic
+export const TOPIC_STATUS = ['not_started', 'in_progress', 'completed'] as const;
+export type TopicStatus = typeof TOPIC_STATUS[number];
+
+// Zod Schemas for new entities
+export const SubjectSchema = z.object({
+  id: z.string().uuid().optional(),
+  code: z.string().max(64),
+  name: z.string().max(200),
+  level: z.string().max(64),
+});
+
+export const TopicSchema = z.object({
+  id: z.string().uuid().optional(),
+  subjectId: z.string().uuid(),
+  code: z.string().max(64),
+  title: z.string().max(256),
+  parentTopicId: z.string().uuid().nullable(),
+  orderIndex: z.string().max(32),
+});
+
+export const StudentSubjectSchema = z.object({
+  id: z.string().uuid().optional(),
+  studentId: z.string().uuid(),
+  subjectId: z.string().uuid(),
+});
+
+export const StudentTopicProgressSchema = z.object({
+  id: z.string().uuid().optional(),
+  studentId: z.string().uuid(),
+  topicId: z.string().uuid(),
+  status: z.enum(TOPIC_STATUS),
+  updatedAt: z.date().optional(),
+});
+
 // Drizzle Tables with UUIDs
+
+
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().$defaultFn(() => randomUUID()), // Auto-generates UUID
   name: varchar('name', { length: 100 }).notNull(),
@@ -158,6 +196,50 @@ export const weeklyFeedback = pgTable('weekly_feedback', {
   createdAt: timestamp('created_at').defaultNow(),
 }, (table) => ({
   uqStudentWeek: uniqueIndex('uq_weekly_feedback_student_week').on(table.studentId, table.weekStarting),
+}));
+
+// ====== New tables for subjects and topics ======
+// Subjects (e.g. "Secondary 3/4 Pure Physics")
+export const subjectsTable = pgTable('subjects', {
+  id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
+  code: varchar('code', { length: 64 }).notNull().unique(),
+  name: varchar('name', { length: 200 }).notNull(),
+  level: varchar('level', { length: 64 }).notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Topics (supports hierarchy via parentTopicId; null = main topic)
+export const topicsTable = pgTable('topics', {
+  id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
+  subjectId: uuid('subject_id').references(() => subjectsTable.id).notNull(),
+  code: varchar('code', { length: 64 }).notNull(),
+  title: text('title').notNull(),
+  parentTopicId: uuid('parent_topic_id'),
+  orderIndex: varchar('order_index', { length: 32 }).notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (table) => ({
+  uqTopicSubjectCode: uniqueIndex('uq_topic_subject_code').on(table.subjectId, table.code),
+}));
+
+// Junction: which subjects a student takes
+export const studentSubjectsTable = pgTable('student_subjects', {
+  id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
+  studentId: uuid('student_id').references(() => studentsTable.id).notNull(),
+  subjectId: uuid('subject_id').references(() => subjectsTable.id).notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (table) => ({
+  uqStudentSubject: uniqueIndex('uq_student_subject').on(table.studentId, table.subjectId),
+}));
+
+// Per-student topic status
+export const studentTopicProgressTable = pgTable('student_topic_progress', {
+  id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
+  studentId: uuid('student_id').references(() => studentsTable.id).notNull(),
+  topicId: uuid('topic_id').references(() => topicsTable.id).notNull(),
+  status: varchar('status', { length: 16 }).notNull(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (table) => ({
+  uqStudentTopic: uniqueIndex('uq_student_topic').on(table.studentId, table.topicId),
 }));
 
 // TypeScript Types (automatically includes UUID strings)

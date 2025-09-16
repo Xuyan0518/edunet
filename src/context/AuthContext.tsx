@@ -72,7 +72,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = () => {
     setUser(null);
     setIsAuthenticated(false);
-    localStorage.removeItem('educonnect-user');
+    localStorage.removeItem('edunet-user');
     toast.success('Logged out successfully.');
     navigate('/login');
   };

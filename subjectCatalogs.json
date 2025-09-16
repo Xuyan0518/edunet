@@ -1,0 +1,1291 @@
+{
+    "Secondary 1 G3 Math": [
+        {
+            "code": "S1M01",
+            "topic": "Factors and Multiples",
+            "subtopics": [
+                "Highest Common Factor (HCF) and Lowest Common Multiple (LCM)",
+                "Prime factorisation and index notation",
+                "Squares, cubes, square roots and cube roots"
+            ]
+        },
+        {
+            "code": "S1M02",
+            "topic": "Real Numbers",
+            "subtopics": [
+                "Integers, rational and irrational numbers",
+                "Number line representation",
+                "Conversions between standard form and ordinary form"
+            ]
+        },
+        {
+            "code": "S1M03",
+            "topic": "Approximation and Estimation",
+            "subtopics": [
+                "Rounding off to decimal places or significant figures",
+                "Estimating results of computations"
+            ]
+        },
+        {
+            "code": "S1M04",
+            "topic": "Algebraic Expressions and Formulae",
+            "subtopics": [
+                "Use of letters to represent numbers",
+                "Simplification and expansion of linear expressions",
+                "Factorisation of algebraic expressions",
+                "Formulating simple algebraic expressions from real-world situations"
+            ]
+        },
+        {
+            "code": "S1M05",
+            "topic": "Simple Equations in One Variable",
+            "subtopics": [
+                "Solving linear equations",
+                "Applications of linear equations to problems"
+            ]
+        },
+        {
+            "code": "S1M06",
+            "topic": "Algebraic Manipulation",
+            "subtopics": [
+                "Transposition of terms and simplification",
+                "Substitution into algebraic expressions"
+            ]
+        },
+        {
+            "code": "S1M07",
+            "topic": "Ratio, Rate and Speed",
+            "subtopics": [
+                "Concept of ratio and its simplest form",
+                "Average rate and speed",
+                "Conversion of units (e.g., km/h to m/s)",
+                "Solving problems involving constant speed or rate"
+            ]
+        },
+        {
+            "code": "S1M08",
+            "topic": "Percentage",
+            "subtopics": [
+                "Expressing one quantity as a percentage of another",
+                "Percentage increase and decrease",
+                "Reverse percentages (finding original given final percentage value)"
+            ]
+        },
+        {
+            "code": "S1M09",
+            "topic": "Number Patterns",
+            "subtopics": [
+                "Recognising patterns in sequences of numbers",
+                "Finding algebraic expressions for the nth term"
+            ]
+        },
+        {
+            "code": "S1M10",
+            "topic": "Coordinates and Linear Graphs",
+            "subtopics": [
+                "Cartesian coordinate system (x–y plane)",
+                "Plotting points and reading coordinates",
+                "Graph of a linear equation (straight-line graph)"
+            ]
+        },
+        {
+            "code": "S1M11",
+            "topic": "Simple Inequalities",
+            "subtopics": [
+                "Understanding inequality symbols (<, >, ≤, ≥)",
+                "Solving simple linear inequalities in one variable",
+                "Graphical representation of solution on a number line"
+            ]
+        },
+        {
+            "code": "S1M12",
+            "topic": "Geometry: Angles and Triangles",
+            "subtopics": [
+                "Basic angle properties (e.g., angles at a point, on a straight line, vertically opposite angles)",
+                "Angles in triangles and sum of angles in a triangle",
+                "Identifying congruent figures"
+            ]
+        },
+        {
+            "code": "S1M13",
+            "topic": "Perimeter and Area of Plane Figures",
+            "subtopics": [
+                "Perimeter of triangles, rectangles and composite figures",
+                "Area of parallelograms, trapeziums and triangles",
+                "Area of composite plane figures"
+            ]
+        },
+        {
+            "code": "S1M14",
+            "topic": "Volume and Surface Area of Solids",
+            "subtopics": [
+                "Volume of cube, cuboid and prism (including cylinder)",
+                "Surface area of cube, cuboid and prism (including cylinder)",
+                "Solving problems involving volume and surface area"
+            ]
+        },
+        {
+            "code": "S1M15",
+            "topic": "Statistics – Data Handling",
+            "subtopics": [
+                "Data collection methods (e.g., surveys)",
+                "Tabulation and presentation of data (tables, bar charts, line graphs, pie charts)",
+                "Interpretation of simple statistical diagrams"
+            ]
+        }
+    ],
+    "Secondary 2 G3 Math": [
+        {
+            "code": "S2M01",
+            "topic": "Proportion",
+            "subtopics": [
+                "Direct and inverse proportion relationships",
+                "Scale drawings (distance and area scales) and map scales"
+            ]
+        },
+        {
+            "code": "S2M02",
+            "topic": "Algebraic Expansion and Factorisation",
+            "subtopics": [
+                "Expansion of algebraic expressions (including products of two linear expressions)",
+                "Factorisation of quadratic expressions and other algebraic expressions"
+            ]
+        },
+        {
+            "code": "S2M03",
+            "topic": "Quadratic Equations",
+            "subtopics": [
+                "Solving quadratic equations by factorisation",
+                "Understanding conditions for quadratic equations (real roots)",
+                "Applications of quadratic equations in problem solving"
+            ]
+        },
+        {
+            "code": "S2M04",
+            "topic": "Graphs of Quadratic Functions",
+            "subtopics": [
+                "Plotting and interpreting quadratic graphs",
+                "Identifying turning points and roots from graphs",
+                "Solving equations graphically"
+            ]
+        },
+        {
+            "code": "S2M05",
+            "topic": "Algebraic Fractions",
+            "subtopics": [
+                "Simplifying simple algebraic fractions",
+                "Performing addition and subtraction of algebraic fractions"
+            ]
+        },
+        {
+            "code": "S2M06",
+            "topic": "Simultaneous Linear Equations",
+            "subtopics": [
+                "Solving pairs of linear equations in two variables by substitution or elimination",
+                "Solving word problems leading to simultaneous equations"
+            ]
+        },
+        {
+            "code": "S2M07",
+            "topic": "Pythagoras’ Theorem",
+            "subtopics": [
+                "Understanding and applying Pythagoras’ Theorem in right-angled triangles",
+                "Determining if a triangle is right-angled using converse of Pythagoras’ Theorem"
+            ]
+        },
+        {
+            "code": "S2M08",
+            "topic": "Trigonometric Ratios of Acute Angles",
+            "subtopics": [
+                "Definition of sine, cosine, tangent for acute angles in right triangles",
+                "Finding unknown sides or angles in right-angled triangles using trigonometry"
+            ]
+        },
+        {
+            "code": "S2M09",
+            "topic": "Congruence and Similarity",
+            "subtopics": [
+                "Conditions for triangles to be congruent (SSS, SAS, ASA, RHS)",
+                "Understanding similarity of shapes and scale factor",
+                "Solving problems involving similar triangles and other figures"
+            ]
+        },
+        {
+            "code": "S2M10",
+            "topic": "Mensuration of Pyramids and Spheres",
+            "subtopics": [
+                "Surface area and volume of pyramids (including cones) and spheres",
+                "Problem solving involving volume and surface area of composite solids"
+            ]
+        },
+        {
+            "code": "S2M11",
+            "topic": "Data Analysis",
+            "subtopics": [
+                "Measures of central tendency (mean, median, mode) for ungrouped and grouped data",
+                "Data representation: dot diagrams, histograms, stem-and-leaf diagrams",
+                "Interpretation of statistical charts and graphs"
+            ]
+        },
+        {
+            "code": "S2M12",
+            "topic": "Probability",
+            "subtopics": [
+                "Basic concept of probability as a measure of chance",
+                "Probability of single events (including use of simple probability formula)",
+                "Listing of sample space and outcomes for simple combined events"
+            ]
+        }
+    ],
+    "Secondary 3/4 G3 Math": [
+        {
+            "code": "S34M01",
+            "topic": "Indices and Standard Form",
+            "subtopics": [
+                "Laws of indices for integer and rational indices",
+                "Use of standard form (scientific notation) for very large or small numbers"
+            ]
+        },
+        {
+            "code": "S34M02",
+            "topic": "Equations and Inequalities",
+            "subtopics": [
+                "Solving quadratic equations (by factorisation, formula or completing the square)",
+                "Formulating and solving real-world problems involving quadratic equations",
+                "Solving linear inequalities and representing solution sets on a number line"
+            ]
+        },
+        {
+            "code": "S34M03",
+            "topic": "Functions and Graphs",
+            "subtopics": [
+                "Concept of a function and function notation",
+                "Graphs of linear and quadratic functions and their properties",
+                "Finding the gradient and equation of a line given sufficient information",
+                "Applications of linear graphs (e.g., distance-time graphs)"
+            ]
+        },
+        {
+            "code": "S34M04",
+            "topic": "Coordinate Geometry",
+            "subtopics": [
+                "Equation of a straight line in the form y = mx + c",
+                "Finding the slope (gradient) and intercepts of a line",
+                "Conditions for lines to be parallel or perpendicular",
+                "Distance between two points and midpoint of a line segment"
+            ]
+        },
+        {
+            "code": "S34M05",
+            "topic": "Geometry and Measurement",
+            "subtopics": [
+                "Properties of circles (angles in circles, cyclic quadrilaterals, tangent-secant theorems)",
+                "Further applications of congruence and similarity (including scale drawings)",
+                "Geometrical construction and loci in plane geometry"
+            ]
+        },
+        {
+            "code": "S34M06",
+            "topic": "Trigonometry",
+            "subtopics": [
+                "Sine Rule and Cosine Rule for any triangle",
+                "Area of triangle formula (½ab sin C)",
+                "Trigonometric ratios for angles from 0° to 360° and their graphs",
+                "Solving trigonometric equations in a given range"
+            ]
+        },
+        {
+            "code": "S34M07",
+            "topic": "Vectors in Two Dimensions",
+            "subtopics": [
+                "Vector notation and representation of vectors in the plane",
+                "Addition and subtraction of vectors; multiplication of a vector by a scalar",
+                "Determining the magnitude and direction of a vector",
+                "Solving problems involving translation vectors or relative position"
+            ]
+        },
+        {
+            "code": "S34M08",
+            "topic": "Sets and Probability",
+            "subtopics": [
+                "Set language and notation (union, intersection, complement, Venn diagrams)",
+                "Probability of combined events (addition and multiplication rules for probability)",
+                "Use of Venn diagrams in solving probability problems"
+            ]
+        },
+        {
+            "code": "S34M09",
+            "topic": "Matrices (Basic)",
+            "subtopics": [
+                "Understanding the concept of a matrix and matrix notation",
+                "Addition, subtraction and multiplication of 2×2 matrices",
+                "Determinant and inverse of a non-singular 2×2 matrix",
+                "Solving simple problems involving matrices (e.g., solving linear systems using matrices)"
+            ]
+        },
+        {
+            "code": "S34M10",
+            "topic": "Statistical Measures",
+            "subtopics": [
+                "Calculation of mean, median, mode for grouped data",
+                "Understanding and calculating range and standard deviation",
+                "Interpreting statistical results to draw conclusions"
+            ]
+        }
+    ],
+    "Secondary 3/4 G3 Additional Mathematics": [
+        {
+            "code": "S34AM01",
+            "topic": "Equations and Inequalities",
+            "subtopics": [
+                "Solving simultaneous equations where one is linear and one is quadratic",
+                "Solving quadratic inequalities and representing solution sets on a number line"
+            ]
+        },
+        {
+            "code": "S34AM02",
+            "topic": "Indices and Surds",
+            "subtopics": [
+                "Laws of indices for all rational exponents",
+                "Simplifying expressions with surds and rationalising simple surd expressions"
+            ]
+        },
+        {
+            "code": "S34AM03",
+            "topic": "Polynomials and Partial Fractions",
+            "subtopics": [
+                "Remainder and Factor Theorems",
+                "Long division of polynomials",
+                "Partial fraction decomposition (for rational functions with linear factors)"
+            ]
+        },
+        {
+            "code": "S34AM04",
+            "topic": "Binomial Theorem",
+            "subtopics": [
+                "Binomial expansion for positive integer n",
+                "Finding specific terms in a binomial expansion",
+                "Use of binomial coefficients in expansions"
+            ]
+        },
+        {
+            "code": "S34AM05",
+            "topic": "Exponential, Logarithmic and Modulus Functions",
+            "subtopics": [
+                "Laws of logarithms and relationship between logarithms and exponents",
+                "Solving exponential and logarithmic equations",
+                "Understanding the modulus function and equations involving absolute value"
+            ]
+        },
+        {
+            "code": "S34AM06",
+            "topic": "Trigonometry and Trigonometric Identities",
+            "subtopics": [
+                "Trigonometric ratios for any angle (in degrees and radians)",
+                "Graphs and properties of trigonometric functions (sine, cosine, tangent)",
+                "Basic trigonometric identities and compound angle formulas",
+                "Solving trigonometric equations using identities"
+            ]
+        },
+        {
+            "code": "S34AM07",
+            "topic": "Coordinate Geometry",
+            "subtopics": [
+                "Equation of circles and geometric problems involving circles",
+                "Distance from a point to a line; finding equation of a line given various conditions",
+                "Solving problems involving loci in the plane"
+            ]
+        },
+        {
+            "code": "S34AM08",
+            "topic": "Proofs in Plane Geometry",
+            "subtopics": [
+                "Geometrical properties and proofs involving triangles, circles and polygons",
+                "Use of congruence and similarity in proofs",
+                "Proving simple geometrical theorems (e.g., angles in the same segment are equal)"
+            ]
+        },
+        {
+            "code": "S34AM09",
+            "topic": "Calculus – Differentiation",
+            "subtopics": [
+                "Differentiation of polynomial, trigonometric and exponential functions (basic forms)",
+                "Finding gradient of a curve at a point and equation of tangent or normal",
+                "Stationary points and their nature (maximum, minimum, point of inflection)",
+                "Practical applications of differentiation (rates of change, optimization problems)"
+            ]
+        },
+        {
+            "code": "S34AM10",
+            "topic": "Calculus – Integration",
+            "subtopics": [
+                "Integration as the reverse process of differentiation",
+                "Integrating polynomial and simple trigonometric/exponential functions",
+                "Definite integrals and area under a curve",
+                "Application of integration to physical problems (e.g., finding displacement from velocity-time graph)"
+            ]
+        }
+    ],
+    "Lower Secondary G3 History": [
+        {
+            "code": "LSH01",
+            "topic": "Singapore’s Early History (1299–1819)",
+            "subtopics": [
+                "Founding of Singapura (14th century) and the legend of Sang Nila Utama",
+                "Singapore as Temasek: A trading port in regional trade networks",
+                "Connections with Srivijaya, Melaka Sultanate and Johor-Riau Sultanate",
+                "Dutch and British interest in the Malay Archipelago prior to 1819"
+            ]
+        },
+        {
+            "code": "LSH02",
+            "topic": "Colonial Singapore under the British (1819–1942)",
+            "subtopics": [
+                "Establishment of British Singapore by Stamford Raffles in 1819",
+                "Development as a Straits Settlements crown colony (political and economic changes)",
+                "Immigration and growth of a diverse population (Chinese, Malay, Indian, European communities)",
+                "Social and economic challenges (housing, sanitation, labour conditions) in the early 20th century",
+                "World War II and the fall of Singapore to Japanese forces in 1942"
+            ]
+        },
+        {
+            "code": "LSH03",
+            "topic": "Japanese Occupation (1942–1945)",
+            "subtopics": [
+                "Conditions of life under Japanese rule (Kempeitai regime, rationing, war propaganda)",
+                "Sook Ching massacre and treatment of different ethnic communities",
+                "Local resistance movements and the restoration of British rule after Japan’s surrender"
+            ]
+        },
+        {
+            "code": "LSH04",
+            "topic": "Post-War Singapore and Road to Independence (1945–1965)",
+            "subtopics": [
+                "Return of the British and post-war reconstruction challenges",
+                "Rise of anti-colonial sentiments and emergence of local political parties",
+                "Attainment of self-government in 1959 (first fully elected government under Lee Kuan Yew)",
+                "Merger with Malaya to form Malaysia in 1963 and subsequent political tensions",
+                "Separation from Malaysia and declaration of Singapore’s independence in 1965"
+            ]
+        },
+        {
+            "code": "LSH05",
+            "topic": "Independent Singapore – Nation Building (1965–1975)",
+            "subtopics": [
+                "Immediate challenges after independence (economic development, unemployment, housing)",
+                "Building the Singapore Armed Forces and defense alliances (British military withdrawal, introduction of National Service)",
+                "Fostering social cohesion in a diverse society (education policies, bilingualism, public housing integration)",
+                "Singapore’s foreign relations and role in regional cooperation (joining the UN and Commonwealth, ASEAN formation in 1967)"
+            ]
+        }
+    ],
+    "Lower Secondary G3 Geography": [
+        {
+            "code": "LSG01",
+            "topic": "Water as a Resource",
+            "subtopics": [
+                "Hydrological cycle and continuous supply of freshwater",
+                "Distribution of Earth’s water in various stores (oceans, rivers, groundwater, ice)",
+                "Uses of water by humans (agriculture, industry, domestic)",
+                "Water shortage issues (causes such as droughts, pollution) and impacts",
+                "Management of water resources (conservation, technology like desalination, international agreements)"
+            ]
+        },
+        {
+            "code": "LSG02",
+            "topic": "Tropical Rainforests and Mangroves",
+            "subtopics": [
+                "Characteristics of tropical rainforests and mangrove forests (climate, biodiversity)",
+                "Importance of rainforests and mangroves (ecosystem services like carbon storage, coastal protection)",
+                "Deforestation and habitat loss – causes (logging, agriculture, urbanisation) and consequences",
+                "Conservation and sustainable management of forest resources (protected areas, reforestation)"
+            ]
+        },
+        {
+            "code": "LSG03",
+            "topic": "Housing in Cities",
+            "subtopics": [
+                "Housing needs in growing cities – concept of housing shortage",
+                "Problems arising from housing shortage (slums/squatter settlements, overcrowding, poor living conditions)",
+                "Case studies of housing issues in cities (e.g., Singapore’s early housing situation or other global cities)",
+                "Strategies to manage housing problems (public housing schemes, slum upgrading programs, sustainable housing development)"
+            ]
+        },
+        {
+            "code": "LSG04",
+            "topic": "Transport Systems in Cities",
+            "subtopics": [
+                "Components of transport systems (roads, public transport, pedestrian networks)",
+                "Urban transport challenges (traffic congestion, pollution, inadequate infrastructure)",
+                "Impacts of traffic congestion on people and economy",
+                "Solutions for sustainable urban transport (expanding public transport, car-lite policies, cycling infrastructure, intelligent transport systems)"
+            ]
+        }
+    ],
+    "Lower Secondary G3 Science": [
+        {
+            "code": "LSS01",
+            "topic": "Scientific Endeavour (Introduction to Science)",
+            "subtopics": [
+                "Laboratory safety rules and proper handling of apparatus",
+                "Scientific method – making observations, forming hypotheses, conducting experiments and analysis",
+                "Measurement of physical quantities (SI units; use of common instruments like ruler, measuring cylinder, stopwatch)"
+            ]
+        },
+        {
+            "code": "LSS02",
+            "topic": "Diversity of Matter",
+            "subtopics": [
+                "Classification of matter: mixtures vs pure substances",
+                "Physical properties of materials (e.g., boiling/melting points, density)",
+                "Chemical composition of matter (elements, compounds)",
+                "Methods of separating mixtures (filtration, distillation, paper chromatography)"
+            ]
+        },
+        {
+            "code": "LSS03",
+            "topic": "Models of Matter",
+            "subtopics": [
+                "Particulate nature of matter – kinetic particle theory (solid, liquid, gas arrangement and movement)",
+                "Model of atoms and molecules (basic structure of atom: protons, neutrons, electrons)",
+                "Chemical bonding basics (how atoms form molecules or compounds; concept of molecules and crystal lattices)"
+            ]
+        },
+        {
+            "code": "LSS04",
+            "topic": "Model of Cells – The Basic Unit of Life",
+            "subtopics": [
+                "Cell theory: cells as basic units of life",
+                "Structure of plant and animal cells (major organelles and their functions)",
+                "Cell specialisation and organisation (cells → tissues → organs → systems)",
+                "Diffusion and osmosis in cells (basic concepts of movement of substances across membranes)"
+            ]
+        },
+        {
+            "code": "LSS05",
+            "topic": "Human Digestive System",
+            "subtopics": [
+                "Main organs of the human digestive tract and their functions",
+                "Processes of digestion (physical vs chemical digestion; role of enzymes)",
+                "Absorption of nutrients in the small intestine and transport in the circulatory system",
+                "Healthy dietary habits and common digestive disorders"
+            ]
+        },
+        {
+            "code": "LSS06",
+            "topic": "Interactions: Ray Model of Light",
+            "subtopics": [
+                "Light travels in straight lines – concept of light rays",
+                "Reflection of light (laws of reflection; characteristics of images in plane mirrors)",
+                "Refraction of light (bending of light in different media; effects like apparent depth)",
+                "Lenses (basic concept of a convex lens focusing light; simple applications in vision)"
+            ]
+        },
+        {
+            "code": "LSS07",
+            "topic": "Electrical Systems",
+            "subtopics": [
+                "Components of an electric circuit (cells, switches, bulbs, resistors, wires)",
+                "Electric current as flow of charges; conventional current vs electron flow",
+                "Basic circuit calculations (current, voltage, resistance) for series and parallel circuits",
+                "Effects of electricity (heating of wires, lighting, simple introduction to electrical power)"
+            ]
+        },
+        {
+            "code": "LSS08",
+            "topic": "Transport Systems in Living Things",
+            "subtopics": [
+                "Circulatory system in humans: heart structure, blood vessels (arteries, veins, capillaries) and blood components",
+                "Function of the human circulatory system in transport of oxygen, nutrients, and wastes",
+                "Transport system in plants: xylem and phloem (uptake of water by roots, transport of food from leaves)",
+                "Importance of transport systems for organism survival (delivery of nutrients, removal of wastes)"
+            ]
+        },
+        {
+            "code": "LSS09",
+            "topic": "Human Sexual Reproductive System",
+            "subtopics": [
+                "Male and female reproductive organs and their functions",
+                "Fertilisation process and development of the embryo",
+                "Puberty and sexual maturation in humans",
+                "Basic ideas of family planning and awareness of sexually transmitted infections"
+            ]
+        },
+        {
+            "code": "LSS10",
+            "topic": "Interactions within Ecosystems",
+            "subtopics": [
+                "Concept of an ecosystem – interactions between living (biotic) and non-living (abiotic) components",
+                "Food chains and food webs; roles of producers, consumers, decomposers",
+                "Energy flow in ecosystems and basic nutrient cycles (water cycle, carbon cycle)",
+                "Human impact on ecosystems (deforestation, pollution) and importance of conservation"
+            ]
+        },
+        {
+            "code": "LSS11",
+            "topic": "Interactions: Forces and Motion",
+            "subtopics": [
+                "Effects of forces (changing motion or shape of objects)",
+                "Types of forces (e.g., gravity, friction, pressure) with everyday examples",
+                "Basic motion concepts: speed and acceleration (qualitative understanding)",
+                "Pressure in fluids and applications (suction cups, hydraulic systems basics)"
+            ]
+        }
+    ],
+    "Secondary 3/4 Pure Physics": [
+        {
+            "code": "PHY01",
+            "topic": "Measurements",
+            "subtopics": [
+                "Physical quantities and their SI units (length, time, mass, etc.)",
+                "Use of measuring instruments (metre rule, micrometer screw gauge, vernier calipers)",
+                "Scalar and vector quantities (understanding the difference and examples of each)"
+            ]
+        },
+        {
+            "code": "PHY02",
+            "topic": "Kinematics",
+            "subtopics": [
+                "Distance, speed, displacement, velocity and acceleration",
+                "Speed–time and distance–time graphs (analysis of motion graphs)",
+                "Equations of motion for uniform acceleration (SUVAT equations)",
+                "Free-fall under gravity (ignoring air resistance)"
+            ]
+        },
+        {
+            "code": "PHY03",
+            "topic": "Dynamics",
+            "subtopics": [
+                "Newton’s laws of motion and their applications",
+                "Concepts of inertia, mass and force",
+                "Linear momentum and conservation of momentum (calculations in collisions)",
+                "Resultant force and equilibrium of forces"
+            ]
+        },
+        {
+            "code": "PHY04",
+            "topic": "Forces",
+            "subtopics": [
+                "Turning effect of forces – moment and principle of moments",
+                "Centre of gravity and stability of objects",
+                "Pressure = Force/Area (applications in solids; pressure in liquids and gases)",
+                "Density and its calculation (mass/volume); flotation principles (why objects float or sink)"
+            ]
+        },
+        {
+            "code": "PHY05",
+            "topic": "Energy, Work and Power",
+            "subtopics": [
+                "Work done = force × distance moved in direction of force",
+                "Kinetic and potential energy; principle of conservation of energy",
+                "Calculations of energy (kinetic energy ½mv²; gravitational potential energy mgh)",
+                "Power as work done per unit time (P = W/t) and related calculations",
+                "Efficiency of energy conversion and reducing energy losses"
+            ]
+        },
+        {
+            "code": "PHY06",
+            "topic": "Thermal Physics",
+            "subtopics": [
+                "Kinetic model of matter (particle arrangement in solids, liquids, gases)",
+                "Heat capacity and specific heat capacity concepts",
+                "Change of state (melting, boiling, evaporation, condensation, freezing) and latent heat",
+                "Modes of heat transfer: conduction, convection, radiation",
+                "Gas laws – qualitative understanding of how P, V, T of a gas are related"
+            ]
+        },
+        {
+            "code": "PHY07",
+            "topic": "Waves",
+            "subtopics": [
+                "General wave properties (wavelength, frequency, speed, amplitude, transverse vs longitudinal waves)",
+                "Sound waves: longitudinal nature, need for medium; properties (speed in different media, reflection as echo)",
+                "Electromagnetic spectrum: types of EM waves, their properties and uses"
+            ]
+        },
+        {
+            "code": "PHY08",
+            "topic": "Light",
+            "subtopics": [
+                "Reflection of light (laws of reflection; plane mirror characteristics)",
+                "Refraction of light (Snell’s Law, refractive index)",
+                "Critical angle and total internal reflection; applications (e.g., optical fibres, prisms)",
+                "Thin lenses (converging lens ray diagrams, image formation, magnification)"
+            ]
+        },
+        {
+            "code": "PHY09",
+            "topic": "Electricity",
+            "subtopics": [
+                "Electric charges, conductors and insulators (basic electrostatics)",
+                "Current, potential difference (voltage) and resistance; Ohm’s Law",
+                "Series and parallel circuits – calculation of effective resistance, current and voltage distribution",
+                "Electrical energy and power (P=VI, E=VIt); household electricity safety (fuses, circuit breakers, grounding)"
+            ]
+        },
+        {
+            "code": "PHY10",
+            "topic": "Magnetism and Electromagnetism",
+            "subtopics": [
+                "Magnetic materials and properties; magnetic field lines around magnets",
+                "Earth’s magnetic field and compass use",
+                "Electromagnets and their applications (e.g., lifting magnets, relays)",
+                "Electromagnetic induction (Faraday’s Law qualitatively; inducing emf by changing magnetic field)",
+                "Transformer principles (step-up vs step-down) and mains electricity (only basic concepts)"
+            ]
+        },
+        {
+            "code": "PHY11",
+            "topic": "Radioactivity",
+            "subtopics": [
+                "Structure of the atom, protons, neutrons, electrons; concept of isotopes",
+                "Types of radiation: alpha, beta, gamma – their nature, penetration power, range, ionising effect",
+                "Half-life and radioactive decay (basic idea and simple calculations)",
+                "Detection of radioactivity (e.g., Geiger–Müller counter)",
+                "Applications (medical tracers, carbon dating, nuclear energy) and dangers of radiation (safety precautions)"
+            ]
+        }
+    ],
+    "Secondary 3/4 Pure Chemistry": [
+        {
+            "code": "CHEM01",
+            "topic": "Experimental Chemistry",
+            "subtopics": [
+                "Laboratory apparatus usage and identification",
+                "Methods of purification and separation (filtration, crystallisation, distillation, chromatography)",
+                "Criteria of purity (use of melting and boiling point data to determine purity)"
+            ]
+        },
+        {
+            "code": "CHEM02",
+            "topic": "Particles, Atomic Structure and the Periodic Table",
+            "subtopics": [
+                "Kinetic particle theory (solid, liquid, gas – arrangement and movement of particles)",
+                "Structure of atoms (protons, neutrons, electrons); proton (atomic) number and nucleon number",
+                "Electronic configuration of atoms (for elements 1–20)",
+                "Periodic Table: Group and Period trends; metallic vs non-metallic character"
+            ]
+        },
+        {
+            "code": "CHEM03",
+            "topic": "Chemical Bonding",
+            "subtopics": [
+                "Ionic bonding (electron transfer, cation and anion formation; lattice structure of ionic compounds)",
+                "Covalent bonding (sharing of electrons; simple molecular vs giant molecular structures)",
+                "Properties of ionic and covalent compounds (melting point, solubility, electrical conductivity)",
+                "Metallic bonding (positive ions in a 'sea' of delocalised electrons; properties of metals)"
+            ]
+        },
+        {
+            "code": "CHEM04",
+            "topic": "Stoichiometry and Mole Concept",
+            "subtopics": [
+                "Chemical formulae and chemical equations (including state symbols; balancing equations)",
+                "Concept of the mole, molar mass and Avogadro’s constant",
+                "Calculations from chemical equations: reacting masses, volumes of gases (at r.t.p.), and solution concentrations (molarity)",
+                "Limiting reactants and percentage yield (basic concepts)"
+            ]
+        },
+        {
+            "code": "CHEM05",
+            "topic": "Acids, Bases and Salts",
+            "subtopics": [
+                "Properties of acids (in aqueous solutions) and bases/alkalis; pH scale and indicators",
+                "Reactions of acids with metals, bases, carbonates (with general word equations)",
+                "Soluble and insoluble hydroxides, alkalis and precipitation reactions",
+                "Preparation of salts – methods (titration, reaction of acid with excess metal/insoluble base, precipitation)",
+                "Ionic equations for common reactions (neutralisation, precipitation)"
+            ]
+        },
+        {
+            "code": "CHEM06",
+            "topic": "Oxidation, Reduction and Redox Reactions",
+            "subtopics": [
+                "Definitions of oxidation and reduction in terms of oxygen/hydrogen gain or loss, and electron transfer",
+                "Identification of oxidising and reducing agents in reactions",
+                "Redox reactions in everyday contexts (e.g., rusting of iron as oxidation; use of oxidising agents like hydrogen peroxide)"
+            ]
+        },
+        {
+            "code": "CHEM07",
+            "topic": "Chemical Reactions and Energy Changes",
+            "subtopics": [
+                "Exothermic and endothermic reactions (energy level profiles qualitatively)",
+                "Enthalpy change of reactions (ΔH notation; negative for exothermic, positive for endothermic)",
+                "Factors affecting rate of reaction (temperature, concentration, particle size, catalysts) – explained by collision theory (qualitative)",
+                "Catalysts and their importance in industry (how they speed up reactions without being consumed)"
+            ]
+        },
+        {
+            "code": "CHEM08",
+            "topic": "Electricity in Chemistry (Electrolysis)",
+            "subtopics": [
+                "Principles of electrolysis (electrolyte, electrodes, direction of ion movement)",
+                "Electrolysis of molten compounds (e.g., molten lead(II) bromide) and aqueous solutions (e.g., brine, dilute sulfuric acid) – identifying products at electrodes",
+                "Factors affecting selective discharge of ions (position in electrochemical series, concentration, electrode type)",
+                "Applications of electrolysis: electroplating, purification of copper, extraction of aluminium"
+            ]
+        },
+        {
+            "code": "CHEM09",
+            "topic": "Metals",
+            "subtopics": [
+                "Physical properties of metals and alloys (e.g., conductivity, malleability) and their explanation by metallic bonding",
+                "Reactivity series of metals (order of reactivity of common metals and hydrogen)",
+                "Extraction of metals: general methods (carbon reduction for moderately reactive metals, electrolysis for very reactive metals)",
+                "Corrosion of metals – rusting of iron (necessary conditions) and its prevention (painting, galvanisation, alloying)"
+            ]
+        },
+        {
+            "code": "CHEM10",
+            "topic": "Air and Environmental Chemistry",
+            "subtopics": [
+                "Composition of clean, dry air (approximately 78% N₂, 21% O₂, etc.)",
+                "Common air pollutants (CO, SO₂, oxides of nitrogen, unburnt hydrocarbons) – sources and effects (acid rain, respiratory issues, smog)",
+                "Greenhouse gases (CO₂, CH₄) and the greenhouse effect leading to global warming",
+                "Ozone depletion (caused by CFCs) and its consequences; importance of international efforts to reduce air pollution"
+            ]
+        },
+        {
+            "code": "CHEM11",
+            "topic": "Organic Chemistry (Basics)",
+            "subtopics": [
+                "Introduction to organic compounds – the unique nature of carbon (ability to form 4 bonds, chains and rings)",
+                "Hydrocarbons: Alkanes (general formula, properties such as combustion) vs Alkenes (unsaturation, addition reactions like hydrogenation, bromination)",
+                "Alcohols (e.g., ethanol): properties and typical reactions (combustion, oxidation to acids)",
+                "Polymers: addition polymerisation (e.g., polyethene) and condensation polymerisation (concept only, e.g., nylon); environmental issues of plastic disposal"
+            ]
+        }
+    ],
+    "Secondary 3/4 Pure Biology": [
+        {
+            "code": "BIO01",
+            "topic": "Cell Structure and Organisation",
+            "subtopics": [
+                "Differences between plant and animal cells (structures: nucleus, cytoplasm, cell membrane, cell wall, chloroplast, vacuoles)",
+                "Specialised cells, tissues, organs and systems (levels of organisation in multicellular organisms)",
+                "Cell processes: diffusion, osmosis and active transport (movement of substances across membranes and their importance to cells)"
+            ]
+        },
+        {
+            "code": "BIO02",
+            "topic": "Biological Molecules",
+            "subtopics": [
+                "Water and its importance to life (as a solvent, coolant, transport medium)",
+                "Types of nutrients: carbohydrates, proteins, fats – their basic sub-units and biological functions",
+                "Enzymes as biological catalysts (properties, lock-and-key hypothesis, factors affecting enzyme activity like temperature and pH)"
+            ]
+        },
+        {
+            "code": "BIO03",
+            "topic": "Nutrition in Humans",
+            "subtopics": [
+                "Human digestive system: structure and function of alimentary canal organs and glands",
+                "Process of digestion – physical (chewing, churning) and chemical breakdown of food by enzymes",
+                "Absorption of nutrients in small intestine (structure of villi) and transport via circulatory system",
+                "Balanced diet and nutrition: dietary requirements, effects of malnutrition (e.g., obesity, scurvy)"
+            ]
+        },
+        {
+            "code": "BIO04",
+            "topic": "Nutrition in Plants",
+            "subtopics": [
+                "Leaf structure and adaptations for photosynthesis (cuticle, mesophyll, stomata, chloroplasts)",
+                "Photosynthesis process (reactants and products, word equation; light-dependent and light-independent stages conceptually)",
+                "Factors affecting photosynthesis (light intensity, carbon dioxide concentration, temperature)",
+                "Importance of photosynthesis in ecosystems (source of energy and oxygen)"
+            ]
+        },
+        {
+            "code": "BIO05",
+            "topic": "Transport in Flowering Plants",
+            "subtopics": [
+                "Xylem and phloem tissues – structures and roles in transport",
+                "Water uptake in roots (root hair cell adaptation) and transport in xylem (transpiration pull)",
+                "Transpiration: factors affecting rate (temperature, humidity, wind, light) and significance to plants",
+                "Translocation in phloem: movement of sugars from leaves to other parts of plant"
+            ]
+        },
+        {
+            "code": "BIO06",
+            "topic": "Transport in Humans",
+            "subtopics": [
+                "Circulatory system: heart anatomy and function (pumping blood to lungs and body); blood vessel structure (arteries vs veins vs capillaries)",
+                "Composition of blood: red blood cells (oxygen transport via haemoglobin), white blood cells (immunity), platelets (clotting), plasma (transport of dissolved substances)",
+                "Blood circulation pathways (pulmonary and systemic circuits); concept of double circulation",
+                "Lymphatic system basics (role in tissue fluid return and immune response)"
+            ]
+        },
+        {
+            "code": "BIO07",
+            "topic": "Respiration and Gaseous Exchange",
+            "subtopics": [
+                "Aerobic respiration (glucose + O₂ → CO₂ + H₂O + energy) vs anaerobic respiration (less efficient, lactic acid in muscles or ethanol + CO₂ in yeast)",
+                "Human respiratory system: nasal passage, trachea, bronchi, bronchioles, alveoli; diaphragm and ribcage movement",
+                "Gas exchange in alveoli – adaptations (large surface area, thin walls, rich blood supply) for efficient diffusion of O₂ and CO₂",
+                "Breathing mechanism: inhalation and exhalation (action of diaphragm and intercostal muscles)",
+                "Effects of smoking (tar, nicotine, carbon monoxide) on respiratory system and health"
+            ]
+        },
+        {
+            "code": "BIO08",
+            "topic": "Excretion and Homeostasis",
+            "subtopics": [
+                "Excretory organs in humans: lungs (excrete CO₂), kidneys (excrete nitrogenous wastes, excess water/salts), skin (excretes sweat)",
+                "Structure of the kidney (cortex, medulla, pelvis) and nephron (glomerulus, tubules) – basic function in filtration and urine formation",
+                "Homeostasis concept – maintaining stable internal environment (e.g., constant body temperature, blood glucose level)",
+                "Negative feedback mechanisms: example of blood glucose regulation (insulin and glucagon actions), thermoregulation (sweating, shivering)"
+            ]
+        },
+        {
+            "code": "BIO09",
+            "topic": "Coordination and Response",
+            "subtopics": [
+                "Nervous system: central nervous system (brain, spinal cord) and peripheral nerves; structure of a neurone; reflex actions (withdrawal reflex)",
+                "Sense organs (e.g., eye structure and function, focusing, pupil reflex)",
+                "Endocrine system: hormonal control (e.g., insulin from pancreas, adrenaline from adrenal glands – effects on target organs)",
+                "Comparison of nervous and hormonal control (speed, duration, specificity of response)",
+                "Tropic responses in plants: phototropism and gravitropism, role of auxin hormone in shoots and roots"
+            ]
+        },
+        {
+            "code": "BIO10",
+            "topic": "Reproduction",
+            "subtopics": [
+                "Asexual reproduction vs sexual reproduction (differences, examples in plants like vegetative propagation)",
+                "Sexual reproduction in flowering plants: structure of flower (stamen, carpel), pollination (self vs cross), fertilisation process, seed and fruit formation, seed dispersal methods",
+                "Human reproductive systems: male (testes, sperm production) and female (ovaries, menstrual cycle) – structure and functions",
+                "Fertilisation in humans and development of embryo (implantation in uterus)",
+                "Family planning and contraception basics; Sexually transmitted infections (e.g., HIV/AIDS) awareness"
+            ]
+        },
+        {
+            "code": "BIO11",
+            "topic": "Cell Division and Genetics",
+            "subtopics": [
+                "Mitosis: role in growth, repair, asexual reproduction; stages of mitosis (simple understanding) and outcome (genetically identical diploid cells)",
+                "Meiosis: role in gamete formation; outcome (haploid cells with genetic variation)",
+                "Chromosomes, genes, alleles – how traits are inherited; simple Mendelian inheritance (dominant/recessive alleles, genotype vs phenotype)",
+                "Monohybrid crosses and Punnett squares; interpretation of ratios of offspring phenotypes",
+                "Variation in species (continuous vs discontinuous) and sources of variation (genetic, environmental); mutations as a source of new alleles"
+            ]
+        },
+        {
+            "code": "BIO12",
+            "topic": "Organisms and Their Environment",
+            "subtopics": [
+                "Energy flow through ecosystems: sun as primary energy source, producers, consumers, decomposers; food chains, food webs, pyramids of numbers/biomass",
+                "Nutrient cycles: water cycle, carbon cycle (roles of photosynthesis, respiration, combustion, decomposition)",
+                "Population dynamics: factors affecting population size (food, predators, disease, space); human population growth issues",
+                "Human impact on the environment: deforestation, pollution (water, air, soil), climate change; consequences such as habitat loss, extinction",
+                "Conservation efforts: sustainable use of resources, protecting endangered species, maintaining biodiversity"
+            ]
+        }
+    ],
+    "Secondary 3/4 Combined Science (Chemistry, Physics)": [
+        {
+            "code": "CSPH-CHEM1",
+            "topic": "Chemistry: Particles and Structure",
+            "subtopics": [
+                "States of matter and kinetic particle theory (solid, liquid, gas changes of state)",
+                "Basic atomic structure (protons, neutrons, electrons) and the concept of proton number",
+                "Structure of simple atoms (up to atomic number 20), electron arrangement"
+            ]
+        },
+        {
+            "code": "CSPH-CHEM2",
+            "topic": "Chemistry: Chemical Changes and Energy",
+            "subtopics": [
+                "Elements, compounds and mixtures (definitions and examples)",
+                "Physical and chemical changes (distinguishing features and examples)",
+                "Common types of chemical reactions (e.g., combustion, oxidation, thermal decomposition)",
+                "Energy changes in reactions: exothermic vs endothermic processes (qualitative idea)"
+            ]
+        },
+        {
+            "code": "CSPH-CHEM3",
+            "topic": "Chemistry: Acids, Bases and Mixtures",
+            "subtopics": [
+                "Characteristics and examples of acids and bases (reactions of acids with metals, carbonates; feel of alkalis)",
+                "Indicators and pH scale (measuring acidity/alkalinity with litmus, Universal Indicator)",
+                "Simple methods of separating mixtures (filtration, evaporation, distillation, chromatography)",
+                "Formation of salts (from acid–base, acid–metal, acid–carbonate reactions) and their solubility"
+            ]
+        },
+        {
+            "code": "CSPH-CHEM4",
+            "topic": "Chemistry: Materials and Environment",
+            "subtopics": [
+                "Metals and their properties (electrical and heat conductivity, malleability) and common uses",
+                "Rusting of iron – conditions required (oxygen and water) and prevention methods (painting, galvanising)",
+                "Air composition and common pollutants (carbon monoxide, sulfur dioxide, etc.) – sources and effects",
+                "Greenhouse effect and global warming (basic causes and consequences on climate)"
+            ]
+        },
+        {
+            "code": "CSPH-PHY1",
+            "topic": "Physics: Mechanics",
+            "subtopics": [
+                "Speed, velocity and acceleration (basic definitions and simple calculations)",
+                "Force and motion – understanding that a net force causes change in motion (Newton’s 2nd law qualitatively)",
+                "Balanced vs unbalanced forces; friction as a force opposing motion",
+                "Free-fall and gravitational force (distinguishing mass and weight; acceleration due to gravity)"
+            ]
+        },
+        {
+            "code": "CSPH-PHY2",
+            "topic": "Physics: Mass, Weight and Density",
+            "subtopics": [
+                "Difference between mass and weight (mass in kilograms, weight as gravitational force in newtons)",
+                "Density = mass/volume, calculations involving density (with units g/cm³ or kg/m³)",
+                "Floating and sinking in terms of density (why objects float in fluids less dense than themselves)"
+            ]
+        },
+        {
+            "code": "CSPH-PHY3",
+            "topic": "Physics: Thermal Physics",
+            "subtopics": [
+                "Temperature measurement (use of thermometer; °C scale) and heat vs temperature concept",
+                "Heat transfer: conduction, convection, radiation – basic mechanisms and examples (e.g., conduction in metals, convection in fluids, radiation from Sun)",
+                "Expansion of materials on heating (solids, liquids, gases expand when heated) and everyday examples (thermometers, railway tracks)"
+            ]
+        },
+        {
+            "code": "CSPH-PHY4",
+            "topic": "Physics: Waves (Light and Sound)",
+            "subtopics": [
+                "Reflection of light (law of reflection, formation of images in plane mirrors)",
+                "Refraction of light (bending of light when it passes between air and glass/water; qualitative effects like apparent depth change)",
+                "Human eye and vision defects (basic idea of how lenses form images on retina; mention of short-sight/long-sight corrections)",
+                "Sound as a longitudinal wave (needs a medium, cannot travel in vacuum; echo formation and applications)"
+            ]
+        },
+        {
+            "code": "CSPH-PHY5",
+            "topic": "Physics: Electricity and Magnetism",
+            "subtopics": [
+                "Basic electric circuit components and diagrams (cell, lamp, switch, etc.)",
+                "Electric current (rate of flow of charge) measured in amperes; use of ammeter",
+                "Voltage (potential difference) measured in volts; use of voltmeter",
+                "Simple circuit setups: series vs parallel (qualitative effects on lamp brightness, current and voltage distribution)",
+                "Magnetism basics: magnetic materials (iron, nickel, cobalt), attraction/repulsion, simple magnetic field pattern; making an electromagnet by current in a coil"
+            ]
+        }
+    ],
+    "Secondary 3/4 Combined Science (Chemistry, Biology)": [
+        {
+            "code": "CSBIO-CHEM1",
+            "topic": "Chemistry: Particulate Nature of Matter",
+            "subtopics": [
+                "States of matter and changes of state (melting, boiling, condensation, freezing)",
+                "Atoms, molecules and ions – basic concepts of particles in chemistry",
+                "Elements, compounds, mixtures – definitions and examples"
+            ]
+        },
+        {
+            "code": "CSBIO-CHEM2",
+            "topic": "Chemistry: Basic Chemical Reactions",
+            "subtopics": [
+                "Common chemical reactions and word equations (e.g., acid + metal → salt + hydrogen)",
+                "Introduction to acids and alkalis (properties; acid-base neutralisation producing salt + water)",
+                "Air composition and rusting of iron (conditions for rust; prevention basics)",
+                "Fuels and combustion (burning fuels produces CO₂ and H₂O; concept of fire triangle)"
+            ]
+        },
+        {
+            "code": "CSBIO-CHEM3",
+            "topic": "Chemistry: Methods of Separation and Purification",
+            "subtopics": [
+                "Filtration, evaporation, crystallisation techniques for separating mixtures",
+                "Simple distillation (separating solvent from solution, e.g., water from saltwater)",
+                "Paper chromatography (separating mixture of dyes or inks; interpreting chromatograms)",
+                "Criteria of purity (pure substances have fixed melting/boiling points; mixtures have ranges)"
+            ]
+        },
+        {
+            "code": "CSBIO-BIO1",
+            "topic": "Biology: Cells and Movement of Substances",
+            "subtopics": [
+                "Plant vs animal cell structure (cell wall, chloroplasts present in plant cells; different shapes; function of nucleus, cytoplasm, cell membrane, vacuoles)",
+                "Diffusion and osmosis – movement of particles from high to low concentration; osmosis as diffusion of water across a partially permeable membrane",
+                "Examples of diffusion and osmosis in living organisms (e.g., gas exchange in lungs, water uptake in plant roots)"
+            ]
+        },
+        {
+            "code": "CSBIO-BIO2",
+            "topic": "Biology: Nutrition and Digestion",
+            "subtopics": [
+                "Nutrients – carbohydrates, proteins, fats (functions and food sources); importance of vitamins, minerals, fiber (qualitative)",
+                "Human digestive system organs and their roles (mouth, esophagus, stomach, small and large intestines, liver, pancreas)",
+                "Enzymes in digestion (amylase, protease, lipase – what they break down and into what)",
+                "Absorption of digested food in small intestine (villi function) and transport via blood",
+                "Balanced diet basics and health issues related to diet (obesity, deficiency diseases)"
+            ]
+        },
+        {
+            "code": "CSBIO-BIO3",
+            "topic": "Biology: Transport in Humans",
+            "subtopics": [
+                "Circulatory system – heart (basic structure and function), blood vessels (arteries carry blood away, veins toward heart; capillaries exchange with tissues)",
+                "Blood components: red blood cells (carry oxygen), white blood cells (fight infection), platelets (clotting), plasma (liquid medium carrying nutrients, hormones, wastes)",
+                "Flow of blood: body → heart → lungs → heart → body (double circulation concept simply mentioned)",
+                "Importance of a transport system: delivering oxygen and nutrients to cells, removing carbon dioxide and wastes"
+            ]
+        },
+        {
+            "code": "CSBIO-BIO4",
+            "topic": "Biology: Respiration and Breathing",
+            "subtopics": [
+                "Aerobic respiration (word equation: glucose + oxygen → carbon dioxide + water + energy) as process in cells to release energy",
+                "Human respiratory system – nose, trachea, bronchi, lungs, diaphragm (structure and role of each in breathing)",
+                "Mechanism of breathing: inhalation (diaphragm contracts, ribcage expands) vs exhalation (diaphragm relaxes, ribcage falls)",
+                "Gas exchange in alveoli: oxygen diffuses into blood, carbon dioxide diffuses into air sacs; adaptations of alveoli (large surface area, thin walls, good blood supply)"
+            ]
+        },
+        {
+            "code": "CSBIO-BIO5",
+            "topic": "Biology: Reproduction in Humans",
+            "subtopics": [
+                "Male reproductive system (testes produce sperm; sperm duct, penis) and female reproductive system (ovaries produce eggs; oviducts, uterus, vagina) – basic structure and functions",
+                "Fertilisation as fusion of sperm and egg in oviduct, leading to pregnancy (implantation of embryo in uterus)",
+                "Changes during puberty in boys and girls (development of secondary sexual characteristics)",
+                "General idea of heredity: children inherit traits from parents (genes carry information), though detailed genetics not covered in combined science"
+            ]
+        },
+        {
+            "code": "CSBIO-BIO6",
+            "topic": "Biology: Ecology and Man",
+            "subtopics": [
+                "Relationships in ecosystems: producers (make food), consumers (eat others), decomposers (break down dead matter)",
+                "Food chains (simple linear feeding relationships) and food webs (interconnected food chains)",
+                "Human impacts on environment: pollution (air, water), deforestation, habitat destruction – consequences like loss of biodiversity, climate change",
+                "Conservation: importance of protecting endangered species, recycling, sustainable use of resources"
+            ]
+        }
+    ],
+    "Social Studies (Upper Secondary G3)": [
+        {
+            "code": "SS01",
+            "topic": "Issue 1: Exploring Citizenship and Governance",
+            "subtopics": [
+                "Roles of government in Singapore – how governance is structured and decisions are made (e.g., representative democracy, elections, public policy process)",
+                "Rights and responsibilities of citizens (e.g., obeying laws, paying taxes, National Service, community involvement)",
+                "How citizens can participate in governance (feedback through channels like Meet-the-People sessions, public consultations, volunteering in grassroots organisations)",
+                "Case studies of public policies and trade-offs (illustrating how the government balances different groups’ needs and the national interest)"
+            ]
+        },
+        {
+            "code": "SS02",
+            "topic": "Issue 2: Living in a Diverse Society",
+            "subtopics": [
+                "Identity and diversity – factors shaping identity (nationality, race, religion, culture, socio-economic status) in Singapore’s context",
+                "The benefits and challenges of a diverse society (e.g., cultural richness vs potential for misunderstanding or conflict)",
+                "Safeguarding social cohesion – Singapore’s approaches to managing diversity (Ethnic Integration Policy in housing, bilingual education, Racial Harmony Day)",
+                "Building a national identity – shared values and common experiences (national symbols, National Service, education promoting common space)"
+            ]
+        },
+        {
+            "code": "SS03",
+            "topic": "Issue 3: Being Part of a Globalised World",
+            "subtopics": [
+                "Globalisation and its impact – increased interconnectivity in economy, culture and security among countries (opportunities and vulnerabilities)",
+                "Economic globalisation: how Singapore’s economy is linked globally (trade, foreign investment, MNCs) and strategies to stay competitive (education, innovation, trade agreements)",
+                "Cultural globalisation: influence of foreign cultures through media, travel and migration; how Singapore maintains cultural heritage while embracing global cultural trends",
+                "Managing global challenges – Singapore’s response to issues like pandemics, climate change, terrorism (international cooperation and local initiatives to mitigate these challenges)"
+            ]
+        }
+    ],
+    "Secondary 3/4 History (Elective)": [
+        {
+            "code": "HISEL01",
+            "topic": "Impact of World War One",
+            "subtopics": [
+                "End of WWI and the 1919 Paris Peace Conference – Treaty of Versailles terms and its impact on Germany",
+                "Political and economic conditions in post-WWI Europe (instability, reparations burden on Germany, economic turmoil) that set the stage for extremist ideologies"
+            ]
+        },
+        {
+            "code": "HISEL02",
+            "topic": "Rise of Authoritarian Regimes (Interwar Years)",
+            "subtopics": [
+                "Case study: Stalin’s rise in the USSR – consolidation of power (elimination of rivals, control of Communist Party), and impact of his policies (Five-Year Plans, collectivisation, purges)",
+                "Case study: Hitler’s rise in Germany – factors enabling Nazi rise (Treaty of Versailles grievances, Great Depression, charisma and propaganda), establishment of Hitler’s dictatorship (Enabling Act, Night of Long Knives)",
+                "The interwar experiences of citizens under these regimes (cult of personality, state control, suppression of opposition)"
+            ]
+        },
+        {
+            "code": "HISEL03",
+            "topic": "World War II in Europe and Asia–Pacific",
+            "subtopics": [
+                "Outbreak of WWII in Europe (1939) – German expansion (invasion of Poland) and failure of appeasement; in Asia–Pacific (1941) – Japanese expansion and the attack on Pearl Harbor",
+                "Major theatres and turning points: war in Europe (Battle of Britain, Eastern Front Stalingrad, D-Day 1944) and war in Asia–Pacific (Battle of Midway 1942, island-hopping campaign)",
+                "Defeat of the Axis powers – factors such as Allied economic and industrial strength, strategic errors by Axis, development of the atomic bomb",
+                "End of WWII: Germany’s surrender (May 1945) and Japan’s surrender (Aug 1945 after atomic bombs), devastation in Europe and Asia"
+            ]
+        },
+        {
+            "code": "HISEL04",
+            "topic": "Cold War and the Bi-Polar World Order",
+            "subtopics": [
+                "Origin of the Cold War – wartime alliances fraying, ideological clash between USA (capitalism) and USSR (communism), division of Europe with Iron Curtain",
+                "Early Cold War crises: Berlin Blockade (1948–49) and Airlift, formation of NATO (1949) and Warsaw Pact (1955), nuclear arms race (development of atomic and hydrogen bombs)",
+                "Concept of Mutually Assured Destruction (MAD) shaping superpower behaviour to avoid direct conflict",
+                "Global bi-polar alignments – how countries in Asia, Africa, Latin America were influenced (or chose non-alignment) during the Cold War era"
+            ]
+        },
+        {
+            "code": "HISEL05",
+            "topic": "Manifestations of the Cold War Outside Europe",
+            "subtopics": [
+                "Korean War (1950–53): first “hot war” of the Cold War – North (with Chinese and Soviet support) vs South (UN/US support), stalemate leading to Korea’s continued division",
+                "Cuban Missile Crisis (1962): superpower confrontation over Soviet missiles in Cuba – brinkmanship and peaceful resolution, leading to improved communications (hotline) between superpowers",
+                "Vietnam War (USA’s involvement 1965–73): Cold War proxy conflict in Southeast Asia – Vietnam divided into communist North vs anti-communist South, heavy human and economic costs, eventual communist victory in 1975",
+                "These conflicts’ impact on superpower relations and local populations (destruction, casualties, shifts in public opinion against war)"
+            ]
+        },
+        {
+            "code": "HISEL06",
+            "topic": "Reasons for the End of the Cold War",
+            "subtopics": [
+                "Internal economic weaknesses of the USSR – stagnation, inefficiencies of central planning, costly arms race with the USA",
+                "Gorbachev’s reforms (glasnost and perestroika from 1985) – attempts to open up society and restructure economy inadvertently weakening communist control",
+                "Mass movements in Eastern Europe (1989) – fall of Berlin Wall, collapse of communist governments in satellite states",
+                "Diplomacy and arms agreements (e.g., INF Treaty 1987) easing tensions; dissolution of the Soviet Union in 1991 marking the Cold War’s end"
+            ]
+        }
+    ],
+    "Secondary 3/4 Geography (Elective)": [
+        {
+            "code": "GEOEL01",
+            "topic": "Tourism",
+            "subtopics": [
+                "Tourism industry and global trends – growth of international travel and tourism, factors driving increased tourism (higher incomes, better transport, globalization of travel)",
+                "Tourist types and motivations – categories of tourism (e.g., leisure, business, medical, eco-tourism) and what attracts tourists (natural vs cultural attractions)",
+                "Impacts of tourism on destinations – economic benefits (jobs, revenue), socio-cultural impacts (cultural exchange or dilution, crowding), environmental impacts (resource depletion, pollution)",
+                "Sustainable tourism management – strategies to minimize negative impacts (visitor quotas in fragile areas, community-based tourism, regulations) and roles of stakeholders (government, local communities, tourism companies)"
+            ]
+        },
+        {
+            "code": "GEOEL02",
+            "topic": "Climate",
+            "subtopics": [
+                "Weather and climate basics – difference between short-term weather and long-term climate; elements of weather (temperature, precipitation, wind, pressure)",
+                "Global climate zones – characteristics of equatorial/tropical climate (high temperature and rainfall) vs other climates (desert, temperate, etc.)",
+                "Climate change and global warming – evidence of climate change, natural causes vs anthropogenic causes (greenhouse gas emissions)",
+                "Effects of climate change – rising sea levels for island nations, extreme weather frequency, impacts on food security and biodiversity",
+                "Responses to climate change – international efforts (e.g., Paris Agreement), national strategies (Singapore’s Climate Action Plan, Green Plan 2030) to mitigate and adapt to climate change"
+            ]
+        },
+        {
+            "code": "GEOEL03",
+            "topic": "Plate Tectonics",
+            "subtopics": [
+                "Structure of the Earth – crust, mantle, core; lithospheric plates and their movement driven by mantle convection",
+                "Plate boundaries – convergent (collision and subduction zones), divergent (sea-floor spreading, rift valleys) and transform boundaries; landforms and phenomena at each (mountains, volcanoes, earthquakes)",
+                "Volcanic eruptions and earthquakes – causes (build-up of pressure, plate movements) and primary/secondary effects on human societies (lava flows, tsunamis, destruction, casualties)",
+                "Case studies of tectonic hazards – example of a volcanic eruption (e.g., Mt Merapi) and an earthquake (e.g., Japan 2011) detailing impacts and responses",
+                "Disaster risk management – how countries prepare (hazard mapping, drills, building codes) and respond (evacuation, aid) to tectonic hazards to reduce damage"
+            ]
+        }
+    ]
+}

@@ -3,7 +3,8 @@ import { api } from '@/services/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
 
 type ParentLite = { id: string; name: string };
 type Subject = { id: string; code: string; name: string; level: string };
@@ -23,6 +24,7 @@ const AddStudent: React.FC = () => {
   const [loadingStudent, setLoadingStudent] = useState(false);
 
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const editId = searchParams.get('edit');
 
   const [errors, setErrors] = useState<{
@@ -154,7 +156,9 @@ const AddStudent: React.FC = () => {
         // Update subjects
         await api.replaceStudentSubjects(editId, selectedSubjectIds);
 
-        alert('Student updated successfully');
+        toast.success('Student updated successfully');
+        // Navigate back to student profile
+        navigate(`/student/${editId}`);
       } else {
         // Create new student
         const created = await api.createStudent({
@@ -174,7 +178,9 @@ const AddStudent: React.FC = () => {
         setParentId('');
         setSelectedSubjectIds([]);
         setSubjectSearch('');
-        alert('Student added successfully');
+        toast.success('Student added successfully');
+        // Navigate back to students page
+        navigate('/students');
       }
     } catch (err) {
       console.error(err);

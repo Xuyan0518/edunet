@@ -83,7 +83,7 @@ const Students: React.FC = () => {
     if (!isStudyDay) return 'no-class'; // No class on Friday/Saturday
     
     const hasProgress = dailyProgress.some(p => 
-      p.student_id === studentId && 
+      p.studentId === studentId && 
       p.date === todayStr
     );
     
@@ -110,8 +110,8 @@ const Students: React.FC = () => {
     
     // Check if weekly feedback exists for this week
     const hasFeedback = weeklyFeedback.some(f => 
-      f.student_id === studentId && 
-      new Date(f.week_ending) >= lastSunday
+      f.studentId === studentId && 
+      new Date(f.weekEnding) >= lastSunday
     );
     
     return hasFeedback ? 'completed' : 'pending';

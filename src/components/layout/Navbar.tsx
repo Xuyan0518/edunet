@@ -23,8 +23,6 @@ const Navbar: React.FC = () => {
 
   const navItems = [
     { name: 'Dashboard', path: '/dashboard', visible: true },
-    { name: 'Daily Progress', path: '/daily-progress', visible: isTeacher },
-    { name: 'Weekly Feedback', path: '/weekly-feedback', visible: isTeacher },
     { name: 'Student Profile', path: '/student-profile', visible: isParent },
   ].filter(item => item.visible);
 

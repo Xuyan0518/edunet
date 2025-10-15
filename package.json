@@ -14,6 +14,8 @@
     "preview": "vite preview",
     "db:generate": "drizzle-kit generate --config drizzle.config.ts",
     "db:migrate": "tsx server/migrate.ts",
+    "db:update-schema": "tsx server/run-migration.ts",
+    "db:check-schema": "tsx server/check-current-schema.ts",
     "studio": "npm run dev:studio"
   },
   "dependencies": {

@@ -3,6 +3,7 @@ import { api } from '@/services/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useSearchParams } from 'react-router-dom';
 
 type ParentLite = { id: string; name: string };
 type Subject = { id: string; code: string; name: string; level: string };
@@ -19,6 +20,16 @@ const AddStudent: React.FC = () => {
 
   const [loadingInit, setLoadingInit] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [loadingStudent, setLoadingStudent] = useState(false);
+
+  const [searchParams] = useSearchParams();
+  const editId = searchParams.get('edit');
+
+  const [errors, setErrors] = useState<{
+    name?: string;
+    grade?: string;
+    subjects?: string;
+  }>({});
 
   useEffect(() => {
     setLoadingInit(true);
@@ -37,6 +48,30 @@ const AddStudent: React.FC = () => {
       .catch((err) => console.error('Init load failed:', err))
       .finally(() => setLoadingInit(false));
   }, []);
+
+  // Fetch student data when in edit mode
+  useEffect(() => {
+    if (editId) {
+      setLoadingStudent(true);
+      Promise.all([
+        api.getStudent(editId),
+        api.getStudentSubjects(editId)
+      ])
+        .then(([studentData, subjectIds]) => {
+          if (studentData) {
+            setName(studentData.name);
+            setGrade(studentData.grade);
+            setParentId(studentData.parent_id || '');
+            setSelectedSubjectIds(subjectIds);
+          }
+        })
+        .catch((err) => {
+          console.error('Failed to load student data:', err);
+          alert('Failed to load student data. Please try again.');
+        })
+        .finally(() => setLoadingStudent(false));
+    }
+  }, [editId]);
 
   const toggleSubject = (id: string) => {
     setSelectedSubjectIds(prev =>
@@ -92,32 +127,58 @@ const AddStudent: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name || !grade) return;
+    
+    // Clear previous errors
+    setErrors({});
+    
+    // Validation
+    if (!name || !grade || selectedSubjectIds.length === 0) {
+      setErrors({
+        name: !name ? 'Name is required' : undefined,
+        grade: !grade ? 'Grade is required' : undefined,
+        subjects: selectedSubjectIds.length === 0 ? 'At least one subject must be selected' : undefined,
+      });
+      return;
+    }
 
     setSubmitting(true);
     try {
-      // Step 1: create student (index.ts expects StudentSchema only)
-      const created = await api.createStudent({
-        name,
-        grade,
-        parentId: parentId || null,
-      });
+      if (editId) {
+        // Update existing student
+        await api.updateStudent(editId, {
+          name,
+          grade,
+          parent_id: parentId || null,
+        });
 
-      // Step 2: assign subjects via PUT (replaces existing)
-      if (created?.id) {
-        await api.replaceStudentSubjects(created.id, selectedSubjectIds);
+        // Update subjects
+        await api.replaceStudentSubjects(editId, selectedSubjectIds);
+
+        alert('Student updated successfully');
+      } else {
+        // Create new student
+        const created = await api.createStudent({
+          name,
+          grade,
+          parentId: parentId || null,
+        });
+
+        // Assign subjects
+        if (created?.id) {
+          await api.replaceStudentSubjects(created.id, selectedSubjectIds);
+        }
+
+        // Reset form only for new students
+        setName('');
+        setGrade('');
+        setParentId('');
+        setSelectedSubjectIds([]);
+        setSubjectSearch('');
+        alert('Student added successfully');
       }
-
-      // reset
-      setName('');
-      setGrade('');
-      setParentId('');
-      setSelectedSubjectIds([]);
-      setSubjectSearch('');
-      alert('Student added successfully');
     } catch (err) {
       console.error(err);
-      alert('Failed to add student. Please check console for details.');
+      alert(editId ? 'Failed to update student. Please check console for details.' : 'Failed to add student. Please check console for details.');
     } finally {
       setSubmitting(false);
     }
@@ -125,19 +186,35 @@ const AddStudent: React.FC = () => {
 
   return (
     <div className="max-w-3xl mx-auto mt-10 space-y-6">
-      <h1 className="text-2xl font-bold">Add New Student</h1>
+      <h1 className="text-2xl font-bold">
+        {editId ? 'Edit Student' : 'Add New Student'}
+      </h1>
 
       <form onSubmit={handleSubmit} className="space-y-8">
         {/* Basic Info */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <Label htmlFor="name">Name</Label>
-            <Input id="name" value={name} onChange={e => setName(e.target.value)} required />
+            <Label htmlFor="name">Name *</Label>
+            <Input 
+              id="name" 
+              value={name} 
+              onChange={e => setName(e.target.value)} 
+              required 
+              className={errors.name ? 'border-red-500' : ''}
+            />
+            {errors.name && <p className="text-sm text-red-500 mt-1">{errors.name}</p>}
           </div>
 
           <div>
-            <Label htmlFor="grade">Grade</Label>
-            <Input id="grade" value={grade} onChange={e => setGrade(e.target.value)} required />
+            <Label htmlFor="grade">Grade *</Label>
+            <Input 
+              id="grade" 
+              value={grade} 
+              onChange={e => setGrade(e.target.value)} 
+              required 
+              className={errors.grade ? 'border-red-500' : ''}
+            />
+            {errors.grade && <p className="text-sm text-red-500 mt-1">{errors.grade}</p>}
           </div>
 
           <div className="md:col-span-2">
@@ -160,7 +237,7 @@ const AddStudent: React.FC = () => {
         <div className="space-y-3">
           <div className="flex items-end justify-between gap-3">
             <div className="flex-1">
-              <Label htmlFor="subjectSearch">Assign Subjects</Label>
+              <Label htmlFor="subjectSearch">Assign Subjects *</Label>
               <Input
                 id="subjectSearch"
                 placeholder="Search subjects by name, code, or level…"
@@ -178,17 +255,21 @@ const AddStudent: React.FC = () => {
             >
               {allFilteredSelected ? 'Unselect Filtered'
                 : someFilteredSelected ? 'Select Remaining'
-                : 'Select Filtered'}
+                  : 'Select Filtered'}
             </Button>
           </div>
 
-          <div className="text-sm text-muted-foreground">
-            {selectedSubjectIds.length} selected
+          <div className="flex justify-between items-center">
+            <div className="text-sm text-muted-foreground">
+              {selectedSubjectIds.length} selected
+            </div>
+            {errors.subjects && <p className="text-sm text-red-500">{errors.subjects}</p>}
           </div>
 
           <div className="border rounded-md p-3 max-h-96 overflow-auto space-y-4">
             {loadingInit && <div className="text-sm">Loading subjects…</div>}
-            {!loadingInit && subjectsByLevel.length === 0 && (
+            {loadingStudent && <div className="text-sm">Loading student data…</div>}
+            {!loadingInit && !loadingStudent && subjectsByLevel.length === 0 && (
               <div className="text-sm text-muted-foreground">No subjects found.</div>
             )}
 
@@ -234,8 +315,8 @@ const AddStudent: React.FC = () => {
           </div>
         </div>
 
-        <Button type="submit" className="w-full" disabled={submitting || loadingInit}>
-          {submitting ? 'Adding…' : 'Add Student'}
+        <Button type="submit" className="w-full" disabled={submitting || loadingInit || loadingStudent || !name || !grade || selectedSubjectIds.length === 0}>
+          {submitting ? (editId ? 'Updating…' : 'Adding…') : (editId ? 'Update Student' : 'Add Student')}
         </Button>
       </form>
     </div>

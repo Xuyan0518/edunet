@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Student, DailyProgress, api } from '@/services/api';
-import { ArrowLeft, User, GraduationCap, Calendar, Clock, CheckCircle, XCircle, Minus, Filter } from 'lucide-react';
+import { ArrowLeft, User, GraduationCap, Calendar, Clock, CheckCircle, XCircle, Minus, Filter, Edit } from 'lucide-react';
 import { DateRangeFilter, DateRange, filterByDateRange } from '@/components/ui/date-range-filter';
 
 const StudentProfile: React.FC = () => {
@@ -103,15 +103,15 @@ const StudentProfile: React.FC = () => {
     return (
       <div className="container mx-auto py-8 px-4 animate-fade-in">
         <div className="mb-6">
-          <Button 
-            variant="ghost" 
+          <Button
+            variant="ghost"
             onClick={() => navigate('/students')}
             className="mb-4"
           >
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back to Students
           </Button>
-          
+
           <div className="flex items-center gap-4">
             <div className="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center">
               <User className="h-8 w-8 text-blue-600" />
@@ -125,6 +125,15 @@ const StudentProfile: React.FC = () => {
                 </Badge>
               </div>
             </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-auto"
+              onClick={() => navigate(`/add-student?edit=${student.id}`)}
+            >
+              <Edit className="h-4 w-4 mr-2" />
+              Edit
+            </Button>
           </div>
         </div>
 
@@ -170,7 +179,7 @@ const StudentProfile: React.FC = () => {
                   placeholder="Select date range to filter progress"
                 />
               </div>
-              
+
               <div className="flex flex-wrap gap-2">
                 <Button
                   variant="outline"
@@ -184,7 +193,7 @@ const StudentProfile: React.FC = () => {
                 >
                   This Month
                 </Button>
-                
+
                 <Button
                   variant="outline"
                   size="sm"
@@ -197,7 +206,7 @@ const StudentProfile: React.FC = () => {
                 >
                   Last Month
                 </Button>
-                
+
                 <Button
                   variant="outline"
                   size="sm"
@@ -235,13 +244,13 @@ const StudentProfile: React.FC = () => {
               <div className="text-center py-8 text-muted-foreground">
                 <Calendar className="h-12 w-12 mx-auto mb-4 text-gray-300" />
                 <p>
-                  {dateRange.from && dateRange.to 
+                  {dateRange.from && dateRange.to
                     ? `No progress records found for the selected date range`
                     : 'No daily progress records found'
                   }
                 </p>
                 <p className="text-sm">
-                  {dateRange.from && dateRange.to 
+                  {dateRange.from && dateRange.to
                     ? 'Try adjusting the date range or check if progress exists for other dates'
                     : 'Progress entries will appear here once they are recorded'
                   }

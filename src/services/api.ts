@@ -193,4 +193,15 @@ export const api = {
       if (!r.ok) throw new Error(await r.text());
       return r.json();
     }),
+
+  // get student's current subjects
+  getStudentSubjects: async (studentId: string): Promise<string[]> => {
+    try {
+      const response = await fetch(buildApiUrl(`students/${studentId}/subjects`));
+      if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      return handleError(error) || [];
+    }
+  },
 };

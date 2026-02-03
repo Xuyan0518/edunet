@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Student, DailyProgress, api } from '@/services/api';
-import { ArrowLeft, User, GraduationCap, Calendar, Clock, CheckCircle, XCircle, Minus, Filter, Edit } from 'lucide-react';
+import { ArrowLeft, User, Users, GraduationCap, Calendar, Clock, CheckCircle, XCircle, Minus, Filter, Edit } from 'lucide-react';
 import { DateRangeFilter, DateRange, filterByDateRange } from '@/components/ui/date-range-filter';
 
 const StudentProfile: React.FC = () => {

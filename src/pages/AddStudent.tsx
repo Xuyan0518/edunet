@@ -63,7 +63,7 @@ const AddStudent: React.FC = () => {
           if (studentData) {
             setName(studentData.name);
             setGrade(studentData.grade);
-            setParentId(studentData.parent_id || '');
+            setParentId(studentData.parentId || studentData.parent_id || '');
             setSelectedSubjectIds(subjectIds);
           }
         })
@@ -150,7 +150,7 @@ const AddStudent: React.FC = () => {
         await api.updateStudent(editId, {
           name,
           grade,
-          parent_id: parentId || null,
+          parentId: parentId || null,
         });
 
         // Update subjects

@@ -6,12 +6,13 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Calendar as CalendarIcon, Plus, MinusCircle, CheckCircle2, Edit2, XCircle } from 'lucide-react';
+import { Calendar as CalendarIcon, Plus, MinusCircle, CheckCircle2, Edit2, XCircle, ArrowLeft } from 'lucide-react';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { format, parse } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { buildApiUrl } from '@/config/api';
+import { getAuthHeaders } from '@/utils/auth';
 
 interface Activity {
   subject: string;
@@ -66,7 +67,9 @@ const DailyProgressForm: React.FC = () => {
     let cancelled = false;
     const fetchStudents = async () => {
       try {
-        const response = await fetch(buildApiUrl('students'));
+        const response = await fetch(buildApiUrl('students'), {
+          headers: getAuthHeaders(),
+        });
         if (!response.ok) throw new Error('Network response was not ok');
         const data = await response.json();
         if (cancelled) return;
@@ -130,7 +133,10 @@ const DailyProgressForm: React.FC = () => {
         const url = `${buildApiUrl('progress/student')}?studentId=${encodeURIComponent(
           selectedStudent
         )}&date=${encodeURIComponent(dateStr)}`;
-        const response = await fetch(url, { signal: ac.signal });
+        const response = await fetch(url, { 
+          signal: ac.signal,
+          headers: getAuthHeaders(),
+        });
 
         if (!response.ok) {
           if (response.status === 404) {
@@ -236,14 +242,14 @@ const DailyProgressForm: React.FC = () => {
         // Update existing progress with PUT
         response = await fetch(buildApiUrl(`progress/${existingProgressId}`), {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getAuthHeaders(),
           body: JSON.stringify(progressEntry),
         });
       } else if (!existingProgressId) {
         // Create new progress with POST
         response = await fetch(buildApiUrl('progress'), {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getAuthHeaders(),
           body: JSON.stringify(progressEntry),
         });
       } else {
@@ -280,6 +286,17 @@ const DailyProgressForm: React.FC = () => {
 
   return (
     <div className="container mx-auto py-8 px-4 animate-fade-in max-w-4xl">
+      <div className="mb-6">
+        <Button
+          variant="ghost"
+          onClick={() => navigate('/students')}
+          className="mb-4"
+        >
+          <ArrowLeft className="h-4 w-4 mr-2" />
+          Back to Students
+        </Button>
+      </div>
+      
       <div className="mb-8">
         <h1 className="text-3xl font-bold tracking-tight">Daily Progress Entry</h1>
         <p className="text-muted-foreground mt-1">

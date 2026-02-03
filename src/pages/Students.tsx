@@ -8,6 +8,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { Student, DailyProgress, WeeklyFeedback, api } from '@/services/api';
 import { buildApiUrl } from '@/config/api';
+import { getAuthHeaders } from '@/utils/auth';
 
 type FilterType = 'all' | 'pending-daily' | 'pending-weekly';
 
@@ -29,14 +30,18 @@ const Students: React.FC = () => {
         setError(null);
         
         // Always fetch students first
-        const studentsRes = await fetch(buildApiUrl('students'));
+        const studentsRes = await fetch(buildApiUrl('students'), {
+          headers: getAuthHeaders(),
+        });
         if (!studentsRes.ok) throw new Error(`Failed to fetch students: ${studentsRes.status}`);
         const studentsData = await studentsRes.json();
         setStudents(studentsData);
         
         // Try to fetch progress and feedback, but don't fail if they error
         try {
-          const progressRes = await fetch(buildApiUrl('progress'));
+          const progressRes = await fetch(buildApiUrl('progress'), {
+            headers: getAuthHeaders(),
+          });
           if (progressRes.ok) {
             const progressData = await progressRes.json();
             setDailyProgress(progressData);
@@ -47,7 +52,9 @@ const Students: React.FC = () => {
         }
         
         try {
-          const feedbackRes = await fetch(buildApiUrl('feedback'));
+          const feedbackRes = await fetch(buildApiUrl('feedback'), {
+            headers: getAuthHeaders(),
+          });
           if (feedbackRes.ok) {
             const feedbackData = await feedbackRes.json();
             setWeeklyFeedback(feedbackData);
@@ -134,7 +141,7 @@ const Students: React.FC = () => {
 
   const visibleStudents = role === 'teacher'
     ? getFilteredStudents()
-    : students.filter((s) => s.parent_id === user?.id);
+    : students.filter((s) => (s.parentId || s.parent_id) === user?.id);
 
   const getStatusBadge = (student: Student) => {
     const dailyStatus = getTodayProgressStatus(student.id);

@@ -6,12 +6,13 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Calendar as CalendarIcon, Plus, MinusCircle, CheckCircle2, Edit2, XCircle } from 'lucide-react';
+import { Calendar as CalendarIcon, Plus, MinusCircle, CheckCircle2, Edit2, XCircle, ArrowLeft } from 'lucide-react';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { format, addDays, parse } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { buildApiUrl } from '@/config/api';
+import { getAuthHeaders } from '@/utils/auth';
 
 interface WeeklyFeedbackEntry {
   id?: string;
@@ -83,7 +84,9 @@ const WeeklyFeedbackForm: React.FC = () => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(buildApiUrl('students'));
+        const res = await fetch(buildApiUrl('students'), {
+          headers: getAuthHeaders(),
+        });
         if (!res.ok) throw new Error('Network response was not ok');
         const data = await res.json();
         if (cancelled) return;
@@ -151,7 +154,10 @@ const WeeklyFeedbackForm: React.FC = () => {
         const url = `${buildApiUrl('feedback/one')}?studentId=${encodeURIComponent(
           selectedStudent
         )}&weekStarting=${encodeURIComponent(startStr)}`;
-        const res = await fetch(url, { signal: ac.signal });
+        const res = await fetch(url, { 
+          signal: ac.signal,
+          headers: getAuthHeaders(),
+        });
         if (!res.ok) throw new Error('Failed to fetch weekly feedback');
         const data: WeeklyFeedbackEntry | null = await res.json();
 
@@ -261,14 +267,14 @@ const WeeklyFeedbackForm: React.FC = () => {
       if (existingId && isEditing) {
         res = await fetch(buildApiUrl(`feedback/${existingId}`), {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getAuthHeaders(),
           body: JSON.stringify({ ...payload, id: existingId }),
           // backend accepts id in body
         });
       } else if (!existingId) {
         res = await fetch(buildApiUrl('feedback'), {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getAuthHeaders(),
           body: JSON.stringify(payload),
         });
       } else {
@@ -299,6 +305,17 @@ const WeeklyFeedbackForm: React.FC = () => {
   // UI
   return (
     <div className="container mx-auto py-8 px-4 animate-fade-in">
+      <div className="mb-6">
+        <Button
+          variant="ghost"
+          onClick={() => navigate('/students')}
+          className="mb-4"
+        >
+          <ArrowLeft className="h-4 w-4 mr-2" />
+          Back to Students
+        </Button>
+      </div>
+      
       <div className="mb-8">
         <h1 className="text-3xl font-bold tracking-tight">Weekly Feedback</h1>
         <p className="text-muted-foreground mt-1">

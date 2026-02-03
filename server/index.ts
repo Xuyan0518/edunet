@@ -32,6 +32,9 @@ import {
 } from './schema';
 
 import { generateVerificationToken, sendVerificationEmail, sendVerificationEmailFallback } from './utils/emailVerification';
+import { generateToken } from './utils/auth';
+import { authenticate, requireTeacher, requireParent, requireAdmin } from './middleware/auth';
+import { verifyParentStudentAccess } from './middleware/parentStudent';
 
 dotenv.config();
 
@@ -283,16 +286,27 @@ app.delete('/api/parents/:id', async (req, res) => {
 
 // ========== STUDENT ROUTES ==========
 
-app.get('/api/students', async (_, res) => {
+// Get all students (teachers see all, parents see only their children)
+app.get('/api/students', authenticate, async (req, res) => {
   try {
-    const result = await db.select().from(studentsTable);
-    res.json(result);
+    if (req.user?.role === 'parent') {
+      // Parents only see their own children
+      const result = await db
+        .select()
+        .from(studentsTable)
+        .where(eq(studentsTable.parentId, req.user.id));
+      res.json(result);
+    } else {
+      // Teachers and admins see all students
+      const result = await db.select().from(studentsTable);
+      res.json(result);
+    }
   } catch (err) {
     res.status(500).json({ error: 'Database error' });
   }
 });
 
-app.get('/api/students/:id', async (req, res) => {
+app.get('/api/students/:id', authenticate, verifyParentStudentAccess, async (req, res) => {
   const id = req.params.id;
   try {
     console.log(`Fetching student with ID: ${id}`);
@@ -310,31 +324,47 @@ app.get('/api/students/:id', async (req, res) => {
   }
 });
 
-app.post('/api/students', async (req, res) => {
-  const parsed = StudentSchema.safeParse(req.body);
+app.post('/api/students', authenticate, requireTeacher, async (req, res) => {
+  // Normalize parentId field (handle both parentId and parent_id from frontend)
+  const body = { ...req.body };
+  if (body.parent_id && !body.parentId) {
+    body.parentId = body.parent_id;
+    delete body.parent_id;
+  }
+  
+  const parsed = StudentSchema.safeParse(body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   try {
     const result = await db.insert(studentsTable).values(parsed.data).returning();
     res.status(201).json(result[0]);
   } catch (err) {
+    console.error('Error creating student:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
 
-app.put('/api/students/:id', async (req, res) => {
+app.put('/api/students/:id', authenticate, requireTeacher, async (req, res) => {
   const id = req.params.id;
-  const parsed = StudentSchema.safeParse({ ...req.body, id });
+  // Normalize parentId field (handle both parentId and parent_id from frontend)
+  const body = { ...req.body };
+  if (body.parent_id && !body.parentId) {
+    body.parentId = body.parent_id;
+    delete body.parent_id;
+  }
+  
+  const parsed = StudentSchema.safeParse({ ...body, id });
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   try {
     const result = await db.update(studentsTable).set(parsed.data).where(eq(studentsTable.id, id)).returning();
     if (!result.length) return res.status(404).json({ error: 'Student not found' });
     res.json(result[0]);
   } catch (err) {
+    console.error('Error updating student:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
 
-app.delete('/api/students/:id', async (req, res) => {
+app.delete('/api/students/:id', authenticate, requireTeacher, async (req, res) => {
   const id = req.params.id;
   try {
     const result = await db.delete(studentsTable).where(eq(studentsTable.id, id)).returning();
@@ -581,14 +611,23 @@ app.post('/api/admin/login', async (req, res) => {
 
     // Exclude password from response
     const { password: _, ...adminInfo } = admin;
-
-    // Here you could generate a token (JWT) if you want
+    
+    const user = {
+      ...adminInfo,
+      role: 'admin' as const
+    };
+    
+    // Generate token
+    const token = generateToken({
+      id: user.id,
+      role: 'admin',
+      email: user.email,
+      name: user.name,
+    });
 
     return res.json({
-      user: {
-        ...adminInfo,
-        role: 'admin',
-      }
+      user,
+      token
     });
 
   } catch (error) {
@@ -598,13 +637,13 @@ app.post('/api/admin/login', async (req, res) => {
 });
 
 
-app.get('/api/admin/pending', async (req, res) => {
+app.get('/api/admin/pending', authenticate, requireAdmin, async (req, res) => {
   const parents = await db.select().from(parentsTable).where(eq(parentsTable.status, 'pending'));
   const teachers = await db.select().from(teachersTable).where(eq(teachersTable.status, 'pending'));
   res.json({ parents, teachers });
 });
 
-app.post('/api/admin/approve', async (req, res) => {
+app.post('/api/admin/approve', authenticate, requireAdmin, async (req, res) => {
   const { id, role } = req.body;
   if (role === 'parent') {
     await db.update(parentsTable).set({ status: 'approved' }).where(eq(parentsTable.id, id));
@@ -614,7 +653,7 @@ app.post('/api/admin/approve', async (req, res) => {
   res.json({ success: true });
 });
 
-app.post('/api/admin/reject', async (req, res) => {
+app.post('/api/admin/reject', authenticate, requireAdmin, async (req, res) => {
   const { id, role } = req.body;
   if (role === 'parent') {
     await db.update(parentsTable).set({ status: 'rejected' }).where(eq(parentsTable.id, id));
@@ -626,7 +665,7 @@ app.post('/api/admin/reject', async (req, res) => {
 
 // ========== DAILY PROGRESS ROUTES ==========
 // More specific routes must come before general routes
-app.get('/api/progress/student', async (req, res) => {
+app.get('/api/progress/student', authenticate, verifyParentStudentAccess, async (req, res) => {
   const { studentId, date } = req.query;
 
   console.log('Progress student request:', { studentId, date });
@@ -709,7 +748,7 @@ app.get('/api/progress', async (_, res) => {
 */
 
 // Get all progress for a specific student
-app.get('/api/students/:studentId/progress', async (req, res) => {
+app.get('/api/students/:studentId/progress', authenticate, verifyParentStudentAccess, async (req, res) => {
   const { studentId } = req.params;
 
   try {
@@ -740,7 +779,7 @@ app.get('/api/students/:studentId/progress', async (req, res) => {
 });
 
 // Return empty array for now until tables are created
-app.get('/api/progress', async (_, res) => {
+app.get('/api/progress', authenticate, requireTeacher, async (_, res) => {
   try {
     console.log('Fetching all daily progress...');
     const result = await db.select().from(dailyProgress).orderBy(desc(dailyProgress.date));
@@ -783,7 +822,7 @@ app.get('/api/feedback', async (_, res) => {
   res.json([]);
 });
 
-app.post('/api/progress', async (req, res) => {
+app.post('/api/progress', authenticate, requireTeacher, async (req, res) => {
   try {
     console.log('Received progress data:', req.body);
     
@@ -821,7 +860,7 @@ app.post('/api/progress', async (req, res) => {
   }
 });
 
-app.put('/api/progress/:id', async (req, res) => {
+app.put('/api/progress/:id', authenticate, requireTeacher, async (req, res) => {
   const id = req.params.id;
   try {
     const { studentId, date, attendance, activities } = req.body;
@@ -847,7 +886,7 @@ app.put('/api/progress/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/progress/:id', async (req, res) => {
+app.delete('/api/progress/:id', authenticate, requireTeacher, async (req, res) => {
   const id = req.params.id;
   try {
     const result = await db.delete(dailyProgress).where(eq(dailyProgress.id, id)).returning();
@@ -860,7 +899,7 @@ app.delete('/api/progress/:id', async (req, res) => {
 });
 
 // GET /api/progress/list?studentId=...
-app.get('/api/progress/list', async (req, res) => {
+app.get('/api/progress/list', authenticate, verifyParentStudentAccess, async (req, res) => {
   const { studentId } = req.query;
   if (!studentId) return res.status(400).json({ error: 'Missing studentId' });
 
@@ -880,7 +919,7 @@ app.get('/api/progress/list', async (req, res) => {
 
 // ========== WEEKLY FEEDBACK ROUTES ==========
 
-app.get('/api/feedback', async (_, res) => {
+app.get('/api/feedback', authenticate, requireTeacher, async (_, res) => {
   try {
     const result = await db.select().from(weeklyFeedback).orderBy(desc(weeklyFeedback.weekStarting));
     res.json(result);
@@ -890,7 +929,7 @@ app.get('/api/feedback', async (_, res) => {
   }
 });
 
-app.post('/api/feedback', async (req, res) => {
+app.post('/api/feedback', authenticate, requireTeacher, async (req, res) => {
   const body = {...req.body, weekStarting: new Date(req.body.weekStarting), weekEnding: new Date(req.body.weekEnding)}
   const parsed = WeeklyFeedbackSchema.safeParse(body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
@@ -909,7 +948,7 @@ app.post('/api/feedback', async (req, res) => {
   }
 });
 
-app.put('/api/feedback/:id', async (req, res) => {
+app.put('/api/feedback/:id', authenticate, requireTeacher, async (req, res) => {
   const body = {...req.body, id: req.params.id, weekStarting: new Date(req.body.weekStarting), weekEnding: new Date(req.body.weekEnding)}
   const parsed = WeeklyFeedbackSchema.safeParse(body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
@@ -933,7 +972,7 @@ app.put('/api/feedback/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/feedback/:id', async (req, res) => {
+app.delete('/api/feedback/:id', authenticate, requireTeacher, async (req, res) => {
   try {
     const result = await db.delete(weeklyFeedback).where(eq(weeklyFeedback.id, req.params.id)).returning();
     if (!result.length) return res.status(404).json({ error: 'Not found' });
@@ -945,7 +984,7 @@ app.delete('/api/feedback/:id', async (req, res) => {
 });
 
 // GET /api/feedback/one?studentId=...&weekStarting=yyyy-MM-dd
-app.get('/api/feedback/one', async (req, res) => {
+app.get('/api/feedback/one', authenticate, verifyParentStudentAccess, async (req, res) => {
   const { studentId, weekStarting } = req.query;
   if (!studentId || !weekStarting) return res.status(400).json({ error: 'Missing query' });
 
@@ -973,7 +1012,7 @@ app.get('/api/feedback/one', async (req, res) => {
 });
 
 // GET /api/feedback/list?studentId=...
-app.get('/api/feedback/list', async (req, res) => {
+app.get('/api/feedback/list', authenticate, verifyParentStudentAccess, async (req, res) => {
   const { studentId } = req.query;
   if (!studentId) return res.status(400).json({ error: 'Missing studentId' });
 
@@ -1020,11 +1059,22 @@ app.post('/api/login', async (req, res) => {
       }
 
       const { password: _, ...parentInfo } = parent[0];
+      const user = {
+        ...parentInfo,
+        role: 'parent' as const
+      };
+      
+      // Generate token
+      const token = generateToken({
+        id: user.id,
+        role: 'parent',
+        email: user.email,
+        name: user.name,
+      });
+      
       return res.json({
-        user: {
-          ...parentInfo,
-          role: 'parent'
-        }
+        user,
+        token
       });
     }
 
@@ -1050,11 +1100,22 @@ app.post('/api/login', async (req, res) => {
       }
 
       const { password: _, ...teacherInfo } = teacher[0];
+      const user = {
+        ...teacherInfo,
+        role: 'teacher' as const
+      };
+      
+      // Generate token
+      const token = generateToken({
+        id: user.id,
+        role: 'teacher',
+        email: user.email,
+        name: user.name,
+      });
+      
       return res.json({
-        user: {
-          ...teacherInfo,
-          role: 'teacher'
-        }
+        user,
+        token
       });
     }
 

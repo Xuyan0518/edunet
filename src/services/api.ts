@@ -2,6 +2,7 @@
 import { toast } from 'sonner';
 
 import { buildApiUrl } from '@/config/api';
+import { getAuthHeaders } from '@/utils/auth';
 
 // ... existing code ...
 
@@ -17,7 +18,8 @@ export interface Student {
   id: string;
   name: string;
   grade: string;
-  parent_id?: string | null;
+  parentId?: string | null; // Changed from parent_id to match Drizzle ORM response
+  parent_id?: string | null; // Keep for backward compatibility
   createdAt: string;
 }
 
@@ -53,7 +55,9 @@ export const api = {
   // Students
   async getStudents(): Promise<Student[] | null> {
     try {
-      const response = await fetch(buildApiUrl('students'));
+      const response = await fetch(buildApiUrl('students'), {
+        headers: getAuthHeaders(),
+      });
       if (!response.ok) throw new Error(`HTTP error ${response.status}`);
       return await response.json();
     } catch (error) {
@@ -63,7 +67,9 @@ export const api = {
 
   async getStudent(id: string): Promise<Student | null> {
     try {
-      const response = await fetch(buildApiUrl(`students/${id}`));
+      const response = await fetch(buildApiUrl(`students/${id}`), {
+        headers: getAuthHeaders(),
+      });
       if (!response.ok) throw new Error(`HTTP error ${response.status}`);
       return await response.json();
     } catch (error) {
@@ -75,7 +81,7 @@ export const api = {
     try {
       const response = await fetch(buildApiUrl('students'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(student),
       });
 
@@ -94,7 +100,7 @@ export const api = {
     try {
       const response = await fetch(buildApiUrl(`students/${id}`), {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(student),
       });
       if (!response.ok) throw new Error(`HTTP error ${response.status}`);
@@ -108,7 +114,9 @@ export const api = {
 
   async getUnassignedParents(): Promise<{ id: string; name: string }[]> {
     try {
-      const response = await fetch(buildApiUrl('parents/unassigned'));
+      const response = await fetch(buildApiUrl('parents/unassigned'), {
+        headers: getAuthHeaders(),
+      });
       if (!response.ok) throw new Error(`HTTP error ${response.status}`);
       return await response.json();
     } catch (error) {
@@ -129,7 +137,9 @@ export const api = {
   // Daily Progress
   async getStudentProgress(studentId: string): Promise<DailyProgress[] | null> {
     try {
-      const response = await fetch(buildApiUrl(`students/${studentId}/progress`));
+      const response = await fetch(buildApiUrl(`students/${studentId}/progress`), {
+        headers: getAuthHeaders(),
+      });
       if (!response.ok) throw new Error(`HTTP error ${response.status}`);
       return await response.json();
     } catch (error) {
@@ -141,7 +151,7 @@ export const api = {
     try {
       const response = await fetch(buildApiUrl('progress'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(progress),
       });
       if (!response.ok) throw new Error(`HTTP error ${response.status}`);
@@ -156,7 +166,9 @@ export const api = {
   // Weekly Feedback
   async getStudentFeedback(studentId: string): Promise<WeeklyFeedback[] | null> {
     try {
-      const response = await fetch(buildApiUrl(`students/${studentId}/feedback`));
+      const response = await fetch(buildApiUrl(`students/${studentId}/feedback`), {
+        headers: getAuthHeaders(),
+      });
       if (!response.ok) throw new Error(`HTTP error ${response.status}`);
       return await response.json();
     } catch (error) {
@@ -168,7 +180,7 @@ export const api = {
     try {
       const response = await fetch(buildApiUrl('feedback'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(feedback),
       });
       if (!response.ok) throw new Error(`HTTP error ${response.status}`);
@@ -181,13 +193,15 @@ export const api = {
   },
 
   listSubjects: async () =>
-    fetch('/api/subjects').then(r => r.json()),
+    fetch(buildApiUrl('subjects'), {
+      headers: getAuthHeaders(),
+    }).then(r => r.json()),
 
   // assign (replace) subjects via PUT /api/students/:studentId/subjects
   replaceStudentSubjects: async (studentId: string, subjectIds: string[]) =>
-    fetch(`/api/students/${studentId}/subjects`, {
+    fetch(buildApiUrl(`students/${studentId}/subjects`), {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify({ subjectIds }),
     }).then(async r => {
       if (!r.ok) throw new Error(await r.text());
@@ -197,7 +211,9 @@ export const api = {
   // get student's current subjects
   getStudentSubjects: async (studentId: string): Promise<string[]> => {
     try {
-      const response = await fetch(buildApiUrl(`students/${studentId}/subjects`));
+      const response = await fetch(buildApiUrl(`students/${studentId}/subjects`), {
+        headers: getAuthHeaders(),
+      });
       if (!response.ok) throw new Error(`HTTP error ${response.status}`);
       return await response.json();
     } catch (error) {

@@ -2,6 +2,7 @@ import * as React from "react";
 import { format, parseISO } from "date-fns";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { buildApiUrl } from "@/config/api";
+import { getAuthHeaders } from "@/utils/auth";
 
 type WeeklyFeedbackEntry = {
   id: string;
@@ -30,7 +31,9 @@ const WeeklyFeedbackPanel: React.FC<WeeklyFeedbackPanelProps> = ({ studentId, we
   React.useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(buildApiUrl(`students/${studentId}`));
+        const res = await fetch(buildApiUrl(`students/${studentId}`), {
+          headers: getAuthHeaders(),
+        });
         if (res.ok) {
           const s = await res.json();
           setStudentName(s.name);
@@ -50,12 +53,16 @@ const WeeklyFeedbackPanel: React.FC<WeeklyFeedbackPanelProps> = ({ studentId, we
       try {
         if (weekStarting) {
           const qs = `studentId=${encodeURIComponent(studentId)}&weekStarting=${encodeURIComponent(weekStarting)}`;
-          const res = await fetch(buildApiUrl(`feedback/one?${qs}`));
+          const res = await fetch(buildApiUrl(`feedback/one?${qs}`), {
+            headers: getAuthHeaders(),
+          });
           if (!res.ok) throw new Error("Failed to fetch weekly feedback (one)");
           const one: WeeklyFeedbackEntry | null = await res.json();
           if (!cancelled) setEntries(one ? [one] : []);
         } else {
-          const res = await fetch(buildApiUrl(`feedback/list?studentId=${encodeURIComponent(studentId)}`));
+          const res = await fetch(buildApiUrl(`feedback/list?studentId=${encodeURIComponent(studentId)}`), {
+            headers: getAuthHeaders(),
+          });
           if (!res.ok) throw new Error("Failed to fetch weekly feedback list");
           const list: WeeklyFeedbackEntry[] = await res.json();
           if (!cancelled) setEntries(list);

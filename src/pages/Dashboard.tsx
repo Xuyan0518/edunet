@@ -168,10 +168,10 @@ const Dashboard: React.FC = () => {
         ) : (
           <>
             <DashboardCard
-              title="You are signed in as a parent"
-              description="View your child's profile"
+              title="My Children"
+              description="View your child's profile and progress"
               icon={<Users className="h-6 w-6 text-blue-500" />}
-              link="/student-profile"
+              link="/students"
             />
             {/* <DashboardCard
               title="Daily Progress"

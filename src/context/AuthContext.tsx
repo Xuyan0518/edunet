@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner'; // Fix the import
 import { buildApiUrl } from '@/config/api';
+import { saveAuthToken, removeAuthToken } from '@/utils/auth';
 
 export type UserRole = 'teacher' | 'parent' | null;
 
@@ -52,6 +53,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(data.user);
         setIsAuthenticated(true);
         localStorage.setItem('edunet-user', JSON.stringify(data.user));
+        
+        // Save token if provided
+        if (data.token) {
+          saveAuthToken(data.token);
+        }
+        
         toast.success(`Welcome back, ${data.user.name}!`);
         return true;
       } else {
@@ -73,6 +80,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
     setIsAuthenticated(false);
     localStorage.removeItem('edunet-user');
+    removeAuthToken();
     toast.success('Logged out successfully.');
     navigate('/login');
   };

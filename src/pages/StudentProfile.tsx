@@ -37,9 +37,31 @@ const StudentProfile: React.FC = () => {
       };
       fetchStudent();
     } else {
-      setLoading(false);
+      // If no student ID, fetch all children for parent or all students for teacher
+      const fetchChildren = async () => {
+        try {
+          const studentsData = await api.getStudents();
+          if (studentsData) {
+            if (role === 'parent') {
+              // Filter to only show parent's children
+              const children = studentsData.filter(
+                (s) => (s.parentId || s.parent_id) === user?.id
+              );
+              setChildrenStudentsList(children);
+            } else {
+              // For teachers, show all students
+              setChildrenStudentsList(studentsData);
+            }
+          }
+        } catch (error) {
+          console.error('Failed to fetch children:', error);
+        } finally {
+          setLoading(false);
+        }
+      };
+      fetchChildren();
     }
-  }, [id]);
+  }, [id, role, user?.id]);
 
   // Fetch daily progress when student is loaded
   useEffect(() => {
@@ -334,26 +356,49 @@ const StudentProfile: React.FC = () => {
     );
   } else {
     // Parent sees only their children
+    if (loading) {
+      return (
+        <div className="container mx-auto py-8 px-4 animate-fade-in">
+          <div className="flex items-center justify-center py-12">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+              <p className="text-muted-foreground">Loading children...</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="container mx-auto py-8 px-4 animate-fade-in">
         <h1 className="text-3xl font-bold tracking-tight mb-4">My Child(ren)</h1>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {(childrenStudentsList || []).map(student => (
-            <Card
-              key={student.id}
-              className="hover-card cursor-pointer"
-              onClick={() => navigate(`/student/${student.id}`, { state: { student } })}
-            >
-              <CardHeader>
-                <CardTitle>{student.name}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p>Grade: {student.grade}</p>
-                <Badge>{student.grade}</Badge>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        {childrenStudentsList.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {childrenStudentsList.map(student => (
+              <Card
+                key={student.id}
+                className="hover-card cursor-pointer"
+                onClick={() => navigate(`/student/${student.id}`, { state: { student } })}
+              >
+                <CardHeader>
+                  <CardTitle>{student.name}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p>Grade: {student.grade}</p>
+                  <Badge>{student.grade}</Badge>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-12">
+            <Users className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+            <p className="text-muted-foreground">No children assigned to your account.</p>
+            <p className="text-sm text-muted-foreground mt-2">
+              Please contact the administrator to assign your child to your account.
+            </p>
+          </div>
+        )}
       </div>
     );
   }

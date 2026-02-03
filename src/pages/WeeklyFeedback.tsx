@@ -12,14 +12,6 @@ const WeeklyFeedback: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState("form");
 
-  // if (!studentId) {
-  //   return (
-  //     <div className="container mx-auto py-8 px-4 max-w-2xl">
-  //       <p className="text-red-600">Error: studentId query parameter is required.</p>
-  //     </div>
-  //   );
-  // }
-
   return (
     <div className="container mx-auto py-8 px-4 max-w-4xl animate-fade-in">
       <h1 className="text-3xl font-bold mb-6">Weekly Feedback</h1>

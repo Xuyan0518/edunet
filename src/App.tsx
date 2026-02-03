@@ -42,6 +42,26 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   );
 };
 
+// Teacher-only route component
+const TeacherRoute = ({ children }: { children: React.ReactNode }) => {
+  const { isAuthenticated, role } = useAuth();
+  
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+  
+  if (role !== 'teacher') {
+    return <Navigate to="/dashboard" replace />;
+  }
+  
+  return (
+    <>
+      <Navbar />
+      <PageTransition>{children}</PageTransition>
+    </>
+  );
+};
+
 // App Routes setup
 const AppRoutes = () => {
   return (
@@ -73,17 +93,17 @@ const AppRoutes = () => {
       <Route
         path="/daily-progress"
         element={
-          <ProtectedRoute>
+          <TeacherRoute>
             <DailyProgress />
-          </ProtectedRoute>
+          </TeacherRoute>
         }
       />
       <Route
         path="/weekly-feedback"
         element={
-          <ProtectedRoute>
+          <TeacherRoute>
             <WeeklyFeedback />
-          </ProtectedRoute>
+          </TeacherRoute>
         }
       />
       <Route
@@ -102,7 +122,14 @@ const AppRoutes = () => {
           </ProtectedRoute>
         }
       />
-      <Route path="/add-student" element={<AddStudent />} />
+      <Route
+        path="/add-student"
+        element={
+          <TeacherRoute>
+            <AddStudent />
+          </TeacherRoute>
+        }
+      />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );

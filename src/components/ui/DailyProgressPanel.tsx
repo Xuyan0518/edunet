@@ -2,6 +2,7 @@ import * as React from "react";
 import { format, parseISO } from "date-fns";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { buildApiUrl } from "@/config/api";
+import { getAuthHeaders } from "@/utils/auth";
 
 type Activity = {
   subject: string;
@@ -33,7 +34,9 @@ const DailyProgressPanel: React.FC<DailyProgressPanelProps> = ({ studentId, date
   React.useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(buildApiUrl(`students/${studentId}`));
+        const res = await fetch(buildApiUrl(`students/${studentId}`), {
+          headers: getAuthHeaders(),
+        });
         if (res.ok) {
           const s = await res.json();
           setStudentName(s.name);
@@ -56,7 +59,9 @@ const DailyProgressPanel: React.FC<DailyProgressPanelProps> = ({ studentId, date
 
         if (date) {
           const qs = `studentId=${encodeURIComponent(studentId)}&date=${encodeURIComponent(date)}`;
-          res = await fetch(buildApiUrl(`progress/student?${qs}`));
+          res = await fetch(buildApiUrl(`progress/student?${qs}`), {
+            headers: getAuthHeaders(),
+          });
           if (!res.ok) {
             if (res.status === 404) {
               if (!cancelled) setEntries([]);
@@ -67,7 +72,9 @@ const DailyProgressPanel: React.FC<DailyProgressPanelProps> = ({ studentId, date
           const one: DailyProgressEntry = await res.json();
           if (!cancelled) setEntries(one ? [one] : []);
         } else {
-          res = await fetch(buildApiUrl(`progress/list?studentId=${encodeURIComponent(studentId)}`));
+          res = await fetch(buildApiUrl(`progress/list?studentId=${encodeURIComponent(studentId)}`), {
+            headers: getAuthHeaders(),
+          });
           if (!res.ok) throw new Error("Failed to fetch progress list");
           const list: DailyProgressEntry[] = await res.json();
           if (!cancelled) setEntries(list);

@@ -1,9 +1,10 @@
 # Deploy Vite SPA to GitHub Pages
+# IMPORTANT: In repo Settings → Pages → Source, choose "GitHub Actions" (not "Deploy from a branch")
 name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "master"]
   workflow_dispatch:
 
 permissions:
@@ -28,10 +29,17 @@ jobs:
 
       - run: npm ci
 
-      # Base path must match repo name for GitHub Pages (e.g. https://user.github.io/edunet/)
-      - run: npm run build
+      # Base path must match GitHub Pages URL (lowercase): https://user.github.io/repo-name/
+      - name: Build for GitHub Pages
+        run: npm run build
         env:
           BASE_PATH: /${{ github.event.repository.name }}/
+
+      - name: Verify build output
+        run: |
+          echo "BASE_PATH was: /${{ github.event.repository.name }}/"
+          grep -E '(base href|src=)' dist/index.html | head -5
+          ls -la dist/
 
       - uses: actions/upload-pages-artifact@v3
         with:

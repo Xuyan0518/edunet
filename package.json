@@ -9,6 +9,7 @@
     "dev:studio": "drizzle-kit studio --config drizzle.config.ts",
     "dev:api": "tsx watch server/index.ts",
     "build": "vite build",
+    "build:gh-pages": "BASE_PATH=/edunet/ vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",

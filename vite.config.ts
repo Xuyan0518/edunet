@@ -4,6 +4,20 @@ import path from "path";
 import fs from "fs";
 import { componentTagger } from "lovable-tagger";
 
+// Inject correct base href into index.html for GitHub Pages (so assets and relative URLs resolve)
+function baseHrefPlugin() {
+  const base = process.env.BASE_PATH ?? "/";
+  return {
+    name: "base-href",
+    transformIndexHtml(html: string) {
+      return html.replace(
+        /<base href="[^"]*" data-base-placeholder \/>/,
+        `<base href="${base}" />`
+      );
+    },
+  };
+}
+
 // Copy index.html to 404.html for GitHub Pages SPA fallback (so /repo/dashboard etc. load the app)
 function copy404Plugin() {
   return {
@@ -38,6 +52,7 @@ export default defineConfig(({ mode }) => ({
   plugins: [
     react(),
     mode === "development" && componentTagger(),
+    baseHrefPlugin(),
     copy404Plugin(),
   ].filter(Boolean),
   resolve: {

@@ -1,0 +1,58 @@
+.group-title {
+  font-weight: 700;
+  margin-top: 12rpx;
+}
+
+.field-label {
+  font-size: 24rpx;
+  color: #475569;
+  margin-bottom: 6rpx;
+}
+
+.subject-title {
+  font-weight: 600;
+  color: #1e293b;
+  margin-top: 10rpx;
+}
+
+.school-title {
+  color: #64748b;
+  margin-top: 6rpx;
+}
+
+.paper-item {
+  padding: 12rpx 0;
+  border-bottom: 1rpx solid #e2e8f0;
+}
+
+.paper-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+
+.paper-meta {
+  align-items: center;
+  gap: 12rpx;
+}
+
+.paper-date {
+  color: #475569;
+}
+
+.paper-score-strong {
+  padding: 4rpx 12rpx;
+  border-radius: 999rpx;
+  background: #e0ecff;
+  color: #1d4ed8;
+  font-weight: 700;
+}
+
+.paper-score {
+  align-items: center;
+  gap: 8rpx;
+}
+
+.score-input {
+  width: 160rpx;
+}

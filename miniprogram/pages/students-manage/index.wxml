@@ -1,0 +1,30 @@
+<view class="container">
+  <view class="hero">
+    <view class="title">学生管理</view>
+    <view class="subtitle">删除学生档案</view>
+    <input class="input" placeholder="搜索学生..." bindinput="onSearch" />
+  </view>
+
+  <view class="card">
+    <block wx:if="{{loading}}">
+      <view class="list-item muted">加载中...</view>
+    </block>
+    <block wx:elif="{{filtered.length === 0}}">
+      <view class="list-item muted">暂无学生</view>
+    </block>
+    <block wx:else>
+      <block wx:for="{{filtered}}" wx:key="id">
+        <view class="list-item row-between">
+          <view class="subject-text">
+            <view class="subject-name">{{item.name}}</view>
+            <view class="muted subject-meta">年级 {{item.grade}} · {{item.parentLabel}}</view>
+          </view>
+          <view class="row">
+            <button class="btn-outline" size="mini" data-id="{{item.id}}" bindtap="editStudent">编辑</button>
+            <button class="btn-outline" size="mini" data-id="{{item.id}}" bindtap="deleteStudent">删除</button>
+          </view>
+        </view>
+      </block>
+    </block>
+  </view>
+</view>

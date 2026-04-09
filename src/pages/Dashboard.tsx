@@ -5,6 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Plus, Calendar, BookOpen, MessageSquare, Users, BookCheck } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { useI18n } from '@/context/I18nContext';
 import {Badge} from '@/components/ui/badge';
 import { dailyProgress, students, weeklyFeedback } from '@/utils/demoData';
 import { Link } from 'react-router-dom';
@@ -17,6 +18,7 @@ interface DashboardCardProps {
 }
 
 const DashboardCard: React.FC<DashboardCardProps> = ({ title, description, icon, link }) => {
+  const { t } = useI18n();
   return (
     <Card className="hover-card">
       <CardHeader>
@@ -26,7 +28,7 @@ const DashboardCard: React.FC<DashboardCardProps> = ({ title, description, icon,
       <CardContent className="flex items-center justify-between">
         {icon}
         <Button asChild>
-          <Link to={link}>View More</Link>
+          <Link to={link}>{t('nav.viewMore')}</Link>
         </Button>
       </CardContent>
     </Card>
@@ -124,6 +126,7 @@ const DashboardCard: React.FC<DashboardCardProps> = ({ title, description, icon,
 
 const Dashboard: React.FC = () => {
   const { user, role } = useAuth();
+  const { t } = useI18n();
   const [studentCount, setStudentCount] = useState(students.length);
   const [progressCount, setProgressCount] = useState(dailyProgress.length);
   const [feedbackCount, setFeedbackCount] = useState(weeklyFeedback.length);
@@ -131,9 +134,11 @@ const Dashboard: React.FC = () => {
   return (
     <div className="container mx-auto py-8 px-4 animate-fade-in">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
+        <h1 className="text-3xl font-bold tracking-tight">{t('dashboard.title')}</h1>
         <p className="text-muted-foreground mt-1">
-          Welcome, {user?.name}! {role === 'teacher' ? 'Manage your classroom' : 'Track your child\'s progress'}
+          {role === 'teacher'
+            ? t('dashboard.welcome.teacher', { name: user?.name ?? '' })
+            : t('dashboard.welcome.parent', { name: user?.name ?? '' })}
         </p>
       </div>
 
@@ -141,8 +146,8 @@ const Dashboard: React.FC = () => {
         {role === 'teacher' ? (
           <>
             <DashboardCard
-              title="Students"
-              description="Manage student profiles"
+              title={t('dashboard.card.students.title')}
+              description={t('dashboard.card.students.desc')}
               icon={<Users className="h-6 w-6 text-blue-500" />}
               link="/students"
             />
@@ -168,8 +173,8 @@ const Dashboard: React.FC = () => {
         ) : (
           <>
             <DashboardCard
-              title="My Children"
-              description="View your child's profile and progress"
+              title={t('dashboard.card.children.title')}
+              description={t('dashboard.card.children.desc')}
               icon={<Users className="h-6 w-6 text-blue-500" />}
               link="/students"
             />

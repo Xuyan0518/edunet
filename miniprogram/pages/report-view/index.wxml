@@ -1,0 +1,10 @@
+<view class="container">
+  <view class="hero">
+    <view class="title">{{title}}</view>
+    <view class="subtitle">{{subtitle}}</view>
+  </view>
+
+  <view class="section card">
+    <view class="report-content" selectable="true">{{content || "暂无内容"}}</view>
+  </view>
+</view>

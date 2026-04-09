@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { Badge } from '@/components/ui/badge';
+import { useI18n } from '@/context/I18nContext';
 
 const Login: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -17,6 +17,7 @@ const Login: React.FC = () => {
   const { login } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { language, setLanguage, t } = useI18n();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -26,8 +27,8 @@ const Login: React.FC = () => {
       // Simple validation
       if (!email.trim() || !password.trim()) {
         toast({
-          title: "Error",
-          description: "Please enter both email and password",
+          title: t('toast.title.error'),
+          description: t('login.toast.missing'),
           variant: "destructive",
         });
         return;
@@ -41,8 +42,8 @@ const Login: React.FC = () => {
     } catch (error) {
       console.error('Login error:', error);
       toast({
-        title: "Login failed",
-        description: "Please check your credentials and try again",
+        title: t('toast.title.error'),
+        description: t('login.toast.failed'),
         variant: "destructive",
       });
     } finally {
@@ -55,20 +56,20 @@ const Login: React.FC = () => {
       <div className="w-full max-w-md space-y-8">
         <div className="text-center space-y-2">
           <h1 className="text-4xl font-bold tracking-tight text-foreground">EduNet</h1>
-          <p className="text-muted-foreground">Bridging the gap between teachers and parents</p>
+          <p className="text-muted-foreground">{t('login.subtitle')}</p>
         </div>
 
         <Card className="glass-card shadow-lg animate-fade-in">
           <CardHeader>
-            <CardTitle className="text-2xl text-center">Sign In</CardTitle>
+            <CardTitle className="text-2xl text-center">{t('login.title')}</CardTitle>
             <CardDescription className="text-center">
-              Enter your credentials to access your account
+              {t('login.desc')}
             </CardDescription>
           </CardHeader>
           <form onSubmit={handleSubmit}>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="role">I am a</Label>
+                <Label htmlFor="role">{t('login.role.label')}</Label>
                 <RadioGroup
                   value={role}
                   onValueChange={(value) => setRole(value as 'parent' | 'teacher')}
@@ -76,36 +77,36 @@ const Login: React.FC = () => {
                 >
                   <div className="flex items-center space-x-2">
                     <RadioGroupItem value="parent" id="parent" />
-                    <Label htmlFor="parent" className="cursor-pointer">Parent</Label>
+                    <Label htmlFor="parent" className="cursor-pointer">{t('login.role.parent')}</Label>
                   </div>
                   <div className="flex items-center space-x-2">
                     <RadioGroupItem value="teacher" id="teacher" />
-                    <Label htmlFor="teacher" className="cursor-pointer">Teacher</Label>
+                    <Label htmlFor="teacher" className="cursor-pointer">{t('login.role.teacher')}</Label>
                   </div>
                 </RadioGroup>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email">{t('login.email.label')}</Label>
                 <Input
                   id="email"
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="Enter your email"
+                  placeholder={t('login.email.placeholder')}
                   required
                   className="focus-within-ring"
                 />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password">{t('login.password.label')}</Label>
                 <Input
                   id="password"
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter your password"
+                  placeholder={t('login.password.placeholder')}
                   required
                   className="focus-within-ring"
                 />
@@ -113,7 +114,7 @@ const Login: React.FC = () => {
 
               <div className="text-sm text-right">
                 <a href="#" className="text-primary hover:underline transition-all">
-                  Forgot your password?
+                  {t('login.forgot')}
                 </a>
               </div>
             </CardContent>
@@ -123,12 +124,12 @@ const Login: React.FC = () => {
                 className="w-full"
                 disabled={isLoading}
               >
-                {isLoading ? 'Signing in...' : 'Sign In'}
+                {isLoading ? t('login.signingIn') : t('login.signIn')}
               </Button>
 
               {/* Signup link */}
               <div className="text-sm text-center">
-                <span>Don't have an account? </span>
+                <span>{t('login.signup.prompt')} </span>
                 <a
                   href="#"
                   className="text-primary hover:underline"
@@ -137,22 +138,30 @@ const Login: React.FC = () => {
                     navigate('/signup');
                   }}
                 >
-                  Sign up
+                  {t('login.signup.cta')}
                 </a>
               </div>
               <div className="text-sm text-center mt-4">
-                <span>Are you an admin? </span>
+                <span>{t('login.admin.prompt')} </span>
                 <a
                   href="/admin/login"
                   className="text-primary hover:underline"
                 >
-                  Admin login
+                  {t('login.admin.cta')}
                 </a>
               </div>
             </CardFooter>
           </form>
         </Card>
       </div>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="absolute top-4 right-4"
+        onClick={() => setLanguage(language === 'zh-CN' ? 'en' : 'zh-CN')}
+      >
+        {language === 'zh-CN' ? 'EN' : '中文'}
+      </Button>
     </div>
   );
 };

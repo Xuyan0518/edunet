@@ -1,0 +1,89 @@
+<view class="container">
+  <view class="hero">
+    <view class="title">试卷/测验</view>
+    <view class="subtitle">{{student.name}}</view>
+  </view>
+
+  <view class="section card" wx:if="{{isTeacher}}">
+    <view class="section-title">{{editingId ? "编辑试卷" : "新增试卷"}}</view>
+    <view wx:if="{{editingId && editingUpdatedAtText}}" class="muted" style="margin-top: 6rpx;">
+      最后修改：{{editingUpdatedAtText}} · {{editingUpdatedBy || "未知老师"}}
+    </view>
+    <view class="field-label">科目</view>
+    <picker mode="selector" range="{{subjectOptions}}" value="{{subjectIndex}}" bindchange="onSubjectPick">
+      <view class="chip">{{subjectOptions[subjectIndex]}}</view>
+    </picker>
+
+    <view class="field-label" style="margin-top: 12rpx;">试卷类型</view>
+    <view class="row-between">
+      <picker mode="selector" range="{{paperTypeOptions}}" value="{{typeIndex}}" bindchange="onTypePick">
+        <view class="chip">{{paperTypeOptions[typeIndex]}}</view>
+      </picker>
+      <button class="btn-outline" size="mini" bindtap="addPaperType">新增类型</button>
+    </view>
+
+    <view class="field-label" style="margin-top: 12rpx;">学校名称</view>
+    <view class="row-between">
+      <picker mode="selector" range="{{paperSchoolOptions}}" value="{{schoolIndex}}" bindchange="onSchoolPick">
+        <view class="chip">{{paperSchoolOptions[schoolIndex]}}</view>
+      </picker>
+      <button class="btn-outline" size="mini" bindtap="addPaperSchool">新增学校</button>
+    </view>
+
+    <view class="field-label" style="margin-top: 12rpx;">试卷描述</view>
+    <input class="input" placeholder="例如：试卷一" value="{{description}}" bindinput="onDescriptionInput" />
+
+    <view class="field-label" style="margin-top: 12rpx;">日期</view>
+    <picker mode="date" value="{{date}}" bindchange="onDateChange">
+      <view class="chip">{{date}}</view>
+    </picker>
+
+    <view class="field-label" style="margin-top: 12rpx;">分数</view>
+    <view class="row paper-score">
+      <input class="input score-input" placeholder="得分" value="{{score}}" bindinput="onScoreInput" />
+      <view class="muted">/</view>
+      <input class="input score-input" placeholder="总分" value="{{total}}" bindinput="onTotalInput" />
+    </view>
+
+    <view class="row" style="margin-top: 16rpx;">
+      <button wx:if="{{editingId}}" class="btn-outline" size="mini" bindtap="cancelEdit">取消编辑</button>
+      <button class="btn-primary" size="mini" bindtap="savePaper">保存</button>
+    </view>
+  </view>
+
+  <view class="section card">
+    <view class="section-title">试卷记录</view>
+    <block wx:if="{{loading}}">
+      <view class="list-item muted">加载中...</view>
+    </block>
+    <block wx:elif="{{grouped.length === 0}}">
+      <view class="list-item muted">暂无试卷</view>
+    </block>
+    <block wx:else>
+      <block wx:for="{{grouped}}" wx:key="typeName">
+        <view class="group-title">{{item.typeName}}</view>
+        <block wx:for="{{item.subjects}}" wx:key="subjectName">
+          <view class="subject-title">{{item.subjectDisplayName || item.subjectName}}</view>
+          <block wx:for="{{item.schools}}" wx:key="schoolName">
+            <view class="school-title">{{item.schoolName}}</view>
+            <block wx:for="{{item.papers}}" wx:for-item="paper" wx:key="id">
+              <view class="paper-item row-between">
+                <view class="paper-main">
+                  <view class="row paper-meta">
+                    <view class="paper-date">{{paper.date}}</view>
+                    <view class="paper-score-strong">{{paper.score || "-"}}/{{paper.total || "-"}}</view>
+                  </view>
+                  <view wx:if="{{paper.description}}" class="muted">{{paper.description}}</view>
+                </view>
+                <view class="row" wx:if="{{isTeacher}}">
+                  <button class="btn-outline" size="mini" data-id="{{paper.id}}" bindtap="startEdit">编辑</button>
+                  <button class="btn-outline" size="mini" data-id="{{paper.id}}" bindtap="deletePaper">删除</button>
+                </view>
+              </view>
+            </block>
+          </block>
+        </block>
+      </block>
+    </block>
+  </view>
+</view>

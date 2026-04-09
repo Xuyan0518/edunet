@@ -1,0 +1,29 @@
+<view class="container">
+  <view class="hero">
+    <view class="title">EduNet</view>
+    <view class="subtitle">家校沟通更高效</view>
+  </view>
+
+  <view class="card">
+
+    <view class="section">
+      <view class="label">身份</view>
+      <radio-group bindchange="onRoleChange" class="row">
+        <label class="radio-item">
+          <radio value="parent" checked="{{role === 'parent'}}" /> 家长
+        </label>
+        <label class="radio-item">
+          <radio value="teacher" checked="{{role === 'teacher'}}" /> 教师
+        </label>
+      </radio-group>
+    </view>
+
+    <button class="btn-primary" loading="{{loading}}" bindtap="handleWeChatLogin">
+      微信一键登录
+    </button>
+
+    <view class="hint">首次登录会创建账号，需管理员审核后可使用。</view>
+
+    <button class="btn-outline admin-btn" size="mini" bindtap="goAdminLogin">管理员登录</button>
+  </view>
+</view>

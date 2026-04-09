@@ -1,0 +1,33 @@
+{
+  "pages": [
+    "pages/login/index",
+    "pages/dashboard/index",
+    "pages/students/index",
+    "pages/student-detail/index",
+    "pages/daily-progress/index",
+    "pages/daily-progress/detail",
+    "pages/weekly-feedback/index",
+    "pages/weekly-feedback/detail",
+    "pages/grades/index",
+    "pages/papers/index",
+    "pages/quarterly-summary/index",
+    "pages/yearly-summary/index",
+    "pages/report-view/index",
+    "pages/student-add/index",
+    "pages/students-manage/index",
+    "pages/parents/index",
+    "pages/subjects-manage/index",
+    "pages/admin-login/index",
+    "pages/admin-dashboard/index",
+    "pages/settings/index",
+    "pages/profile/index"
+  ],
+  "window": {
+    "navigationBarTitleText": "EduNet",
+    "navigationBarBackgroundColor": "#ffffff",
+    "navigationBarTextStyle": "black",
+    "backgroundTextStyle": "light"
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}

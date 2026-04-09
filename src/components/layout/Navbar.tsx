@@ -12,18 +12,16 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/context/AuthContext';
+import { useI18n } from '@/context/I18nContext';
 
 const Navbar: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const location = useLocation();
-  const { user, logout, role } = useAuth();
-
-  const isTeacher = role === 'teacher';
-  const isParent = role === 'parent';
+  const { user, logout } = useAuth();
+  const { t } = useI18n();
 
   const navItems = [
-    { name: 'Dashboard', path: '/dashboard', visible: true },
-    { name: 'Student Profile', path: '/student-profile', visible: isParent },
+    { name: t('nav.dashboard'), path: '/dashboard', visible: true },
   ].filter(item => item.visible);
 
   const toggleMenu = () => setIsOpen(!isOpen);
@@ -76,13 +74,13 @@ const Navbar: React.FC = () => {
               </DropdownMenuTrigger>
               <DropdownMenuContent>
                 <DropdownMenuItem>
-                  <Link to="/profile" className="w-full">Profile</Link>
+                  <Link to="/profile" className="w-full">{t('nav.profile')}</Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem>
-                  <Link to="/settings" className="w-full">Settings</Link>
+                  <Link to="/settings" className="w-full">{t('nav.settings')}</Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={logout}>
-                  Logout
+                  {t('nav.logout')}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -144,14 +142,14 @@ const Navbar: React.FC = () => {
                 className="block px-3 py-2 rounded-md text-base font-medium text-foreground/70 hover:text-foreground hover:bg-secondary"
                 onClick={() => setIsOpen(false)}
               >
-                Profile
+                {t('nav.profile')}
               </Link>
               <Link
                 to="/settings"
                 className="block px-3 py-2 rounded-md text-base font-medium text-foreground/70 hover:text-foreground hover:bg-secondary"
                 onClick={() => setIsOpen(false)}
               >
-                Settings
+                {t('nav.settings')}
               </Link>
               <button
                 onClick={() => {
@@ -160,7 +158,7 @@ const Navbar: React.FC = () => {
                 }}
                 className="block w-full text-left px-3 py-2 rounded-md text-base font-medium text-foreground/70 hover:text-foreground hover:bg-secondary"
               >
-                Logout
+                {t('nav.logout')}
               </button>
             </div>
           </div>

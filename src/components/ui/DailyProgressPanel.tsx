@@ -1,8 +1,9 @@
 import * as React from "react";
-import { format, parseISO } from "date-fns";
+import { parseISO } from "date-fns";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { buildApiUrl } from "@/config/api";
 import { getAuthHeaders } from "@/utils/auth";
+import { useI18n } from "@/context/I18nContext";
 
 type Activity = {
   subject: string;
@@ -20,18 +21,21 @@ type DailyProgressEntry = {
 };
 
 interface DailyProgressPanelProps {
-  studentId: string;
+  studentId?: string;
   date?: string;
+  onEntryClick?: (entry: DailyProgressEntry) => void;
 }
 
-const DailyProgressPanel: React.FC<DailyProgressPanelProps> = ({ studentId, date }) => {
+const DailyProgressPanel: React.FC<DailyProgressPanelProps> = ({ studentId, date, onEntryClick }) => {
+  const { t, language } = useI18n();
   const [entries, setEntries] = React.useState<DailyProgressEntry[]>([]);
   const [studentName, setStudentName] = React.useState<string>("");
   const [loading, setLoading] = React.useState(true);
-  const [error, setError] = React.useState<string | null>(null);
+  const [error, setError] = React.useState(false);
 
   // Fetch student info once
   React.useEffect(() => {
+    if (!studentId) return;
     (async () => {
       try {
         const res = await fetch(buildApiUrl(`students/${studentId}`), {
@@ -52,8 +56,13 @@ const DailyProgressPanel: React.FC<DailyProgressPanelProps> = ({ studentId, date
     let cancelled = false;
 
     (async () => {
+      if (!studentId) {
+        setEntries([]);
+        setLoading(false);
+        return;
+      }
       setLoading(true);
-      setError(null);
+      setError(false);
       try {
         let res: Response;
 
@@ -67,7 +76,7 @@ const DailyProgressPanel: React.FC<DailyProgressPanelProps> = ({ studentId, date
               if (!cancelled) setEntries([]);
               return;
             }
-            throw new Error("Failed to fetch progress for date");
+            throw new Error("fetch-date");
           }
           const one: DailyProgressEntry = await res.json();
           if (!cancelled) setEntries(one ? [one] : []);
@@ -75,12 +84,12 @@ const DailyProgressPanel: React.FC<DailyProgressPanelProps> = ({ studentId, date
           res = await fetch(buildApiUrl(`progress/list?studentId=${encodeURIComponent(studentId)}`), {
             headers: getAuthHeaders(),
           });
-          if (!res.ok) throw new Error("Failed to fetch progress list");
+          if (!res.ok) throw new Error("fetch-list");
           const list: DailyProgressEntry[] = await res.json();
           if (!cancelled) setEntries(list);
         }
-      } catch (e: any) {
-        if (!cancelled) setError(e?.message ?? "Failed to load progress");
+      } catch (e: unknown) {
+        if (!cancelled) setError(true);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -91,24 +100,63 @@ const DailyProgressPanel: React.FC<DailyProgressPanelProps> = ({ studentId, date
     };
   }, [studentId, date]);
 
-  if (loading) return <p>Loading daily progress…</p>;
-  if (error) return <p className="text-red-600">{error}</p>;
-  if (!entries.length) return <p>No daily progress found.</p>;
+  if (!studentId) return <p className="text-muted-foreground">{t('dailyProgress.none')}</p>;
+  if (loading) return <p>{t('dailyProgress.loading')}</p>;
+  if (error) return <p className="text-red-600">{t('dailyProgress.error.load')}</p>;
+  if (!entries.length) return <p>{t('dailyProgress.none')}</p>;
+
+  const getAttendanceLabel = (attendance: string) => {
+    switch (attendance.toLowerCase()) {
+      case 'present':
+        return t('attendance.present');
+      case 'absent':
+        return t('attendance.absent');
+      case 'late':
+        return t('attendance.late');
+      default:
+        return attendance;
+    }
+  };
+
+  const getPerformanceLabel = (performance: string) => {
+    switch (performance.toLowerCase()) {
+      case 'excellent':
+        return t('dailyProgressForm.activity.performance.excellent');
+      case 'good':
+        return t('dailyProgressForm.activity.performance.good');
+      case 'needs improvement':
+        return t('dailyProgressForm.activity.performance.needsImprovement');
+      default:
+        return performance;
+    }
+  };
+
+  const formatDisplayDate = (date: Date) =>
+    date.toLocaleDateString(language === 'zh-CN' ? 'zh-CN' : 'en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
 
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold">
-        {studentName ? `${studentName} – Daily Progress` : "Daily Progress"}
+        {studentName ? `${studentName} – ${t('dailyProgress.pageTitle')}` : t('dailyProgress.pageTitle')}
       </h2>
 
       {entries.map((entry) => {
         const d = parseISO(entry.date);
+        const clickable = Boolean(onEntryClick);
         return (
-          <Card key={entry.id ?? entry.date}>
+          <Card
+            key={entry.id ?? entry.date}
+            className={clickable ? "cursor-pointer transition-shadow hover:shadow-md" : undefined}
+            onClick={clickable ? () => onEntryClick?.(entry) : undefined}
+          >
             <CardHeader>
               <CardTitle className="text-lg">
-                {format(d, "PPP")} · Attendance:{" "}
-                <span className="capitalize">{entry.attendance}</span>
+                {formatDisplayDate(d)} · {t('dailyProgress.attendanceLabel')}:{" "}
+                <span className="capitalize">{getAttendanceLabel(entry.attendance)}</span>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -117,13 +165,13 @@ const DailyProgressPanel: React.FC<DailyProgressPanelProps> = ({ studentId, date
                   <div className="flex items-center justify-between">
                     <div className="font-medium">{a.subject || "—"}</div>
                     <div className="text-sm text-muted-foreground capitalize">
-                      {a.performance || "—"}
+                      {a.performance ? getPerformanceLabel(a.performance) : "—"}
                     </div>
                   </div>
                   <div className="mt-1 text-sm">{a.description || "—"}</div>
                   {a.notes ? (
                     <div className="mt-2 text-xs text-muted-foreground">
-                      Notes: {a.notes}
+                      {t('dailyProgress.notesLabel')} {a.notes}
                     </div>
                   ) : null}
                 </div>

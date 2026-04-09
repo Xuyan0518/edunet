@@ -1,26 +1,40 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
+import { useI18n } from '@/context/I18nContext';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Student, DailyProgress, api } from '@/services/api';
+import { Student, DailyProgress, WeeklyFeedback, api } from '@/services/api';
 import { ArrowLeft, User, Users, GraduationCap, Calendar, Clock, CheckCircle, XCircle, Minus, Filter, Edit } from 'lucide-react';
 import { DateRangeFilter, DateRange, filterByDateRange } from '@/components/ui/date-range-filter';
+import SubjectTopicsPanel from '@/components/ui/SubjectTopicsPanel';
+import { buildApiUrl } from '@/config/api';
+import { getAuthHeaders } from '@/utils/auth';
+import { isWithinInterval, parseISO } from 'date-fns';
 
 const StudentProfile: React.FC = () => {
   const { user, role } = useAuth();
+  const { t, language } = useI18n();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [student, setStudent] = useState<Student | null>(null);
   const [loading, setLoading] = useState(true);
   const [childrenStudentsList, setChildrenStudentsList] = useState<Student[]>([]);
   const [dailyProgress, setDailyProgress] = useState<DailyProgress[]>([]);
+  const [weeklyFeedback, setWeeklyFeedback] = useState<WeeklyFeedback[]>([]);
   const [progressLoading, setProgressLoading] = useState(false);
-  const [dateRange, setDateRange] = useState<DateRange>({
-    from: undefined,
-    to: undefined,
-  });
+  const [feedbackLoading, setFeedbackLoading] = useState(false);
+
+  const defaultWeekRange = useMemo<DateRange>(() => {
+    const today = new Date();
+    const start = new Date(today.getFullYear(), today.getMonth(), today.getDate() - today.getDay());
+    const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
+    return { from: start, to: end };
+  }, []);
+
+  const [dateRange, setDateRange] = useState<DateRange>(defaultWeekRange);
+  const [feedbackDateRange, setFeedbackDateRange] = useState<DateRange>(defaultWeekRange);
 
   useEffect(() => {
     if (id) {
@@ -83,14 +97,63 @@ const StudentProfile: React.FC = () => {
     }
   }, [student, id]);
 
+  // Fetch weekly feedback when student is loaded
+  useEffect(() => {
+    if (student && id) {
+      const fetchFeedback = async () => {
+        setFeedbackLoading(true);
+        try {
+          const res = await fetch(buildApiUrl(`feedback/list?studentId=${encodeURIComponent(id)}`), {
+            headers: getAuthHeaders(),
+          });
+          if (!res.ok) throw new Error('Failed to fetch weekly feedback');
+          const data: WeeklyFeedback[] = await res.json();
+          setWeeklyFeedback(data);
+        } catch (error) {
+          console.error('Failed to fetch weekly feedback:', error);
+        } finally {
+          setFeedbackLoading(false);
+        }
+      };
+      fetchFeedback();
+    }
+  }, [student, id]);
+
   // Filter progress based on date range
   const filteredProgress = filterByDateRange(dailyProgress, dateRange);
+  const filteredFeedback = useMemo(() => {
+    if (!feedbackDateRange.from || !feedbackDateRange.to) return weeklyFeedback;
+    return weeklyFeedback.filter((entry) => {
+      const start = parseISO(entry.weekStarting);
+      return isWithinInterval(start, { start: feedbackDateRange.from!, end: feedbackDateRange.to! });
+    });
+  }, [weeklyFeedback, feedbackDateRange]);
 
   // Debug logging for date range changes
   useEffect(() => {
     console.log('Date range changed:', dateRange);
     console.log('Filtered progress count:', filteredProgress.length);
   }, [dateRange, filteredProgress]);
+
+  const handleDailyProgressClick = (progress: DailyProgress) => {
+    if (!student) return;
+    const qs = new URLSearchParams({
+      student: student.id,
+      date: progress.date,
+      tab: 'form',
+    });
+    navigate(`/daily-progress?${qs.toString()}`);
+  };
+
+  const handleWeeklyFeedbackClick = (entry: WeeklyFeedback) => {
+    if (!student) return;
+    const qs = new URLSearchParams({
+      student: student.id,
+      weekStarting: entry.weekStarting,
+      tab: 'form',
+    });
+    navigate(`/weekly-feedback?${qs.toString()}`);
+  };
 
   // Helper function to get attendance icon
   const getAttendanceIcon = (attendance: string) => {
@@ -120,6 +183,32 @@ const StudentProfile: React.FC = () => {
     }
   };
 
+  const getAttendanceLabel = (attendance: string) => {
+    switch (attendance.toLowerCase()) {
+      case 'present':
+        return t('attendance.present');
+      case 'absent':
+        return t('attendance.absent');
+      case 'late':
+        return t('attendance.late');
+      default:
+        return attendance;
+    }
+  };
+
+  const getPerformanceLabel = (performance: string) => {
+    switch (performance.toLowerCase()) {
+      case 'excellent':
+        return t('dailyProgressForm.activity.performance.excellent');
+      case 'good':
+        return t('dailyProgressForm.activity.performance.good');
+      case 'needs improvement':
+        return t('dailyProgressForm.activity.performance.needsImprovement');
+      default:
+        return performance;
+    }
+  };
+
   // If viewing a specific student
   if (id && student) {
     return (
@@ -131,7 +220,7 @@ const StudentProfile: React.FC = () => {
             className="mb-4"
           >
             <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Students
+            {t('student.backToStudents')}
           </Button>
 
           <div className="flex items-center gap-4">
@@ -143,66 +232,98 @@ const StudentProfile: React.FC = () => {
               <div className="flex items-center gap-2 mt-2">
                 <Badge variant="outline" className="text-lg px-3 py-1">
                   <GraduationCap className="h-4 w-4 mr-2" />
-                  Grade {student.grade}
+                  {t('student.grade')} {student.grade}
                 </Badge>
               </div>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              className="ml-auto"
-              onClick={() => navigate(`/add-student?edit=${student.id}`)}
-            >
-              <Edit className="h-4 w-4 mr-2" />
-              Edit
-            </Button>
+            {role === 'teacher' && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="ml-auto"
+                onClick={() => navigate(`/add-student?edit=${student.id}`)}
+              >
+                <Edit className="h-4 w-4 mr-2" />
+                {t('student.edit')}
+              </Button>
+            )}
           </div>
         </div>
 
         <Card className="mb-8">
           <CardHeader>
-            <CardTitle>Student Information</CardTitle>
+            <CardTitle>{t('student.info.title')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex justify-between items-center">
-              <span className="font-medium">Name:</span>
+              <span className="font-medium">{t('student.info.name')}</span>
               <span>{student.name}</span>
             </div>
             <div className="flex justify-between items-center">
-              <span className="font-medium">Grade:</span>
+              <span className="font-medium">{t('student.info.grade')}</span>
               <span>{student.grade}</span>
             </div>
             <div className="flex justify-between items-center">
-              <span className="font-medium">Enrolled:</span>
-              <span>{new Date(student.createdAt).toLocaleDateString()}</span>
+              <span className="font-medium">{t('student.info.enrolled')}</span>
+              <span>{new Date(student.createdAt).toLocaleDateString(language === 'zh-CN' ? 'zh-CN' : 'en-US')}</span>
             </div>
             <div className="flex justify-between items-center pt-2 border-t">
-              <span className="text-sm text-muted-foreground">Total Progress Entries:</span>
+              <span className="text-sm text-muted-foreground">{t('student.info.totalProgress')}</span>
               <Badge variant="outline">{dailyProgress.length}</Badge>
             </div>
           </CardContent>
         </Card>
+
+        <div className="mb-6">
+          <SubjectTopicsPanel studentId={student.id} readOnly={role === 'parent'} />
+        </div>
 
         {/* Date Range Filter */}
         <Card className="mb-6">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Filter className="h-5 w-5" />
-              Filter Progress by Date Range
+              {t('filter.progress.title')}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex flex-col sm:flex-row items-start sm:items-end gap-4">
               <div>
-                <label className="block text-sm font-medium mb-2">Date Range</label>
+                <label className="block text-sm font-medium mb-2">{t('filter.dateRange.label')}</label>
                 <DateRangeFilter
                   dateRange={dateRange}
                   onDateRangeChange={setDateRange}
-                  placeholder="Select date range to filter progress"
+                  placeholder={t('filter.progress.placeholder')}
                 />
               </div>
 
               <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const today = new Date();
+                    const start = new Date(today.getFullYear(), today.getMonth(), today.getDate() - today.getDay());
+                    const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
+                    setDateRange({ from: start, to: end });
+                  }}
+                >
+                  {t('filter.button.thisWeek')}
+                </Button>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const today = new Date();
+                    const start = new Date(today.getFullYear(), today.getMonth(), today.getDate() - today.getDay() - 7);
+                    const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
+                    setDateRange({ from: start, to: end });
+                  }}
+                >
+                  {t('filter.button.lastWeek')}
+                </Button>
+
                 <Button
                   variant="outline"
                   size="sm"
@@ -213,7 +334,7 @@ const StudentProfile: React.FC = () => {
                     setDateRange({ from: startOfMonth, to: endOfMonth });
                   }}
                 >
-                  This Month
+                  {t('filter.button.thisMonth')}
                 </Button>
 
                 <Button
@@ -226,7 +347,7 @@ const StudentProfile: React.FC = () => {
                     setDateRange({ from: startOfMonth, to: endOfMonth });
                   }}
                 >
-                  Last Month
+                  {t('filter.button.lastMonth')}
                 </Button>
 
                 <Button
@@ -236,7 +357,7 @@ const StudentProfile: React.FC = () => {
                     setDateRange({ from: undefined, to: undefined });
                   }}
                 >
-                  Show All
+                  {t('filter.button.showAll')}
                 </Button>
               </div>
             </div>
@@ -248,10 +369,10 @@ const StudentProfile: React.FC = () => {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Calendar className="h-5 w-5" />
-              Daily Progress History
+              {t('dailyProgress.historyTitle')}
               {dateRange.from && dateRange.to && (
                 <Badge variant="outline" className="ml-2">
-                  {filteredProgress.length} of {dailyProgress.length} entries
+                  {filteredProgress.length}/{dailyProgress.length}
                 </Badge>
               )}
             </CardTitle>
@@ -260,39 +381,43 @@ const StudentProfile: React.FC = () => {
             {progressLoading ? (
               <div className="text-center py-8">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-                <p className="mt-2 text-muted-foreground">Loading progress data...</p>
+                <p className="mt-2 text-muted-foreground">{t('dailyProgress.loading')}</p>
               </div>
             ) : filteredProgress.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
                 <Calendar className="h-12 w-12 mx-auto mb-4 text-gray-300" />
                 <p>
                   {dateRange.from && dateRange.to
-                    ? `No progress records found for the selected date range`
-                    : 'No daily progress records found'
+                    ? t('dailyProgress.noneRange')
+                    : t('dailyProgress.none')
                   }
                 </p>
                 <p className="text-sm">
                   {dateRange.from && dateRange.to
-                    ? 'Try adjusting the date range or check if progress exists for other dates'
-                    : 'Progress entries will appear here once they are recorded'
+                    ? t('dailyProgress.tryAdjust')
+                    : t('dailyProgress.willAppear')
                   }
                 </p>
               </div>
             ) : (
               <div className="space-y-4">
                 {filteredProgress.map((progress) => (
-                  <Card key={progress.id} className="border-l-4 border-l-blue-500">
+                  <Card
+                    key={progress.id}
+                    className="border-l-4 border-l-blue-500 cursor-pointer transition-shadow hover:shadow-md"
+                    onClick={() => handleDailyProgressClick(progress)}
+                  >
                     <CardHeader className="pb-3">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
                           <div className="flex items-center gap-2">
                             {getAttendanceIcon(progress.attendance)}
                             <Badge variant={getAttendanceBadgeVariant(progress.attendance)}>
-                              {progress.attendance}
+                              {getAttendanceLabel(progress.attendance)}
                             </Badge>
                           </div>
                           <span className="text-sm text-muted-foreground">
-                            {new Date(progress.date).toLocaleDateString('en-US', {
+                            {new Date(progress.date).toLocaleDateString(language === 'zh-CN' ? 'zh-CN' : 'en-US', {
                               weekday: 'long',
                               year: 'numeric',
                               month: 'long',
@@ -306,22 +431,22 @@ const StudentProfile: React.FC = () => {
                     <CardContent>
                       {progress.activities && progress.activities.length > 0 ? (
                         <div className="space-y-3">
-                          <h5 className="font-medium text-sm">Activities:</h5>
+                          <h5 className="font-medium text-sm">{t('dailyProgress.activities')}</h5>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                             {progress.activities.map((activity, index) => (
                               <div key={index} className="pl-4 border-l-2 border-gray-200">
                                 <div className="flex items-center gap-2 mb-1">
                                   <span className="font-medium text-sm">{activity.subject}</span>
                                   <Badge variant="outline" className="text-xs">
-                                    {activity.performance}
+                                    {getPerformanceLabel(activity.performance)}
                                   </Badge>
                                 </div>
                                 <p className="text-sm text-muted-foreground mb-1">
                                   {activity.description}
                                 </p>
                                 {activity.notes && (
-                                  <p className="text-xs text-muted-foreground">
-                                    Notes: {activity.notes}
+                                <p className="text-xs text-muted-foreground">
+                                    {t('dailyProgress.notesLabel')} {activity.notes}
                                   </p>
                                 )}
                               </div>
@@ -329,8 +454,148 @@ const StudentProfile: React.FC = () => {
                           </div>
                         </div>
                       ) : (
-                        <p className="text-muted-foreground text-sm">No activities recorded</p>
+                        <p className="text-muted-foreground text-sm">{t('dailyProgress.noActivities')}</p>
                       )}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="mt-8">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Calendar className="h-5 w-5" />
+              {t('weeklyFeedback.historyTitle')}
+              {feedbackDateRange.from && feedbackDateRange.to && (
+                <Badge variant="outline" className="ml-2">
+                  {filteredFeedback.length}/{weeklyFeedback.length}
+                </Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col sm:flex-row items-start sm:items-end gap-4 mb-6">
+              <div>
+                <label className="block text-sm font-medium mb-2">{t('filter.dateRange.label')}</label>
+                <DateRangeFilter
+                  dateRange={feedbackDateRange}
+                  onDateRangeChange={setFeedbackDateRange}
+                  placeholder={t('filter.feedback.placeholder')}
+                />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const today = new Date();
+                    const start = new Date(today.getFullYear(), today.getMonth(), today.getDate() - today.getDay());
+                    const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
+                    setFeedbackDateRange({ from: start, to: end });
+                  }}
+                >
+                  {t('filter.button.thisWeek')}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const today = new Date();
+                    const start = new Date(today.getFullYear(), today.getMonth(), today.getDate() - today.getDay() - 7);
+                    const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
+                    setFeedbackDateRange({ from: start, to: end });
+                  }}
+                >
+                  {t('filter.button.lastWeek')}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setFeedbackDateRange({ from: undefined, to: undefined })}
+                >
+                  {t('filter.button.showAll')}
+                </Button>
+              </div>
+            </div>
+
+            {feedbackLoading ? (
+              <div className="text-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                <p className="mt-2 text-muted-foreground">{t('weeklyFeedback.loading')}</p>
+              </div>
+            ) : filteredFeedback.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <Calendar className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                <p>
+                  {feedbackDateRange.from && feedbackDateRange.to
+                    ? t('weeklyFeedback.noneRange')
+                    : t('weeklyFeedback.none')
+                  }
+                </p>
+                <p className="text-sm">
+                  {feedbackDateRange.from && feedbackDateRange.to
+                    ? t('weeklyFeedback.tryAdjust')
+                    : t('weeklyFeedback.willAppear')
+                  }
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {filteredFeedback.map((entry) => (
+                  <Card
+                    key={entry.id ?? entry.weekStarting}
+                    className="border-l-4 border-l-emerald-500 cursor-pointer transition-shadow hover:shadow-md"
+                    onClick={() => handleWeeklyFeedbackClick(entry)}
+                  >
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline">
+                            {new Date(entry.weekStarting).toLocaleDateString(language === 'zh-CN' ? 'zh-CN' : 'en-US')}
+                            {' -> '}
+                            {new Date(entry.weekEnding).toLocaleDateString(language === 'zh-CN' ? 'zh-CN' : 'en-US')}
+                          </Badge>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <section>
+                        <h5 className="font-medium text-sm">{t('weeklyFeedback.summary')}</h5>
+                        <p className="text-sm text-muted-foreground">{entry.summary || '—'}</p>
+                      </section>
+
+                      <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <h5 className="font-medium text-sm">{t('weeklyFeedback.strengths')}</h5>
+                          <ul className="list-disc pl-5 text-sm text-muted-foreground space-y-1">
+                            {(entry.strengths ?? []).length
+                              ? entry.strengths.map((s, i) => <li key={i}>{s}</li>)
+                              : <li className="list-none text-muted-foreground">—</li>}
+                          </ul>
+                        </div>
+                        <div>
+                          <h5 className="font-medium text-sm">{t('weeklyFeedback.areas')}</h5>
+                          <ul className="list-disc pl-5 text-sm text-muted-foreground space-y-1">
+                            {(entry.areasToImprove ?? []).length
+                              ? entry.areasToImprove.map((a, i) => <li key={i}>{a}</li>)
+                              : <li className="list-none text-muted-foreground">—</li>}
+                          </ul>
+                        </div>
+                      </section>
+
+                      <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <h5 className="font-medium text-sm">{t('weeklyFeedback.teacherNotes')}</h5>
+                          <p className="text-sm text-muted-foreground">{entry.teacherNotes || '—'}</p>
+                        </div>
+                        <div>
+                          <h5 className="font-medium text-sm">{t('weeklyFeedback.nextWeekFocus')}</h5>
+                          <p className="text-sm text-muted-foreground">{entry.nextWeekFocus || '—'}</p>
+                        </div>
+                      </section>
                     </CardContent>
                   </Card>
                 ))}
@@ -347,10 +612,10 @@ const StudentProfile: React.FC = () => {
     // Teacher sees all students
     return (
       <div className="container mx-auto py-8 px-4 animate-fade-in">
-        <h1 className="text-3xl font-bold tracking-tight mb-6">All Students</h1>
+        <h1 className="text-3xl font-bold tracking-tight mb-6">{t('student.overview.allTitle')}</h1>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* This will be populated by the Students page */}
-          <p className="text-muted-foreground">Use the Students page to view individual student profiles.</p>
+          <p className="text-muted-foreground">{t('student.overview.allDesc')}</p>
         </div>
       </div>
     );
@@ -362,7 +627,7 @@ const StudentProfile: React.FC = () => {
           <div className="flex items-center justify-center py-12">
             <div className="text-center">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-              <p className="text-muted-foreground">Loading children...</p>
+              <p className="text-muted-foreground">{t('student.parent.loading')}</p>
             </div>
           </div>
         </div>
@@ -371,7 +636,7 @@ const StudentProfile: React.FC = () => {
 
     return (
       <div className="container mx-auto py-8 px-4 animate-fade-in">
-        <h1 className="text-3xl font-bold tracking-tight mb-4">My Child(ren)</h1>
+        <h1 className="text-3xl font-bold tracking-tight mb-4">{t('student.parent.myChildren')}</h1>
         {childrenStudentsList.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {childrenStudentsList.map(student => (
@@ -384,7 +649,7 @@ const StudentProfile: React.FC = () => {
                   <CardTitle>{student.name}</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <p>Grade: {student.grade}</p>
+                  <p>{t('student.info.grade')} {student.grade}</p>
                   <Badge>{student.grade}</Badge>
                 </CardContent>
               </Card>
@@ -393,9 +658,9 @@ const StudentProfile: React.FC = () => {
         ) : (
           <div className="text-center py-12">
             <Users className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-            <p className="text-muted-foreground">No children assigned to your account.</p>
+            <p className="text-muted-foreground">{t('student.parent.noneTitle')}</p>
             <p className="text-sm text-muted-foreground mt-2">
-              Please contact the administrator to assign your child to your account.
+              {t('student.parent.noneDesc')}
             </p>
           </div>
         )}

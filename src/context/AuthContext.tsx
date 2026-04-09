@@ -19,6 +19,7 @@ interface AuthContextType {
   role: UserRole;
   login: (email: string, password: string, role: UserRole) => Promise<boolean>;
   logout: () => void;
+  updateUser: (user: User) => void;
   isAuthenticated: boolean;
 }
 
@@ -85,11 +86,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     navigate('/login');
   };
 
+  const updateUser = (nextUser: User) => {
+    setUser(nextUser);
+    localStorage.setItem('edunet-user', JSON.stringify(nextUser));
+  };
+
   const value = {
     user,
     role: user?.role || null,
     login,
     logout,
+    updateUser,
     isAuthenticated,
   };
 

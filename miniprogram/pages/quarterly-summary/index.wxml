@@ -1,0 +1,74 @@
+<view class="container">
+  <view class="hero">
+    <view class="title">学期总结</view>
+    <view class="subtitle">{{student.name}} · {{year}}</view>
+  </view>
+
+  <view class="section card" wx:if="{{isTeacher}}">
+    <view class="section-title">选择学期</view>
+    <view wx:if="{{lastUpdatedAtText}}" class="muted" style="margin-top: 6rpx;">
+      最后修改：{{lastUpdatedAtText}} · {{lastUpdatedBy || "未知老师"}}
+    </view>
+    <picker mode="selector" range="{{quarterOptions}}" value="{{quarterIndex}}" bindchange="onQuarterChange">
+      <view class="chip">{{quarterOptions[quarterIndex]}}</view>
+    </picker>
+    <view class="field-label" style="margin-top: 16rpx;">学期日期范围</view>
+    <view class="row-between">
+      <picker mode="date" value="{{rangeStart}}" bindchange="onRangeStartChange">
+        <view class="chip">{{rangeStart || "开始日期"}}</view>
+      </picker>
+      <picker mode="date" value="{{rangeEnd}}" bindchange="onRangeEndChange">
+        <view class="chip">{{rangeEnd || "结束日期"}}</view>
+      </picker>
+    </view>
+    <view class="field-label" style="margin-top: 16rpx;">学期总结</view>
+    <block wx:if="{{loading}}">
+      <view class="muted">加载中...</view>
+    </block>
+    <textarea class="input textarea-scroll" placeholder="填写学期总结..." value="{{summary}}" bindinput="onSummaryInput" disabled="{{!isTeacher}}" maxlength="-1"></textarea>
+    <view class="row" style="margin-top: 12rpx;">
+      <button wx:if="{{isTeacher}}" class="btn-outline" size="mini" bindtap="generateSummary" disabled="{{aiLoading}}">
+        {{aiLoading ? "生成中..." : "自动生成"}}
+      </button>
+      <button class="btn-outline" size="mini" bindtap="openSummaryView" disabled="{{!summary}}">
+        查看全文
+      </button>
+    </view>
+  </view>
+
+  <view class="row" wx:if="{{isTeacher}}">
+    <button class="btn-primary" bindtap="save">保存</button>
+  </view>
+
+  <view class="section card" wx:if="{{!isTeacher}}">
+    <view class="section-title">学期记录</view>
+    <block wx:if="{{loading}}">
+      <view class="muted">加载中...</view>
+    </block>
+    <block wx:elif="{{summaryCards.length === 0}}">
+      <view class="muted">暂无学期总结</view>
+    </block>
+    <block wx:else>
+      <block wx:for="{{summaryCards}}" wx:key="quarter">
+        <view class="list-item row-between">
+          <view>
+            <view>{{item.quarterLabel}}</view>
+            <view class="muted" wx:if="{{item.startDate || item.endDate}}">
+              {{item.startDate || "--"}} - {{item.endDate || "--"}}
+            </view>
+          </view>
+          <button
+            class="btn-outline"
+            size="mini"
+            data-quarter="{{item.quarter}}"
+            data-quarter-label="{{item.quarterLabel}}"
+            data-start="{{item.startDate}}"
+            data-end="{{item.endDate}}"
+            data-summary="{{item.summary}}"
+            bindtap="openSummaryView"
+          >查看全文</button>
+        </view>
+      </block>
+    </block>
+  </view>
+</view>

@@ -11,6 +11,7 @@ export interface AuthUser {
   role: 'teacher' | 'parent' | 'admin';
   email: string;
   name: string;
+  parentId?: string;
 }
 
 export interface RequestWithAuth extends Express.Request {

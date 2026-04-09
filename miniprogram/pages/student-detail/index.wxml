@@ -1,0 +1,148 @@
+<view class="container">
+  <view class="hero">
+    <view class="title">{{student.name}}</view>
+    <view class="subtitle">年级 {{student.grade}}</view>
+    <view class="row" wx:if="{{isTeacher}}">
+      <button class="btn-primary" size="mini" bindtap="createProgress">新增每日进度</button>
+      <button class="btn-outline" size="mini" bindtap="createFeedback">新增每周汇报</button>
+    </view>
+  </view>
+
+  <view class="section card">
+    <view class="row-between">
+      <view class="section-title">科目与主题</view>
+      <view class="row" wx:if="{{isTeacher}}">
+        <button class="btn-outline" size="mini" bindtap="syncTopics">同步主题</button>
+        <button class="btn-outline" size="mini" bindtap="manageSubjects">管理科目</button>
+      </view>
+    </view>
+
+    <block wx:if="{{subjects.length === 0}}">
+      <view class="list-item muted">暂无科目</view>
+    </block>
+
+    <block wx:for="{{subjects}}" wx:key="subject.id">
+      <view class="card subject-card">
+        <view class="row-between subject-header" bindtap="toggleSubject" data-id="{{item.subject.id}}">
+          <view class="subject-text">
+            <view class="subject-title">{{item.subject.displayName || item.subject.name}}</view>
+            <view class="muted subject-code">{{item.subject.code}}</view>
+          </view>
+          <view class="row">
+            <view class="chip">{{item.totalCount}} 主题</view>
+            <view class="muted">{{expandedSubjects[item.subject.id] ? '收起' : '展开'}}</view>
+          </view>
+        </view>
+
+        <block wx:if="{{expandedSubjects[item.subject.id]}}">
+          <view class="divider"></view>
+          <block wx:for="{{item.topics}}" wx:key="id">
+            <view class="topic-row">
+              <view class="row-between topic-header">
+                <view class="topic-title">{{item.code}} {{item.displayTitle || item.title}}</view>
+                <view class="row topic-meta">
+                  <view class="chip {{item.statusClass}}">{{item.statusLabel}}</view>
+                  <view wx:if="{{item.children.length}}" class="muted" bindtap="toggleTopic" data-id="{{item.id}}">
+                    {{expandedTopics[item.id] ? '收起' : '展开'}}
+                  </view>
+                </view>
+              </view>
+              <view wx:if="{{isTeacher}}" class="pill-group">
+                <button
+                  size="mini"
+                  class="pill-btn {{item.definitionRecited ? 'pill-active' : ''}}"
+                  data-topic="{{item.id}}"
+                  data-condition="definitionRecited"
+                  data-value="{{item.definitionRecited}}"
+                  bindtap="updateTopicCondition"
+                >定义背诵</button>
+                <button
+                  size="mini"
+                  class="pill-btn {{item.chapterExerciseCompleted ? 'pill-active' : ''}}"
+                  data-topic="{{item.id}}"
+                  data-condition="chapterExerciseCompleted"
+                  data-value="{{item.chapterExerciseCompleted}}"
+                  bindtap="updateTopicCondition"
+                >章节练习</button>
+              </view>
+              <block wx:if="{{expandedTopics[item.id]}}">
+                <block wx:for="{{item.children}}" wx:key="id">
+                  <view class="topic-row subtopic">
+                    <view class="row-between topic-header">
+                      <view class="topic-title">{{item.code}} {{item.displayTitle || item.title}}</view>
+                      <view class="chip {{item.statusClass}}">{{item.statusLabel}}</view>
+                    </view>
+                    <view wx:if="{{isTeacher}}" class="pill-group">
+                      <button
+                        size="mini"
+                        class="pill-btn {{item.definitionRecited ? 'pill-active' : ''}}"
+                        data-topic="{{item.id}}"
+                        data-condition="definitionRecited"
+                        data-value="{{item.definitionRecited}}"
+                        bindtap="updateTopicCondition"
+                      >定义背诵</button>
+                      <button
+                        size="mini"
+                        class="pill-btn {{item.chapterExerciseCompleted ? 'pill-active' : ''}}"
+                        data-topic="{{item.id}}"
+                        data-condition="chapterExerciseCompleted"
+                        data-value="{{item.chapterExerciseCompleted}}"
+                        bindtap="updateTopicCondition"
+                      >章节练习</button>
+                    </view>
+                  </view>
+                </block>
+              </block>
+            </view>
+          </block>
+        </block>
+      </view>
+    </block>
+  </view>
+
+  <view class="section card" wx:if="{{isTeacher}}">
+    <view class="section-title">家长绑定</view>
+    <view class="row-between">
+      <view class="muted">当前家长</view>
+      <view>{{parentName || "未绑定"}}</view>
+    </view>
+    <view class="divider"></view>
+    <picker mode="selector" range="{{parentNames}}" bindchange="onParentChange">
+      <view class="chip">{{selectedParentName}}</view>
+    </picker>
+    <button class="btn-outline" size="mini" style="margin-top: 12rpx;" bindtap="saveParent">保存家长</button>
+  </view>
+
+  <view class="section card">
+    <view class="section-title">学习记录</view>
+    <view wx:if="{{isTeacher}}" class="list-item row-between" bindtap="openProgressList">
+      <view>每日进度记录</view>
+      <view class="row">
+        <view class="chip">查看</view>
+      </view>
+    </view>
+    <view class="list-item row-between" bindtap="openFeedbackList">
+      <view>每周汇报记录</view>
+      <view class="row">
+        <view wx:if="{{weeklyUnread && !isTeacher}}" class="chip chip-warning">新</view>
+        <view class="chip">查看</view>
+      </view>
+    </view>
+    <view class="list-item row-between" bindtap="openGrades">
+      <view>成绩记录</view>
+      <view class="chip">查看</view>
+    </view>
+    <view class="list-item row-between" bindtap="openPapers">
+      <view>试卷/测验</view>
+      <view class="chip">查看</view>
+    </view>
+    <view class="list-item row-between" bindtap="openQuarterlySummary">
+      <view>学期总结</view>
+      <view class="chip">查看</view>
+    </view>
+    <view class="list-item row-between" bindtap="openYearlySummary">
+      <view>年度总结</view>
+      <view class="chip">查看</view>
+    </view>
+  </view>
+</view>

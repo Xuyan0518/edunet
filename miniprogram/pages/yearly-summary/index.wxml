@@ -1,0 +1,29 @@
+<view class="container">
+  <view class="hero">
+    <view class="title">年度总结</view>
+    <view class="subtitle">{{student.name}} · {{year}}</view>
+  </view>
+
+  <view class="section card">
+    <view class="section-title">年度总结</view>
+    <view wx:if="{{isTeacher && lastUpdatedAtText}}" class="muted" style="margin-top: 6rpx;">
+      最后修改：{{lastUpdatedAtText}} · {{lastUpdatedBy || "未知老师"}}
+    </view>
+    <block wx:if="{{loading}}">
+      <view class="muted">加载中...</view>
+    </block>
+    <textarea class="input textarea-scroll" placeholder="填写年度总结..." value="{{summary}}" bindinput="onSummaryInput" disabled="{{!isTeacher}}" maxlength="-1"></textarea>
+    <view class="row" style="margin-top: 12rpx;">
+      <button wx:if="{{isTeacher}}" class="btn-outline" size="mini" bindtap="generateSummary" disabled="{{aiLoading}}">
+        {{aiLoading ? "生成中..." : "自动生成"}}
+      </button>
+      <button class="btn-outline" size="mini" bindtap="openSummaryView" disabled="{{!summary}}">
+        查看全文
+      </button>
+    </view>
+  </view>
+
+  <view class="row">
+    <button wx:if="{{isTeacher}}" class="btn-primary" bindtap="save">保存</button>
+  </view>
+</view>

@@ -3,8 +3,10 @@ import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { CalendarIcon, X } from 'lucide-react';
-import { format, isWithinInterval, parseISO } from 'date-fns';
+import { isWithinInterval, parseISO } from 'date-fns';
+import { enUS, zhCN } from 'date-fns/locale';
 import type { DateRange as ReactDayPickerDateRange } from 'react-day-picker';
+import { useI18n } from '@/context/I18nContext';
 
 export interface DateRange {
   from: Date | undefined;
@@ -22,11 +24,26 @@ interface DateRangeFilterProps {
 export const DateRangeFilter: React.FC<DateRangeFilterProps> = ({
   dateRange,
   onDateRangeChange,
-  placeholder = "Select date range",
+  placeholder = "",
   className = "",
   showClearButton = true,
 }) => {
+  const { t, language } = useI18n();
   const [isOpen, setIsOpen] = useState(false);
+  const locale = language === 'zh-CN' ? zhCN : enUS;
+
+  const formatShortDate = (date: Date) =>
+    date.toLocaleDateString(language === 'zh-CN' ? 'zh-CN' : 'en-US', {
+      month: 'short',
+      day: 'numeric',
+    });
+
+  const formatLongDate = (date: Date) =>
+    date.toLocaleDateString(language === 'zh-CN' ? 'zh-CN' : 'en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
 
   const handleDateSelect = (range: ReactDayPickerDateRange | undefined) => {
     console.log('Date selection:', range); // Debug log
@@ -53,9 +70,10 @@ export const DateRangeFilter: React.FC<DateRangeFilterProps> = ({
     onDateRangeChange({ from: undefined, to: undefined });
   };
 
+  const resolvedPlaceholder = placeholder || t('daterange.placeholder');
   const displayText = dateRange.from && dateRange.to
-    ? `${format(dateRange.from, "MMM dd")} → ${format(dateRange.to, "MMM dd, yyyy")}`
-    : placeholder;
+    ? `${formatShortDate(dateRange.from)} -> ${formatLongDate(dateRange.to)}`
+    : resolvedPlaceholder;
 
   return (
     <div className={`flex items-center gap-2 ${className}`}>
@@ -73,8 +91,8 @@ export const DateRangeFilter: React.FC<DateRangeFilterProps> = ({
           <div className="p-3">
             <div className="mb-3 text-sm text-muted-foreground text-center">
               {dateRange.from && !dateRange.to 
-                ? `Select end date (start: ${format(dateRange.from, "MMM dd")})`
-                : "Select start and end dates"
+                ? t('daterange.selectEnd', { date: formatShortDate(dateRange.from) })
+                : t('daterange.selectRange')
               }
             </div>
             <Calendar
@@ -86,6 +104,7 @@ export const DateRangeFilter: React.FC<DateRangeFilterProps> = ({
               numberOfMonths={2}
               className="rounded-md border"
               disabled={(date) => date > new Date()}
+              locale={locale}
             />
           </div>
         </PopoverContent>

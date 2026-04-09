@@ -1,0 +1,38 @@
+.activity-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+  margin-bottom: 12rpx;
+}
+
+.field-label {
+  font-size: 24rpx;
+  color: #475569;
+  margin-bottom: 6rpx;
+}
+
+.paper-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+  padding: 16rpx;
+  border: 1rpx solid #e2e8f0;
+  border-radius: 16rpx;
+  background: #ffffff;
+  box-shadow: 0 8rpx 24rpx rgba(15, 23, 42, 0.06);
+  margin-bottom: 12rpx;
+}
+
+.paper-title {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.paper-score {
+  align-items: center;
+  gap: 8rpx;
+}
+
+.score-input {
+  width: 160rpx;
+}

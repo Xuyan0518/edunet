@@ -1,0 +1,47 @@
+<view class="container">
+  <view class="hero">
+    <view class="title">仪表板</view>
+    <view class="subtitle">欢迎回来，{{userName}}</view>
+  </view>
+
+  <view class="dashboard-grid">
+    <view wx:if="{{isTeacher}}" class="row-two">
+      <view class="card tile" bindtap="goDaily">
+        <view class="tile-title">每日进度</view>
+        <view class="muted">记录与查看</view>
+      </view>
+      <view class="card tile" bindtap="goWeekly">
+        <view class="tile-title">每周汇报</view>
+        <view class="muted">周报与总结</view>
+      </view>
+    </view>
+    <view wx:if="{{!isTeacher}}" class="card tile wide" bindtap="goWeekly">
+      <view class="tile-title">每周汇报</view>
+      <view class="muted">周报与总结</view>
+    </view>
+
+    <view class="card tile wide" bindtap="goStudents">
+      <view class="tile-title">学生</view>
+      <view class="muted">查看学生与档案</view>
+    </view>
+
+    <view class="card tile wide" bindtap="goSettings">
+      <view class="tile-title">设置与个人资料</view>
+      <view class="muted">账号信息、偏好与退出</view>
+    </view>
+
+    <view wx:if="{{isTeacher}}" class="card tile wide" bindtap="toggleManage">
+      <view class="row-between">
+        <view>
+          <view class="tile-title">管理入口</view>
+          <view class="muted">学生与家长管理</view>
+        </view>
+        <view class="muted">{{manageOpen ? '收起' : '展开'}}</view>
+      </view>
+      <view wx:if="{{manageOpen}}" class="manage-list">
+        <button class="btn-outline manage-btn" size="mini" bindtap="goStudentsManage">学生管理</button>
+        <button class="btn-outline manage-btn" size="mini" bindtap="goParents">家长管理</button>
+      </view>
+    </view>
+  </view>
+</view>

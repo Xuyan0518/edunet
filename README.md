@@ -1,104 +1,92 @@
-# Welcome to your Lovable project
+# EduNet
 
-## Project info
+EduNet is a teacher‑parent learning management platform that includes a WeChat Mini Program (for teachers and parents) and a web admin app (for internal management). It captures daily learning activity, turns it into structured weekly/semester/yearly reports, and keeps families informed with minimal teacher overhead.
 
-**URL**: https://lovable.dev/projects/dc7f83e8-986e-4be8-a32e-460d2b1cffe3
+## What the app is about
+EduNet helps teachers track student learning across subjects and topics, record assessments, and publish reports that parents can view in a clear, read‑only format. It is designed for multi‑teacher collaboration with conflict protection and optional AI‑assisted summaries.
 
-## How can I edit this code?
+## How the app works
+### Roles
+- **Teachers** create and update student records, log daily progress, and publish reports.
+- **Parents** can view their child’s learning history and reports (read‑only).
 
-There are several ways of editing your application.
+### Daily flow
+- Teachers create a **daily progress** entry for a student.
+- Each entry includes attendance time window, subject activities, and optional comments.
+- Practice **papers/quizzes** can be added during the daily flow (type, school, description, score).
 
-**Use Lovable**
+### Weekly flow
+- Daily progress entries roll up into a **weekly report**.
+- Teachers can write the report manually or generate a draft with AI.
+- Parents receive a notification when a new weekly report is published.
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/dc7f83e8-986e-4be8-a32e-460d2b1cffe3) and start prompting.
+### Semester (term) flow
+- A **semester summary** aggregates daily progress, weekly reports, exams, and papers within a date range.
+- Teachers can generate AI drafts and then edit.
+- Parents can only view published summaries.
 
-Changes made via Lovable will be committed automatically to this repo.
+### Yearly flow
+- A **yearly summary** aggregates the entire year’s daily/weekly records, exams, and semester summaries.
+- Teachers can generate AI drafts and then edit.
+- Parents can only view published summaries.
 
-**Use your preferred IDE**
+### AI‑powered summaries (optional)
+- AI uses structured context (student profile, daily progress, weekly reports, exams, papers) to draft weekly/semester/yearly summaries.
+- Teachers can edit before publishing.
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+### Multi‑teacher safety
+- The system uses **optimistic locking** across daily/weekly/semester/yearly records, exams, and papers.
+- If two teachers edit the same record, the later save is blocked with a conflict prompt.
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+### Notifications
+- Parents receive **WeChat subscribe messages** when new weekly reports, exams, semester summaries, or yearly summaries are published.
 
-Follow these steps:
+## Tech stack
+- **Web admin:** React 18, Vite, TypeScript, Tailwind CSS, shadcn/ui, React Router
+- **Mini Program:** WXML/WXSS + JavaScript, WeChat SDK
+- **Backend:** Node.js, Express, TypeScript (tsx), Zod
+- **Database:** PostgreSQL (Neon) + Drizzle ORM + Drizzle Studio
+- **AI (optional):** DeepSeek API
+- **Notifications:** WeChat Subscribe Messages
 
+## Project structure
+- `src/` Web admin (React + Vite)
+- `miniprogram/` WeChat Mini Program
+- `server/` Express API + Drizzle ORM
+- `server/migrations/` Database migrations
+
+## Getting started
 ```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
 npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
 npm run dev
 ```
+Starts the web app, API server, and Drizzle Studio.
 
-**Edit a file directly in GitHub**
+For Mini Program development:
+```sh
+npm run dev:wechat
+```
+Then open the `miniprogram/` folder in WeChat DevTools and ensure `project.config.json` uses your AppID.
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
-
-**Use GitHub Codespaces**
-
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
-
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## API Configuration
-
-The project uses a centralized API configuration for better maintainability. The API base URL is configured in `src/config/api.ts`.
-
-### Environment Variables
-
-To configure the API URL for different environments, you can set the `VITE_API_URL` environment variable:
-
-```bash
-# Development
-VITE_API_URL=http://localhost:3003/api
-
-# Production
-VITE_API_URL=https://your-api-domain.com/api
+## Database & migrations
+```sh
+npm run db:migrate
 ```
 
-### Usage
 
-Instead of hardcoding API URLs, use the `buildApiUrl` helper function:
 
-```typescript
-import { buildApiUrl } from '@/config/api';
+## Scripts
+- `npm run dev` Start web + API + Drizzle Studio
+- `npm run dev:wechat` Start API + Drizzle Studio (for Mini Program)
+- `npm run db:migrate` Run database migrations
 
-// Instead of: fetch('/api/students')
-const response = await fetch(buildApiUrl('students'));
-
-// Instead of: fetch('/api/progress/123')
-const response = await fetch(buildApiUrl('progress/123'));
-```
-
-This approach makes it easy to:
-- Change API endpoints across environments
-- Maintain consistent API URLs throughout the application
-- Avoid hardcoded URLs that can break when deployed
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/dc7f83e8-986e-4be8-a32e-460d2b1cffe3) and click on Share -> Publish.
-
-## I want to use a custom domain - is that possible?
-
-We don't support custom domains (yet). If you want to deploy your project under your own domain then we recommend using Netlify. Visit our docs for more details: [Custom domains](https://docs.lovable.dev/tips-tricks/custom-domain/)
+## API overview
+Key endpoints live in `server/index.ts` for:
+- Students, subjects, and topic progress
+- Daily progress
+- Weekly feedback
+- Semester/yearly summaries
+- Exams and scores
+- Practice papers/quizzes
+- AI summary generation
+- WeChat notification triggers

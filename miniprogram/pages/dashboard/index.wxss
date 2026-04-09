@@ -1,0 +1,36 @@
+.dashboard-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+}
+
+.row-two {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20rpx;
+}
+
+.tile {
+  min-height: 160rpx;
+}
+
+.tile.wide {
+  min-height: 140rpx;
+}
+
+.tile-title {
+  font-size: 32rpx;
+  font-weight: 700;
+  margin-bottom: 8rpx;
+}
+
+.manage-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  margin-top: 16rpx;
+}
+
+.manage-btn {
+  flex: 1 1 180rpx;
+}

@@ -1,0 +1,75 @@
+.subject-card {
+  margin-top: 16rpx;
+}
+
+.subject-title {
+  font-weight: 600;
+  max-width: 420rpx;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.subject-code {
+  max-width: 420rpx;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.subject-text {
+  flex: 1;
+  min-width: 0;
+  padding-right: 12rpx;
+}
+
+.topic-row {
+  padding: 12rpx 0;
+  border-bottom: 1rpx solid #edf2f7;
+}
+
+.topic-title {
+  font-size: 26rpx;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.subtopic {
+  padding-left: 24rpx;
+  background: #f8fafc;
+  border-radius: 12rpx;
+  margin-top: 8rpx;
+}
+
+.topic-header {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.topic-meta {
+  flex-shrink: 0;
+  max-width: 200rpx;
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  margin-top: 6rpx;
+}
+
+.pill-btn {
+  border: 2rpx solid #cbd5f5;
+  background: #fff;
+  color: #1e293b;
+  border-radius: 999rpx;
+  padding: 0 18rpx;
+  font-size: 22rpx;
+  line-height: 1.6;
+}
+
+.pill-active {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+}

@@ -1,0 +1,19 @@
+.subject-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+
+.subject-name {
+  font-size: 30rpx;
+  font-weight: 600;
+}
+
+.subject-meta {
+  font-size: 24rpx;
+}
+
+.subheader {
+  font-weight: 600;
+  margin: 12rpx 0 8rpx;
+}

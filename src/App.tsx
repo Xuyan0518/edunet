@@ -2,8 +2,9 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter as Router, Routes, Route, Navigate, Link } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
+import { I18nProvider } from "@/context/I18nContext";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
@@ -18,10 +19,10 @@ import Signup from "./pages/Signup";
 import AddStudent from "@/pages/AddStudent";
 import AdminLogin from '@/pages/admin/AdminLogin';
 import AdminDashboard from '@/pages/admin/AdminDashboard';
-import StudentDetail from './pages/StudentDetail';
-import DailyProgressPage from '@/pages/DailyProgress';
 import ProgressForm from '@/pages/ProgressForm';
 import VerifyEmail from './pages/VerifyEmail';
+import Profile from './pages/Profile';
+import Settings from './pages/Settings';
 
 
 const queryClient = new QueryClient();
@@ -72,7 +73,6 @@ const AppRoutes = () => {
       <Route path="/verify-email" element={<VerifyEmail />} />
       <Route path="/admin/login" element={<AdminLogin />} />
       <Route path="/admin/dashboard" element={<AdminDashboard />} />
-      <Route path="/daily-progress" element={<DailyProgressPage />} />
       <Route path="/progress-form" element={<ProgressForm />} />
       <Route
         path="/dashboard"
@@ -93,24 +93,16 @@ const AppRoutes = () => {
       <Route
         path="/daily-progress"
         element={
-          <TeacherRoute>
+          <ProtectedRoute>
             <DailyProgress />
-          </TeacherRoute>
+          </ProtectedRoute>
         }
       />
       <Route
         path="/weekly-feedback"
         element={
-          <TeacherRoute>
-            <WeeklyFeedback />
-          </TeacherRoute>
-        }
-      />
-      <Route
-        path="/student-profile"
-        element={
           <ProtectedRoute>
-            <StudentProfile />
+            <WeeklyFeedback />
           </ProtectedRoute>
         }
       />
@@ -130,6 +122,22 @@ const AppRoutes = () => {
           </TeacherRoute>
         }
       />
+      <Route
+        path="/profile"
+        element={
+          <ProtectedRoute>
+            <Profile />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/settings"
+        element={
+          <ProtectedRoute>
+            <Settings />
+          </ProtectedRoute>
+        }
+      />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );
@@ -141,9 +149,11 @@ const App = () => (
       <Toaster />
       <Sonner />
       <Router basename={import.meta.env.BASE_URL.replace(/\/$/, "") || "/"}>
-        <AuthProvider>
-          <AppRoutes />
-        </AuthProvider>
+        <I18nProvider>
+          <AuthProvider>
+            <AppRoutes />
+          </AuthProvider>
+        </I18nProvider>
       </Router>
     </TooltipProvider>
   </QueryClientProvider>

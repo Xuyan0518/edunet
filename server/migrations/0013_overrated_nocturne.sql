@@ -1,0 +1,1 @@
+ALTER TABLE "daily_progress" ADD COLUMN "summary" text;

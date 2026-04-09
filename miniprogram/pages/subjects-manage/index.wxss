@@ -1,0 +1,32 @@
+.list-item {
+  padding: 20rpx 0;
+}
+
+button.btn-primary {
+  margin-top: 24rpx;
+}
+
+.subject-text {
+  flex: 1;
+  min-width: 0;
+  padding-right: 16rpx;
+}
+
+.subject-name {
+  font-size: 28rpx;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.subject-meta {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.selected {
+  background: #eef2ff;
+  border-radius: 12rpx;
+  padding: 16rpx;
+}

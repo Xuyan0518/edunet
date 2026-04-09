@@ -1,0 +1,6 @@
+.report-content {
+  font-size: 28rpx;
+  color: #0f172a;
+  line-height: 1.8;
+  white-space: pre-wrap;
+}

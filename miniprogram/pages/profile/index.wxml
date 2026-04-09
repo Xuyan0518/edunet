@@ -1,0 +1,9 @@
+<view class="container">
+  <view class="title">个人资料</view>
+
+  <view class="section card">
+    <view class="list-item">姓名：{{user.name}}</view>
+    <view class="list-item">邮箱：{{user.email}}</view>
+    <view class="list-item">角色：{{user.role}}</view>
+  </view>
+</view>

@@ -10,9 +10,12 @@ import { Calendar as CalendarIcon, Plus, MinusCircle, CheckCircle2, Edit2, XCirc
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { format, addDays, parse } from 'date-fns';
+import { enUS, zhCN } from 'date-fns/locale';
 import { useToast } from '@/hooks/use-toast';
 import { buildApiUrl } from '@/config/api';
 import { getAuthHeaders } from '@/utils/auth';
+import { useAuth } from '@/context/AuthContext';
+import { useI18n } from '@/context/I18nContext';
 
 interface WeeklyFeedbackEntry {
   id?: string;
@@ -40,6 +43,7 @@ const WeeklyFeedbackForm: React.FC = () => {
   // URL param: only student (optional)
   const [searchParams, setSearchParams] = useSearchParams();
   const studentIdFromUrl = searchParams.get('student') || '';
+  const weekStartingFromUrl = searchParams.get('weekStarting') || '';
 
   // Students list
   const [students, setStudents] = useState<{ id: string; name: string }[]>([]);
@@ -64,6 +68,13 @@ const WeeklyFeedbackForm: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
   const didLoadStudentsRef = useRef(false);
+  const didSyncWeekRef = useRef(false);
+
+  const { role } = useAuth();
+  const { t, language } = useI18n();
+  const isReadOnly = role !== 'teacher';
+  const isEditable = isEditing && !isReadOnly;
+  const locale = language === 'zh-CN' ? zhCN : enUS;
 
   // Helpers
   const resetForm = () => {
@@ -79,6 +90,13 @@ const WeeklyFeedbackForm: React.FC = () => {
     if (!weekStarting || d.getTime() !== weekStarting.getTime()) setWeekStarting(d);
   };
 
+  const formatDisplayDate = (date: Date) =>
+    date.toLocaleDateString(language === 'zh-CN' ? 'zh-CN' : 'en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+
   // Load students (once)
   useEffect(() => {
     let cancelled = false;
@@ -88,21 +106,21 @@ const WeeklyFeedbackForm: React.FC = () => {
           headers: getAuthHeaders(),
         });
         if (!res.ok) throw new Error('Network response was not ok');
-        const data = await res.json();
+        const data: Array<{ id: string; name: string }> = await res.json();
         if (cancelled) return;
         setStudents(data);
 
         // If URL had ?student=, set only if valid; else leave blank
         if (studentIdFromUrl) {
-          if (data.some((s: any) => s.id === studentIdFromUrl) && selectedStudent !== studentIdFromUrl) {
+          if (data.some((s) => s.id === studentIdFromUrl) && selectedStudent !== studentIdFromUrl) {
             setSelectedStudent(studentIdFromUrl);
-          } else if (!data.some((s: any) => s.id === studentIdFromUrl) && selectedStudent !== '') {
+          } else if (!data.some((s) => s.id === studentIdFromUrl) && selectedStudent !== '') {
             setSelectedStudent('');
           }
         }
       } catch (err) {
         console.error('Error fetching students:', err);
-        toast({ title: 'Error', description: 'Failed to fetch students', variant: 'destructive' });
+        toast({ title: t('toast.title.error'), description: t('weeklyFeedback.toast.fetchStudents'), variant: 'destructive' });
       } finally {
         didLoadStudentsRef.current = true;
       }
@@ -112,6 +130,14 @@ const WeeklyFeedbackForm: React.FC = () => {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!didLoadStudentsRef.current) return;
+    if (!studentIdFromUrl) return;
+    if (students.some((s) => s.id === studentIdFromUrl) && selectedStudent !== studentIdFromUrl) {
+      setSelectedStudent(studentIdFromUrl);
+    }
+  }, [studentIdFromUrl, students, selectedStudent]);
 
   // Single guarded URL-sync effect — only for ?student=
   useEffect(() => {
@@ -136,6 +162,27 @@ const WeeklyFeedbackForm: React.FC = () => {
     if (changed) setSearchParams(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedStudent]);
+
+  useEffect(() => {
+    if (!weekStarting) return;
+    const desired = format(weekStarting, 'yyyy-MM-dd');
+    const current = searchParams.get('weekStarting') || '';
+    if (current === desired) return;
+    const next = new URLSearchParams(searchParams);
+    next.set('weekStarting', desired);
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weekStarting]);
+
+  useEffect(() => {
+    if (!weekStartingFromUrl) return;
+    const parsedDate = parse(weekStartingFromUrl, 'yyyy-MM-dd', new Date());
+    if (isNaN(parsedDate.getTime())) return;
+    if (!didSyncWeekRef.current || (weekStarting && format(weekStarting, 'yyyy-MM-dd') !== weekStartingFromUrl)) {
+      safeSetWeekStarting(parsedDate);
+      didSyncWeekRef.current = true;
+    }
+  }, [weekStartingFromUrl, weekStarting]);
 
   // Fetch existing weekly feedback when student or week changes
   useEffect(() => {
@@ -175,17 +222,16 @@ const WeeklyFeedbackForm: React.FC = () => {
           setIsEditing(false);
         } else {
           setExistingId(null);
-          setIsEditing(true);
+          setIsEditing(!isReadOnly);
           resetForm();
         }
-      } catch (e: any) {
-        if (e?.name !== 'AbortError') {
-          console.error(e);
-          toast({ title: 'Error', description: 'Failed to fetch weekly feedback', variant: 'destructive' });
-          setExistingId(null);
-          setIsEditing(true);
-          resetForm();
-        }
+      } catch (e: unknown) {
+        if (e instanceof Error && e.name === 'AbortError') return;
+        console.error(e);
+        toast({ title: t('toast.title.error'), description: t('weeklyFeedback.toast.fetchEntry'), variant: 'destructive' });
+        setExistingId(null);
+        setIsEditing(!isReadOnly);
+        resetForm();
       } finally {
         if (!ac.signal.aborted) setIsLoading(false);
       }
@@ -197,23 +243,23 @@ const WeeklyFeedbackForm: React.FC = () => {
   }, [selectedStudent, weekStarting]);
 
   // List field handlers (respect view/edit)
-  const handleAddStrength = () => isEditing && setStrengths((s) => [...s, '']);
+  const handleAddStrength = () => isEditable && setStrengths((s) => [...s, '']);
   const handleRemoveStrength = (i: number) => {
-    if (!isEditing) return;
+    if (!isEditable) return;
     setStrengths((s) => (s.length <= 1 ? s : s.filter((_, idx) => idx !== i)));
   };
   const handleStrengthChange = (i: number, v: string) => {
-    if (!isEditing) return;
+    if (!isEditable) return;
     setStrengths((s) => s.map((x, idx) => (idx === i ? v : x)));
   };
 
-  const handleAddAreaToImprove = () => isEditing && setAreasToImprove((a) => [...a, '']);
+  const handleAddAreaToImprove = () => isEditable && setAreasToImprove((a) => [...a, '']);
   const handleRemoveAreaToImprove = (i: number) => {
-    if (!isEditing) return;
+    if (!isEditable) return;
     setAreasToImprove((a) => (a.length <= 1 ? a : a.filter((_, idx) => idx !== i)));
   };
   const handleAreaToImproveChange = (i: number, v: string) => {
-    if (!isEditing) return;
+    if (!isEditable) return;
     setAreasToImprove((a) => a.map((x, idx) => (idx === i ? v : x)));
   };
 
@@ -224,21 +270,21 @@ const WeeklyFeedbackForm: React.FC = () => {
   // Validation
   const validate = () => {
     if (!selectedStudent) {
-      toast({ title: 'Error', description: 'Please select a student', variant: 'destructive' });
+      toast({ title: t('toast.title.error'), description: t('weeklyFeedback.toast.selectStudent'), variant: 'destructive' });
       return false;
     }
     if (!weekStarting || !weekEnding) {
-      toast({ title: 'Error', description: 'Please select a week starting (Sunday)', variant: 'destructive' });
+      toast({ title: t('toast.title.error'), description: t('weeklyFeedback.toast.selectWeek'), variant: 'destructive' });
       return false;
     }
     if (!summary.trim()) {
-      toast({ title: 'Error', description: 'Please provide a weekly summary', variant: 'destructive' });
+      toast({ title: t('toast.title.error'), description: t('weeklyFeedback.toast.provideSummary'), variant: 'destructive' });
       return false;
     }
     if (strengths.some((s) => !s.trim()) || areasToImprove.some((a) => !a.trim())) {
       toast({
-        title: 'Error',
-        description: 'Please fill out all strengths/areas or remove empty ones',
+        title: t('toast.title.error'),
+        description: t('weeklyFeedback.toast.fillStrengths'),
         variant: 'destructive',
       });
       return false;
@@ -278,7 +324,7 @@ const WeeklyFeedbackForm: React.FC = () => {
           body: JSON.stringify(payload),
         });
       } else {
-        toast({ title: 'Info', description: 'No changes to save', variant: 'default' });
+        toast({ title: t('toast.title.info'), description: t('weeklyFeedback.toast.noChanges'), variant: 'default' });
         return;
       }
 
@@ -293,12 +339,16 @@ const WeeklyFeedbackForm: React.FC = () => {
       setBackup(null);
 
       toast({
-        title: 'Success',
-        description: `Weekly feedback ${existingId ? 'updated' : 'created'} successfully`,
+        title: t('toast.title.success'),
+        description: t('weeklyFeedback.toast.saved', {
+          action: existingId
+            ? t('weeklyFeedback.toast.action.updated')
+            : t('weeklyFeedback.toast.action.created'),
+        }),
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Error saving weekly feedback:', err);
-      toast({ title: 'Error', description: err.message ?? 'Save failed', variant: 'destructive' });
+      toast({ title: t('toast.title.error'), description: t('weeklyFeedback.toast.saveFailed'), variant: 'destructive' });
     }
   };
 
@@ -312,30 +362,34 @@ const WeeklyFeedbackForm: React.FC = () => {
           className="mb-4"
         >
           <ArrowLeft className="h-4 w-4 mr-2" />
-          Back to Students
+          {t('student.backToStudents')}
         </Button>
       </div>
       
       <div className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight">Weekly Feedback</h1>
+        <h1 className="text-3xl font-bold tracking-tight">{t('weeklyFeedbackForm.title')}</h1>
         <p className="text-muted-foreground mt-1">
-          {existingId && !isEditing
-            ? 'Viewing existing feedback. Click Edit to modify.'
-            : existingId && isEditing
-            ? 'Editing existing feedback.'
-            : 'Create a new weekly feedback entry.'}
+          {existingId
+            ? isEditing
+              ? t('weeklyFeedbackForm.subtitle.editing')
+              : isReadOnly
+              ? t('weeklyFeedbackForm.subtitle.viewOnly')
+              : t('weeklyFeedbackForm.subtitle.viewing')
+            : isReadOnly
+            ? t('weeklyFeedbackForm.subtitle.none')
+            : t('weeklyFeedbackForm.subtitle.new')}
         </p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-8">
         <Card className="hover-card">
           <CardHeader>
-            <CardTitle>Student & Week</CardTitle>
-            <CardDescription>Select a student and a Sunday to define the week (Sun → Thu)</CardDescription>
+            <CardTitle>{t('weeklyFeedbackForm.studentWeek.title')}</CardTitle>
+            <CardDescription>{t('weeklyFeedbackForm.studentWeek.desc')}</CardDescription>
           </CardHeader>
           <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
-              <Label htmlFor="student">Student</Label>
+              <Label htmlFor="student">{t('weeklyFeedbackForm.student.label')}</Label>
               <Select
                 value={selectedStudent}
                 onValueChange={(val) => {
@@ -344,7 +398,7 @@ const WeeklyFeedbackForm: React.FC = () => {
                 disabled={isLoading}
               >
                 <SelectTrigger id="student" className="focus-within-ring">
-                  <SelectValue placeholder="Select a student" />
+                  <SelectValue placeholder={t('weeklyFeedbackForm.student.placeholder')} />
                 </SelectTrigger>
                 <SelectContent>
                   {students.map((s) => (
@@ -357,7 +411,7 @@ const WeeklyFeedbackForm: React.FC = () => {
             </div>
 
             <div className="space-y-2">
-              <Label>Week (pick a Sunday)</Label>
+              <Label>{t('weeklyFeedbackForm.week.label')}</Label>
               <Popover>
                 <PopoverTrigger asChild>
                   <Button
@@ -368,11 +422,11 @@ const WeeklyFeedbackForm: React.FC = () => {
                     <CalendarIcon className="mr-2 h-4 w-4" />
                     {weekStarting ? (
                       <>
-                        {format(weekStarting, 'PPP')} &nbsp;→&nbsp;{' '}
-                        {weekEnding ? format(weekEnding, 'PPP') : 'Thu'}
+                        {formatDisplayDate(weekStarting)} &nbsp;->&nbsp;{' '}
+                        {weekEnding ? formatDisplayDate(weekEnding) : t('weeklyFeedbackForm.week.endPlaceholder')}
                       </>
                     ) : (
-                      <span>Pick a Sunday</span>
+                      <span>{t('weeklyFeedbackForm.week.pick')}</span>
                     )}
                   </Button>
                 </PopoverTrigger>
@@ -383,11 +437,12 @@ const WeeklyFeedbackForm: React.FC = () => {
                     onSelect={handleWeekSelect}
                     disabled={(date) => date.getDay() !== 0}
                     initialFocus
+                    locale={locale}
                   />
                 </PopoverContent>
               </Popover>
               <p className="text-xs text-muted-foreground">
-                The end date (Thursday) is auto-calculated from the selected Sunday.
+                {t('weeklyFeedbackForm.week.note')}
               </p>
             </div>
           </CardContent>
@@ -395,24 +450,24 @@ const WeeklyFeedbackForm: React.FC = () => {
 
         <Card className="hover-card">
           <CardHeader>
-            <CardTitle>Weekly Summary</CardTitle>
-            <CardDescription>Provide an overview of the student's performance this week</CardDescription>
+            <CardTitle>{t('weeklyFeedbackForm.summary.title')}</CardTitle>
+            <CardDescription>{t('weeklyFeedbackForm.summary.desc')}</CardDescription>
           </CardHeader>
           <CardContent>
             <Textarea
               value={summary}
-              onChange={(e) => isEditing && setSummary(e.target.value)}
-              placeholder="Enter a comprehensive summary..."
+              onChange={(e) => isEditable && setSummary(e.target.value)}
+              placeholder={t('weeklyFeedbackForm.summary.placeholder')}
               className="min-h-[120px] focus-within-ring"
-              readOnly={!isEditing}
+              readOnly={!isEditable}
             />
           </CardContent>
         </Card>
 
         <Card className="hover-card">
           <CardHeader>
-            <CardTitle>Strengths</CardTitle>
-            <CardDescription>Highlight the student's strengths demonstrated this week</CardDescription>
+            <CardTitle>{t('weeklyFeedbackForm.strengths.title')}</CardTitle>
+            <CardDescription>{t('weeklyFeedbackForm.strengths.desc')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {strengths.map((strength, index) => (
@@ -420,21 +475,21 @@ const WeeklyFeedbackForm: React.FC = () => {
                 <Input
                   value={strength}
                   onChange={(e) => handleStrengthChange(index, e.target.value)}
-                  placeholder={`Strength ${index + 1}`}
+                  placeholder={t('weeklyFeedbackForm.strengths.placeholder', { n: index + 1 })}
                   className="focus-within-ring"
-                  readOnly={!isEditing}
+                  readOnly={!isEditable}
                 />
-                {isEditing && index > 0 && (
+                {isEditable && index > 0 && (
                   <Button type="button" variant="ghost" size="icon" onClick={() => handleRemoveStrength(index)}>
                     <MinusCircle className="h-5 w-5 text-destructive" />
                   </Button>
                 )}
               </div>
             ))}
-            {isEditing && (
+            {isEditable && (
               <Button type="button" variant="outline" onClick={handleAddStrength} className="w-full">
                 <Plus className="h-4 w-4 mr-2" />
-                Add Another Strength
+                {t('weeklyFeedbackForm.strengths.add')}
               </Button>
             )}
           </CardContent>
@@ -442,8 +497,8 @@ const WeeklyFeedbackForm: React.FC = () => {
 
         <Card className="hover-card">
           <CardHeader>
-            <CardTitle>Areas to Improve</CardTitle>
-            <CardDescription>Identify areas where the student could improve</CardDescription>
+            <CardTitle>{t('weeklyFeedbackForm.areas.title')}</CardTitle>
+            <CardDescription>{t('weeklyFeedbackForm.areas.desc')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {areasToImprove.map((area, index) => (
@@ -451,21 +506,21 @@ const WeeklyFeedbackForm: React.FC = () => {
                 <Input
                   value={area}
                   onChange={(e) => handleAreaToImproveChange(index, e.target.value)}
-                  placeholder={`Area ${index + 1}`}
+                  placeholder={t('weeklyFeedbackForm.areas.placeholder', { n: index + 1 })}
                   className="focus-within-ring"
-                  readOnly={!isEditing}
+                  readOnly={!isEditable}
                 />
-                {isEditing && index > 0 && (
+                {isEditable && index > 0 && (
                   <Button type="button" variant="ghost" size="icon" onClick={() => handleRemoveAreaToImprove(index)}>
                     <MinusCircle className="h-5 w-5 text-destructive" />
                   </Button>
                 )}
               </div>
             ))}
-            {isEditing && (
+            {isEditable && (
               <Button type="button" variant="outline" onClick={handleAddAreaToImprove} className="w-full">
                 <Plus className="h-4 w-4 mr-2" />
-                Add Another Area
+                {t('weeklyFeedbackForm.areas.add')}
               </Button>
             )}
           </CardContent>
@@ -473,37 +528,37 @@ const WeeklyFeedbackForm: React.FC = () => {
 
         <Card className="hover-card">
           <CardHeader>
-            <CardTitle>Additional Information</CardTitle>
-            <CardDescription>Provide more context and future plans</CardDescription>
+            <CardTitle>{t('weeklyFeedbackForm.additional.title')}</CardTitle>
+            <CardDescription>{t('weeklyFeedbackForm.additional.desc')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="space-y-2">
-              <Label htmlFor="teacher-notes">Teacher Notes</Label>
+              <Label htmlFor="teacher-notes">{t('weeklyFeedbackForm.teacherNotes.label')}</Label>
               <Textarea
                 id="teacher-notes"
                 value={teacherNotes}
-                onChange={(e) => isEditing && setTeacherNotes(e.target.value)}
-                placeholder="Any additional notes..."
+                onChange={(e) => isEditable && setTeacherNotes(e.target.value)}
+                placeholder={t('weeklyFeedbackForm.teacherNotes.placeholder')}
                 className="min-h-[100px] focus-within-ring"
-                readOnly={!isEditing}
+                readOnly={!isEditable}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="next-week">Next Week's Focus</Label>
+              <Label htmlFor="next-week">{t('weeklyFeedbackForm.nextWeek.label')}</Label>
               <Textarea
                 id="next-week"
                 value={nextWeekFocus}
-                onChange={(e) => isEditing && setNextWeekFocus(e.target.value)}
-                placeholder="Outline what will be covered or focused on next week..."
+                onChange={(e) => isEditable && setNextWeekFocus(e.target.value)}
+                placeholder={t('weeklyFeedbackForm.nextWeek.placeholder')}
                 className="min-h-[100px] focus-within-ring"
-                readOnly={!isEditing}
+                readOnly={!isEditable}
               />
             </div>
           </CardContent>
 
           <CardFooter className="flex justify-end gap-2">
             {/* View mode: Edit */}
-            {!isEditing && existingId && (
+            {!isEditing && existingId && !isReadOnly && (
               <Button
                 variant="outline"
                 size="sm"
@@ -523,7 +578,7 @@ const WeeklyFeedbackForm: React.FC = () => {
                 }}
               >
                 <Edit2 size={16} className="mr-2" />
-                Edit
+                {t('weeklyFeedbackForm.edit')}
               </Button>
             )}
 
@@ -550,20 +605,22 @@ const WeeklyFeedbackForm: React.FC = () => {
                   }}
                 >
                   <XCircle size={16} className="mr-2" />
-                  Cancel Edit
+                  {t('weeklyFeedbackForm.cancelEdit')}
                 </Button>
-                <Button type="submit" disabled={isLoading}>
-                  <CheckCircle2 className="h-4 w-4 mr-2" />
-                  Update Feedback
-                </Button>
+                {!isReadOnly && (
+                  <Button type="submit" disabled={isLoading}>
+                    <CheckCircle2 className="h-4 w-4 mr-2" />
+                    {t('weeklyFeedbackForm.update')}
+                  </Button>
+                )}
               </>
             )}
 
             {/* New record: Save */}
-            {!existingId && isEditing && (
+            {!existingId && isEditing && !isReadOnly && (
               <Button type="submit" disabled={isLoading}>
                 <CheckCircle2 className="h-4 w-4 mr-2" />
-                Save Weekly Feedback
+                {t('weeklyFeedbackForm.save')}
               </Button>
             )}
           </CardFooter>
@@ -737,5 +794,3 @@ export default WeeklyFeedbackForm;
 //     </div>
 //   );
 // };
-
-

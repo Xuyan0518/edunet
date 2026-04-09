@@ -14,7 +14,7 @@ export async function verifyParentStudentAccess(
 ): Promise<void> {
   try {
     // Only apply to parents
-    if (req.user?.role !== 'parent') {
+    if (!req.user || req.user.role !== 'parent') {
       next();
       return;
     }
@@ -66,14 +66,14 @@ export async function filterParentStudents(
 ): Promise<void> {
   try {
     // Only apply to parents
-    if (req.user?.role !== 'parent') {
+    if (!req.user || req.user.role !== 'parent') {
       next();
       return;
     }
 
     // For GET /api/students, we'll filter in the route handler
     // This middleware just marks that filtering is needed
-    req.user = { ...req.user, parentId: req.user.id } as any;
+    req.user = { ...req.user, parentId: req.user.id };
     next();
   } catch (error) {
     console.error('Error in filterParentStudents:', error);

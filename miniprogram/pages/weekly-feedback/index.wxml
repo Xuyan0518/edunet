@@ -1,0 +1,47 @@
+<view class="container">
+  <view class="hero">
+    <view class="title">每周汇报</view>
+    <view class="subtitle">选择学生查看或新增汇报</view>
+    <view class="row">
+      <button wx:if="{{isTeacher}}" class="btn-primary" size="mini" bindtap="createEntry">新增汇报</button>
+    </view>
+  </view>
+
+  <view class="section card">
+    <view class="label">选择学生</view>
+    <picker mode="selector" range="{{studentNames}}" bindchange="onStudentChange" disabled="{{lockStudent}}">
+      <view class="picker">{{selectedStudentName || "请选择学生"}}</view>
+    </picker>
+  </view>
+
+  <view class="section card">
+    <view class="section-title">筛选</view>
+    <view class="filter-row">
+      <view class="filter-chip {{filterMode === 'all' ? 'chip chip-active' : 'chip'}}" data-mode="all" bindtap="setFilterMode">全部</view>
+      <view class="filter-chip {{filterMode === 'month' ? 'chip chip-active' : 'chip'}}" data-mode="month" bindtap="setFilterMode">按月</view>
+    </view>
+    <view wx:if="{{filterMode === 'month'}}" class="filter-detail">
+      <picker mode="date" fields="month" value="{{filterMonth}}" bindchange="onFilterMonthChange">
+        <view class="chip">{{filterMonth}}</view>
+      </picker>
+    </view>
+  </view>
+
+  <view class="section card">
+    <view class="section-title">汇报列表</view>
+    <block wx:if="{{filteredEntries.length === 0}}">
+      <view class="list-item muted">暂无记录</view>
+    </block>
+    <block wx:for="{{pagedEntries}}" wx:key="id">
+      <view class="list-item row-between" bindtap="openDetail" data-week="{{item.weekStarting}}">
+        <view>{{item.weekStarting}} - {{item.weekEnding}}</view>
+        <view class="chip">查看</view>
+      </view>
+    </block>
+    <view wx:if="{{filteredEntries.length > pageSize}}" class="pagination">
+      <button class="btn-outline" size="mini" bindtap="prevPage">上一页</button>
+      <view class="muted">第 {{currentPage}} / {{totalPages}} 页</view>
+      <button class="btn-outline" size="mini" bindtap="nextPage">下一页</button>
+    </view>
+  </view>
+</view>

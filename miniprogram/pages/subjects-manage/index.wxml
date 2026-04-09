@@ -1,0 +1,35 @@
+<view class="container">
+  <view class="hero">
+    <view class="title">管理科目</view>
+    <view class="subtitle">勾选要分配给学生的科目</view>
+    <input class="input" placeholder="搜索科目..." bindinput="onSearch" />
+  </view>
+
+  <view class="card">
+    <block wx:if="{{loading}}">
+      <view class="list-item muted">加载中...</view>
+    </block>
+    <block wx:elif="{{filtered.length === 0}}">
+      <view class="list-item muted">没有可选科目</view>
+    </block>
+    <block wx:else>
+      <checkbox-group bindchange="onCheckChange">
+        <block wx:for="{{filtered}}" wx:key="id">
+          <label class="list-item row-between {{item.isSelected ? 'selected' : ''}}">
+            <view class="subject-text">
+            <view class="subject-name">{{item.displayName || item.name}}</view>
+              <view class="muted subject-meta">{{item.code}} · {{item.level}}</view>
+            </view>
+            <view class="row">
+              <view wx:if="{{item.isRequired}}" class="chip chip-success">必选</view>
+              <view wx:if="{{item.isSelected}}" class="chip chip-success">已选</view>
+              <checkbox value="{{item.id}}" checked="{{item.isSelected}}" disabled="{{item.isRequired}}" />
+            </view>
+          </label>
+        </block>
+      </checkbox-group>
+    </block>
+  </view>
+
+  <button class="btn-primary" bindtap="save">保存修改</button>
+</view>

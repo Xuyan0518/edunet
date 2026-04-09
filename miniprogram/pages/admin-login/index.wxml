@@ -1,0 +1,18 @@
+<view class="container">
+  <view class="hero">
+    <view class="title">管理员登录</view>
+    <view class="subtitle">仅限管理员账号</view>
+  </view>
+
+  <view class="card">
+    <view class="section">
+      <view class="label">邮箱</view>
+      <input class="input" placeholder="admin@example.com" bindinput="onEmailInput" value="{{email}}" />
+    </view>
+    <view class="section">
+      <view class="label">密码</view>
+      <input class="input" placeholder="请输入密码" password bindinput="onPasswordInput" value="{{password}}" />
+    </view>
+    <button class="btn-primary" loading="{{loading}}" bindtap="submit">登录</button>
+  </view>
+</view>

@@ -9,12 +9,14 @@ import { useAuth } from '@/context/AuthContext';
 import { Student, DailyProgress, WeeklyFeedback, api } from '@/services/api';
 import { buildApiUrl } from '@/config/api';
 import { getAuthHeaders } from '@/utils/auth';
+import { useI18n } from '@/context/I18nContext';
 
 type FilterType = 'all' | 'pending-daily' | 'pending-weekly';
 
 const Students: React.FC = () => {
   const navigate = useNavigate();
   const { user, role } = useAuth();
+  const { t } = useI18n();
 
   // State for students and filtering
   const [students, setStudents] = useState<Student[]>([]);
@@ -66,14 +68,14 @@ const Students: React.FC = () => {
         
       } catch (error) {
         console.error('Failed to fetch students:', error);
-        setError(error instanceof Error ? error.message : 'Failed to fetch students');
+        setError(t('students.error.load'));
       } finally {
         setLoading(false);
       }
     };
 
     fetchData();
-  }, []);
+  }, [t]);
 
   // Helper functions to determine pending status
   const getTodayProgressStatus = (studentId: string) => {
@@ -149,25 +151,25 @@ const Students: React.FC = () => {
     
     if (filter === 'pending-daily') {
       if (dailyStatus === 'no-class') {
-        return <Badge variant="secondary">No Class Today</Badge>;
+        return <Badge variant="secondary">{t('students.status.noClass')}</Badge>;
       }
-      return <Badge variant="destructive">Pending Daily Progress</Badge>;
+      return <Badge variant="destructive">{t('students.status.pendingDaily')}</Badge>;
     }
     
     if (filter === 'pending-weekly') {
       if (weeklyStatus === 'not-time') {
-        return <Badge variant="secondary">Not Feedback Time</Badge>;
+        return <Badge variant="secondary">{t('students.status.notFeedbackTime')}</Badge>;
       }
-      return <Badge variant="destructive">Pending Weekly Feedback</Badge>;
+      return <Badge variant="destructive">{t('students.status.pendingWeekly')}</Badge>;
     }
     
     // For 'all' filter, show current status
     if (dailyStatus === 'pending') {
-      return <Badge variant="destructive">Pending Daily Progress</Badge>;
+      return <Badge variant="destructive">{t('students.status.pendingDaily')}</Badge>;
     } else if (dailyStatus === 'completed') {
-      return <Badge variant="default">Daily Progress ✓</Badge>;
+      return <Badge variant="default">{t('students.status.dailyCompleted')} ✓</Badge>;
     } else if (dailyStatus === 'no-class') {
-      return <Badge variant="secondary">No Class Today</Badge>;
+      return <Badge variant="secondary">{t('students.status.noClass')}</Badge>;
     }
     
     return null;
@@ -177,16 +179,16 @@ const Students: React.FC = () => {
     <div className="container mx-auto py-8 px-4 animate-fade-in">
       <div className="mb-8 flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Students</h1>
+          <h1 className="text-3xl font-bold tracking-tight">{t('students.title')}</h1>
           <p className="text-muted-foreground mt-1">
-            {role === 'teacher' ? 'Manage and view all student profiles' : 'Your child\'s profile'}
+            {role === 'teacher' ? t('students.subtitle.teacher') : t('students.subtitle.parent')}
           </p>
         </div>
 
         {role === 'teacher' && (
           <Button onClick={() => navigate('/add-student')}>
             <Plus className="h-4 w-4 mr-2" />
-            Add Student
+            {t('students.addStudent')}
           </Button>
         )}
       </div>
@@ -201,7 +203,7 @@ const Students: React.FC = () => {
                     <Users className="h-5 w-5 text-blue-600" />
                   </div>
                   <div>
-                    <p className="text-sm text-blue-600 font-medium">Total Students</p>
+                    <p className="text-sm text-blue-600 font-medium">{t('students.stats.total')}</p>
                     <p className="text-2xl font-bold text-blue-800">{students.length}</p>
                   </div>
                 </div>
@@ -215,7 +217,7 @@ const Students: React.FC = () => {
                     <Clock className="h-5 w-5 text-orange-600" />
                   </div>
                   <div>
-                    <p className="text-sm text-orange-600 font-medium">Pending Daily Progress</p>
+                    <p className="text-sm text-orange-600 font-medium">{t('students.stats.pendingDaily')}</p>
                     <p className="text-2xl font-bold text-orange-800">
                       {students.filter(s => getTodayProgressStatus(s.id) === 'pending').length}
                     </p>
@@ -231,7 +233,7 @@ const Students: React.FC = () => {
                     <Calendar className="h-5 w-5 text-purple-600" />
                   </div>
                   <div>
-                    <p className="text-sm text-purple-600 font-medium">Pending Weekly Feedback</p>
+                    <p className="text-sm text-purple-600 font-medium">{t('students.stats.pendingWeekly')}</p>
                     <p className="text-2xl font-bold text-purple-800">
                       {students.filter(s => getWeeklyFeedbackStatus(s.id) === 'pending').length}
                     </p>
@@ -244,25 +246,25 @@ const Students: React.FC = () => {
           <div className="flex items-center gap-4">
             <Select value={filter} onValueChange={(value: FilterType) => setFilter(value)}>
               <SelectTrigger className="w-64">
-                <SelectValue placeholder="Filter students..." />
+                <SelectValue placeholder={t('students.filter.placeholder')} />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">
                   <div className="flex items-center gap-2">
                     <Users className="h-4 w-4" />
-                    All Students ({students.length})
+                    {t('students.filter.all', { count: students.length })}
                   </div>
                 </SelectItem>
                 <SelectItem value="pending-daily">
                   <div className="flex items-center gap-2">
                     <Clock className="h-4 w-4" />
-                    Pending Daily Progress
+                    {t('students.filter.pendingDaily')}
                   </div>
                 </SelectItem>
                 <SelectItem value="pending-weekly">
                   <div className="flex items-center gap-2">
                     <Calendar className="h-4 w-4" />
-                    Pending Weekly Feedback
+                    {t('students.filter.pendingWeekly')}
                   </div>
                 </SelectItem>
               </SelectContent>
@@ -270,7 +272,7 @@ const Students: React.FC = () => {
             
             {filter !== 'all' && (
               <div className="text-sm text-muted-foreground">
-                Showing {getFilteredStudents().length} of {students.length} students
+                {t('students.filter.showing', { filtered: getFilteredStudents().length, total: students.length })}
               </div>
             )}
           </div>
@@ -281,16 +283,15 @@ const Students: React.FC = () => {
                 <span className="text-xs text-blue-600 font-bold">i</span>
               </div>
               <div className="text-sm text-blue-800">
-                <p className="font-medium mb-1">Study Schedule:</p>
-                <p>• <strong>Regular Schedule:</strong> Sunday to Thursday, 6:00 PM - 9:00 PM</p>
-                <p>• <strong>Daily Progress:</strong> Due by 9:00 PM after each study session</p>
-                <p>• <strong>Weekly Feedback:</strong> Due Friday night or Saturday morning</p>
-                <p>• <strong>Occasional Schedule:</strong> Monday to Friday (when Sunday is not available)</p>
+                <p className="font-medium mb-1">{t('students.schedule.title')}</p>
+                <p>- <strong>{t('students.schedule.regular')}</strong></p>
+                <p>- <strong>{t('students.schedule.daily')}</strong></p>
+                <p>- <strong>{t('students.schedule.weekly')}</strong></p>
+                <p>- <strong>{t('students.schedule.occasional')}</strong></p>
                 {(dailyProgress.length === 0 || weeklyFeedback.length === 0) && (
                   <div className="mt-2 p-2 bg-yellow-100 border border-yellow-300 rounded">
                     <p className="text-yellow-800 text-xs">
-                      ⚠️ Progress tracking tables are not yet set up in the database. 
-                      Students will show as "pending" by default until the database is configured.
+                      ! {t('students.schedule.warning')}
                     </p>
                   </div>
                 )}
@@ -304,13 +305,13 @@ const Students: React.FC = () => {
         <div className="flex items-center justify-center py-12">
           <div className="text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-            <p className="text-muted-foreground">Loading students...</p>
+            <p className="text-muted-foreground">{t('students.loading')}</p>
           </div>
         </div>
       ) : error ? (
         <div className="text-center py-12">
           <p className="text-red-600 mb-4">{error}</p>
-          <Button onClick={() => window.location.reload()}>Try Again</Button>
+          <Button onClick={() => window.location.reload()}>{t('students.retry')}</Button>
         </div>
       ) : visibleStudents.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -325,7 +326,7 @@ const Students: React.FC = () => {
                     <CardTitle className="text-lg text-gray-900">{student.name}</CardTitle>
                     <div className="flex items-center gap-2 mt-1">
                       <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-                        Grade {student.grade}
+                        {t('students.card.grade')} {student.grade}
                       </Badge>
                     </div>
                   </div>
@@ -343,7 +344,7 @@ const Students: React.FC = () => {
                       onClick={() => navigate(`/daily-progress?student=${student.id}`)}
                     >
                       <Clock className="h-3 w-3 mr-1" />
-                      Daily
+                      {t('students.card.daily')}
                     </Button>
                     <Button 
                       variant="outline" 
@@ -352,7 +353,7 @@ const Students: React.FC = () => {
                       onClick={() => navigate(`/weekly-feedback?student=${student.id}`)}
                     >
                       <Calendar className="h-3 w-3 mr-1" />
-                      Weekly
+                      {t('students.card.weekly')}
                     </Button>
                   </div>
                 )}
@@ -360,7 +361,7 @@ const Students: React.FC = () => {
                 <div className="pt-2">
                   <Button asChild className="w-full bg-blue-600 hover:bg-blue-700">
                     <Link to={`/student/${student.id}`}>
-                      View Profile
+                      {t('students.card.viewProfile')}
                     </Link>
                   </Button>
                 </div>
@@ -371,16 +372,16 @@ const Students: React.FC = () => {
       ) : (
         <div className="text-center py-12">
           {filter === 'all' ? (
-            <p className="text-muted-foreground">No students to show.</p>
+            <p className="text-muted-foreground">{t('students.empty.all')}</p>
           ) : filter === 'pending-daily' ? (
             <div>
-              <p className="text-muted-foreground mb-2">No students pending daily progress!</p>
-              <p className="text-sm text-green-600">All students have their daily progress recorded for today.</p>
+              <p className="text-muted-foreground mb-2">{t('students.empty.pendingDaily.title')}</p>
+              <p className="text-sm text-green-600">{t('students.empty.pendingDaily.desc')}</p>
             </div>
           ) : (
             <div>
-              <p className="text-muted-foreground mb-2">No students pending weekly feedback!</p>
-              <p className="text-sm text-green-600">All students have their weekly feedback recorded for this week.</p>
+              <p className="text-muted-foreground mb-2">{t('students.empty.pendingWeekly.title')}</p>
+              <p className="text-sm text-green-600">{t('students.empty.pendingWeekly.desc')}</p>
             </div>
           )}
         </div>

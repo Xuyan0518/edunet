@@ -1,0 +1,185 @@
+<view class="container">
+  <view class="hero">
+    <view class="title">每日进度</view>
+    <view class="subtitle">{{student.name}} · {{selectedDate}}</view>
+    <view class="row" wx:if="{{isTeacher && existingId && !isEditing}}">
+      <button class="btn-outline" size="mini" bindtap="startEdit">编辑</button>
+    </view>
+  </view>
+
+  <view class="section card">
+    <view class="section-title">基本信息</view>
+    <view class="row-between">
+      <view class="muted">学生</view>
+      <view>{{student.name}}</view>
+    </view>
+    <view class="row-between" style="margin-top: 12rpx;">
+      <view class="muted">日期</view>
+      <picker mode="date" value="{{selectedDate}}" bindchange="onDateChange" disabled="{{!isEditable}}">
+        <view class="chip">{{selectedDate}}</view>
+      </picker>
+    </view>
+    <view wx:if="{{isEditable && lastUpdatedAtText}}" class="muted" style="margin-top: 8rpx;">
+      最后修改：{{lastUpdatedAtText}} · {{lastUpdatedBy || "未知老师"}}
+    </view>
+  </view>
+
+  <view class="section card">
+    <view class="section-title">出勤</view>
+    <picker mode="selector" range="{{attendanceOptions}}" bindchange="onAttendanceChange" disabled="{{!isEditable}}">
+      <view class="chip">{{attendanceLabel}}</view>
+    </picker>
+    <view class="row-between" style="margin-top: 12rpx;">
+      <view class="muted">开始时间</view>
+      <view class="row">
+        <input class="input" style="width: 180rpx;" placeholder="HH:mm" value="{{attendanceStart}}" bindinput="onTimeInputChange" bindblur="onTimeInputBlur" data-field="attendanceStart" disabled="{{!isEditable}}" />
+        <picker mode="time" value="{{attendanceStart || '18:00'}}" bindchange="onAttendanceStartChange" disabled="{{!isEditable}}">
+          <view class="chip">选择</view>
+        </picker>
+      </view>
+    </view>
+    <view class="row-between" style="margin-top: 12rpx;">
+      <view class="muted">结束时间</view>
+      <view class="row">
+        <input class="input" style="width: 180rpx;" placeholder="HH:mm" value="{{attendanceEnd}}" bindinput="onTimeInputChange" bindblur="onTimeInputBlur" data-field="attendanceEnd" disabled="{{!isEditable}}" />
+        <picker mode="time" value="{{attendanceEnd || '21:00'}}" bindchange="onAttendanceEndChange" disabled="{{!isEditable}}">
+          <view class="chip">选择</view>
+        </picker>
+      </view>
+    </view>
+  </view>
+
+  <view class="section card">
+    <view class="row-between">
+      <view class="section-title">活动记录</view>
+    </view>
+    <view wx:if="{{subjectOptions.length === 0}}" class="muted">暂无科目，请先在学生详情中添加科目</view>
+    <view wx:if="{{activities.length === 0}}" class="muted" style="margin-top: 8rpx;">请选择科目添加活动</view>
+    <block wx:for="{{activities}}" wx:key="index">
+      <view class="activity-card">
+        <view class="row-between">
+          <view class="field-label">{{item.subjectDisplayName || item.subjectName || "科目"}}</view>
+          <button wx:if="{{isEditable && !item.locked}}" class="btn-outline" size="mini" data-index="{{index}}" bindtap="removeActivity">删除</button>
+        </view>
+        <block wx:if="{{item.type === 'english'}}">
+          <view class="field-label">Editing</view>
+          <input class="input" placeholder="Editing" value="{{item.english.editing}}" data-index="{{index}}" bindinput="onActivityChange" data-field="english" data-subfield="editing" disabled="{{!isEditable}}" />
+          <view class="field-label">词汇</view>
+          <input class="input" placeholder="词汇" value="{{item.english.vocab}}" data-index="{{index}}" bindinput="onActivityChange" data-field="english" data-subfield="vocab" disabled="{{!isEditable}}" />
+          <view class="field-label">阅读理解</view>
+          <input class="input" placeholder="阅读理解" value="{{item.english.reading}}" data-index="{{index}}" bindinput="onActivityChange" data-field="english" data-subfield="reading" disabled="{{!isEditable}}" />
+          <view class="field-label">单词句子背诵</view>
+          <input class="input" placeholder="单词句子背诵" value="{{item.english.recitation}}" data-index="{{index}}" bindinput="onActivityChange" data-field="english" data-subfield="recitation" disabled="{{!isEditable}}" />
+          <view class="field-label">作文</view>
+          <input class="input" placeholder="作文" value="{{item.english.essay}}" data-index="{{index}}" bindinput="onActivityChange" data-field="english" data-subfield="essay" disabled="{{!isEditable}}" />
+          <view class="field-label">评论</view>
+          <textarea class="input textarea-scroll" placeholder="可选评论..." value="{{item.comment}}" data-index="{{index}}" bindinput="onActivityChange" data-field="comment" disabled="{{!isEditable}}" maxlength="-1"></textarea>
+          <view class="field-label">试卷练习</view>
+          <block wx:if="{{item.papers.length === 0}}">
+            <view class="muted">暂无试卷</view>
+          </block>
+          <block wx:for="{{item.papers}}" wx:for-item="paper" wx:for-index="paperIndex" wx:key="paperIndex">
+            <view class="paper-card">
+              <view class="row-between">
+                <view class="paper-title">试卷</view>
+                <button wx:if="{{isEditable}}" class="btn-outline" size="mini" data-index="{{index}}" data-paper="{{paperIndex}}" bindtap="removePaper">删除</button>
+              </view>
+
+              <view class="field-label" style="margin-top: 8rpx;">试卷类型</view>
+              <view class="row-between">
+                <picker mode="selector" range="{{paperTypeOptions}}" value="{{paper.typeIndex}}" data-index="{{index}}" data-paper="{{paperIndex}}" bindchange="onPaperTypePick" disabled="{{!isEditable}}">
+                  <view class="chip">{{paperTypeOptions[paper.typeIndex]}}</view>
+                </picker>
+                <button wx:if="{{isEditable}}" class="btn-outline" size="mini" data-index="{{index}}" data-paper="{{paperIndex}}" bindtap="addPaperType">新增类型</button>
+              </view>
+
+              <view class="field-label" style="margin-top: 8rpx;">学校名称</view>
+              <view class="row-between">
+                <picker mode="selector" range="{{paperSchoolOptions}}" value="{{paper.schoolIndex}}" data-index="{{index}}" data-paper="{{paperIndex}}" bindchange="onPaperSchoolPick" disabled="{{!isEditable}}">
+                  <view class="chip">{{paperSchoolOptions[paper.schoolIndex]}}</view>
+                </picker>
+                <button wx:if="{{isEditable}}" class="btn-outline" size="mini" data-index="{{index}}" data-paper="{{paperIndex}}" bindtap="addPaperSchool">新增学校</button>
+              </view>
+
+              <view class="field-label" style="margin-top: 8rpx;">试卷描述</view>
+              <input class="input" placeholder="例如：试卷一" value="{{paper.description}}" data-index="{{index}}" data-paper="{{paperIndex}}" bindinput="onPaperChange" data-field="description" disabled="{{!isEditable}}" />
+
+              <view class="field-label" style="margin-top: 8rpx;">分数</view>
+              <view class="row paper-score">
+                <input class="input score-input" placeholder="得分" value="{{paper.score}}" data-index="{{index}}" data-paper="{{paperIndex}}" bindinput="onPaperChange" data-field="score" disabled="{{!isEditable}}" />
+                <view class="muted">/</view>
+                <input class="input score-input" placeholder="总分" value="{{paper.total}}" data-index="{{index}}" data-paper="{{paperIndex}}" bindinput="onPaperChange" data-field="total" disabled="{{!isEditable}}" />
+              </view>
+            </view>
+          </block>
+          <button wx:if="{{isEditable}}" class="btn-outline" size="mini" data-index="{{index}}" bindtap="addPaper">添加试卷</button>
+        </block>
+        <block wx:else>
+          <view class="field-label">练习进度</view>
+          <input class="input" placeholder="练习进度" value="{{item.practiceProgress}}" data-index="{{index}}" bindinput="onActivityChange" data-field="practiceProgress" disabled="{{!isEditable}}" />
+          <view class="field-label">定义背诵</view>
+          <input class="input" placeholder="定义背诵" value="{{item.definitionRecitation}}" data-index="{{index}}" bindinput="onActivityChange" data-field="definitionRecitation" disabled="{{!isEditable}}" />
+          <view class="field-label">评论</view>
+          <textarea class="input textarea-scroll" placeholder="可选评论..." value="{{item.comment}}" data-index="{{index}}" bindinput="onActivityChange" data-field="comment" disabled="{{!isEditable}}" maxlength="-1"></textarea>
+          <view class="field-label">试卷练习</view>
+          <block wx:if="{{item.papers.length === 0}}">
+            <view class="muted">暂无试卷</view>
+          </block>
+          <block wx:for="{{item.papers}}" wx:for-item="paper" wx:for-index="paperIndex" wx:key="paperIndex">
+            <view class="paper-card">
+              <view class="row-between">
+                <view class="paper-title">试卷</view>
+                <button wx:if="{{isEditable}}" class="btn-outline" size="mini" data-index="{{index}}" data-paper="{{paperIndex}}" bindtap="removePaper">删除</button>
+              </view>
+
+              <view class="field-label" style="margin-top: 8rpx;">试卷类型</view>
+              <view class="row-between">
+                <picker mode="selector" range="{{paperTypeOptions}}" value="{{paper.typeIndex}}" data-index="{{index}}" data-paper="{{paperIndex}}" bindchange="onPaperTypePick" disabled="{{!isEditable}}">
+                  <view class="chip">{{paperTypeOptions[paper.typeIndex]}}</view>
+                </picker>
+                <button wx:if="{{isEditable}}" class="btn-outline" size="mini" data-index="{{index}}" data-paper="{{paperIndex}}" bindtap="addPaperType">新增类型</button>
+              </view>
+
+              <view class="field-label" style="margin-top: 8rpx;">学校名称</view>
+              <view class="row-between">
+                <picker mode="selector" range="{{paperSchoolOptions}}" value="{{paper.schoolIndex}}" data-index="{{index}}" data-paper="{{paperIndex}}" bindchange="onPaperSchoolPick" disabled="{{!isEditable}}">
+                  <view class="chip">{{paperSchoolOptions[paper.schoolIndex]}}</view>
+                </picker>
+                <button wx:if="{{isEditable}}" class="btn-outline" size="mini" data-index="{{index}}" data-paper="{{paperIndex}}" bindtap="addPaperSchool">新增学校</button>
+              </view>
+
+              <view class="field-label" style="margin-top: 8rpx;">试卷描述</view>
+              <input class="input" placeholder="例如：试卷一" value="{{paper.description}}" data-index="{{index}}" data-paper="{{paperIndex}}" bindinput="onPaperChange" data-field="description" disabled="{{!isEditable}}" />
+
+              <view class="field-label" style="margin-top: 8rpx;">分数</view>
+              <view class="row paper-score">
+                <input class="input score-input" placeholder="得分" value="{{paper.score}}" data-index="{{index}}" data-paper="{{paperIndex}}" bindinput="onPaperChange" data-field="score" disabled="{{!isEditable}}" />
+                <view class="muted">/</view>
+                <input class="input score-input" placeholder="总分" value="{{paper.total}}" data-index="{{index}}" data-paper="{{paperIndex}}" bindinput="onPaperChange" data-field="total" disabled="{{!isEditable}}" />
+              </view>
+            </view>
+          </block>
+          <button wx:if="{{isEditable}}" class="btn-outline" size="mini" data-index="{{index}}" bindtap="addPaper">添加试卷</button>
+        </block>
+      </view>
+      <view class="divider"></view>
+    </block>
+    <view class="row" wx:if="{{isEditable && subjectOptions.length}}">
+      <picker mode="selector" range="{{subjectOptions}}" bindchange="onSubjectPick">
+        <button class="btn-outline" size="mini">添加科目</button>
+      </picker>
+    </view>
+  </view>
+
+  <view class="section card">
+    <view class="section-title">总结</view>
+    <textarea class="input textarea-scroll" placeholder="填写当日总结..." value="{{summary}}" bindinput="onFieldInput" data-field="summary" disabled="{{!isEditable}}" maxlength="-1"></textarea>
+  </view>
+
+  <view class="row">
+    <button wx:if="{{isEditable}}" class="btn-outline" bindtap="cancelEdit">取消</button>
+    <button wx:if="{{isEditable}}" class="btn-primary" bindtap="save">保存</button>
+  </view>
+
+  <button wx:if="{{existingId && isTeacher}}" class="btn-outline" bindtap="deleteEntry">删除记录</button>
+</view>

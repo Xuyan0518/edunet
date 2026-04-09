@@ -1,0 +1,5 @@
+.field-label {
+  font-size: 24rpx;
+  color: #475569;
+  margin-bottom: 6rpx;
+}

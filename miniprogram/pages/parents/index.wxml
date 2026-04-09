@@ -1,0 +1,27 @@
+<view class="container">
+  <view class="hero">
+    <view class="title">家长管理</view>
+    <view class="subtitle">删除家长账号</view>
+    <input class="input" placeholder="搜索家长..." bindinput="onSearch" />
+  </view>
+
+  <view class="card">
+    <block wx:if="{{loading}}">
+      <view class="list-item muted">加载中...</view>
+    </block>
+    <block wx:elif="{{filtered.length === 0}}">
+      <view class="list-item muted">暂无家长</view>
+    </block>
+    <block wx:else>
+      <block wx:for="{{filtered}}" wx:key="id">
+        <view class="list-item row-between">
+          <view class="subject-text">
+            <view class="subject-name">{{item.name}}</view>
+            <view class="muted subject-meta">{{item.email}}</view>
+          </view>
+          <button class="btn-outline" size="mini" data-id="{{item.id}}" bindtap="deleteParent">删除</button>
+        </view>
+      </block>
+    </block>
+  </view>
+</view>

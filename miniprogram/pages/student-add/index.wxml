@@ -1,0 +1,46 @@
+<view class="container">
+  <view class="hero">
+    <view class="title">{{pageTitle}}</view>
+    <view class="subtitle">{{pageSubtitle}}</view>
+  </view>
+
+  <view class="section card">
+    <view class="section-title">基本信息</view>
+    <view class="field-label">姓名</view>
+    <input class="input" placeholder="学生姓名" bindinput="onFieldInput" data-field="name" value="{{name}}" />
+    <view class="field-label">年级</view>
+    <picker mode="selector" range="{{gradeOptions}}" value="{{gradeIndex}}" bindchange="onGradeChange">
+      <view class="chip">{{grade || "请选择年级"}}</view>
+    </picker>
+  </view>
+
+  <view class="section card">
+    <view class="section-title">家长（可选）</view>
+    <picker mode="selector" range="{{parentNames}}" bindchange="onParentChange">
+      <view class="chip">{{selectedParentName}}</view>
+    </picker>
+  </view>
+
+  <view class="section card">
+    <view class="section-title">分配科目</view>
+    <input class="input" placeholder="搜索科目..." bindinput="onSearch" />
+    <checkbox-group bindchange="onCheckChange">
+      <block wx:for="{{filteredSubjects}}" wx:key="id">
+        <label class="list-item row-between {{item.isSelected ? 'selected' : ''}}">
+          <view class="subject-text">
+            <view class="subject-name">{{item.displayName || item.name}}</view>
+            <view class="muted subject-meta">{{item.code}} · {{item.level}}</view>
+          </view>
+          <view class="row">
+            <view wx:if="{{item.isRequired}}" class="chip chip-success">必选</view>
+            <checkbox value="{{item.id}}" checked="{{item.isSelected}}" disabled="{{item.isRequired}}" />
+          </view>
+        </label>
+      </block>
+    </checkbox-group>
+  </view>
+
+  <button class="btn-primary" loading="{{saving}}" bindtap="save">
+    {{isEdit ? "保存修改" : "保存学生"}}
+  </button>
+</view>

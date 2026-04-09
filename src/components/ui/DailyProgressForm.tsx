@@ -10,9 +10,12 @@ import { Calendar as CalendarIcon, Plus, MinusCircle, CheckCircle2, Edit2, XCirc
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { format, parse } from 'date-fns';
+import { enUS, zhCN } from 'date-fns/locale';
 import { useToast } from '@/hooks/use-toast';
 import { buildApiUrl } from '@/config/api';
 import { getAuthHeaders } from '@/utils/auth';
+import { useAuth } from '@/context/AuthContext';
+import { useI18n } from '@/context/I18nContext';
 
 interface Activity {
   subject: string;
@@ -29,15 +32,10 @@ interface DailyProgressEntry {
   activities: Activity[];
 }
 
-const performanceOptions = [
-  { value: 'excellent', label: 'Excellent' },
-  { value: 'good', label: 'Good' },
-  { value: 'needs improvement', label: 'Needs Improvement' },
-];
-
 const DailyProgressForm: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const studentIdFromUrl = searchParams.get('student') || '';
+  const dateFromUrl = searchParams.get('date') || '';
 
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
   const [selectedStudent, setSelectedStudent] = useState<string>(studentIdFromUrl || '');
@@ -53,13 +51,51 @@ const DailyProgressForm: React.FC = () => {
 
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { role } = useAuth();
+  const { t, language } = useI18n();
+  const isReadOnly = role !== 'teacher';
+  const isEditable = isEditing && !isReadOnly;
+  const locale = language === 'zh-CN' ? zhCN : enUS;
+  const formatDisplayDate = (date: Date) =>
+    date.toLocaleDateString(language === 'zh-CN' ? 'zh-CN' : 'en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
 
   const didLoadStudentsRef = useRef(false);
+  const didSyncDateRef = useRef(false);
 
   // --- helpers ---
   const resetForm = () => {
     setAttendance('present');
     setActivities([{ subject: '', description: '', performance: '', notes: '' }]);
+  };
+
+  const getAttendanceLabel = (status: string) => {
+    switch (status) {
+      case 'present':
+        return t('attendance.present');
+      case 'absent':
+        return t('attendance.absent');
+      case 'late':
+        return t('attendance.late');
+      default:
+        return status;
+    }
+  };
+
+  const getPerformanceLabel = (performance: string) => {
+    switch (performance.toLowerCase()) {
+      case 'excellent':
+        return t('dailyProgressForm.activity.performance.excellent');
+      case 'good':
+        return t('dailyProgressForm.activity.performance.good');
+      case 'needs improvement':
+        return t('dailyProgressForm.activity.performance.needsImprovement');
+      default:
+        return performance;
+    }
   };
 
   // Fetch students on component mount
@@ -71,23 +107,23 @@ const DailyProgressForm: React.FC = () => {
           headers: getAuthHeaders(),
         });
         if (!response.ok) throw new Error('Network response was not ok');
-        const data = await response.json();
+        const data: Array<{ id: string; name: string }> = await response.json();
         if (cancelled) return;
         setStudents(data);
 
         // If URL had ?student=, sync it only if valid; else clear
         if (studentIdFromUrl) {
-          if (data.some((s: any) => s.id === studentIdFromUrl) && selectedStudent !== studentIdFromUrl) {
+          if (data.some((s) => s.id === studentIdFromUrl) && selectedStudent !== studentIdFromUrl) {
             setSelectedStudent(studentIdFromUrl);
-          } else if (!data.some((s: any) => s.id === studentIdFromUrl) && selectedStudent !== '') {
+          } else if (!data.some((s) => s.id === studentIdFromUrl) && selectedStudent !== '') {
             setSelectedStudent('');
           }
         }
       } catch (error) {
         console.error('Error fetching students:', error);
         toast({
-          title: 'Error',
-          description: 'Failed to fetch students',
+          title: t('toast.title.error'),
+          description: t('dailyProgress.toast.fetchStudents'),
           variant: 'destructive',
         });
       } finally {
@@ -100,6 +136,14 @@ const DailyProgressForm: React.FC = () => {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!didLoadStudentsRef.current) return;
+    if (!studentIdFromUrl) return;
+    if (students.some((s) => s.id === studentIdFromUrl) && selectedStudent !== studentIdFromUrl) {
+      setSelectedStudent(studentIdFromUrl);
+    }
+  }, [studentIdFromUrl, students, selectedStudent]);
 
   // Keep URL in sync — only for ?student=
   useEffect(() => {
@@ -114,6 +158,28 @@ const DailyProgressForm: React.FC = () => {
     setSearchParams(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedStudent]);
+
+  useEffect(() => {
+    if (!didLoadStudentsRef.current) return;
+    if (!selectedDate) return;
+    const desired = format(selectedDate, 'yyyy-MM-dd');
+    const current = searchParams.get('date') || '';
+    if (current === desired) return;
+    const next = new URLSearchParams(searchParams);
+    next.set('date', desired);
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate]);
+
+  useEffect(() => {
+    if (!dateFromUrl) return;
+    const parsedDate = parse(dateFromUrl, 'yyyy-MM-dd', new Date());
+    if (isNaN(parsedDate.getTime())) return;
+    if (!didSyncDateRef.current || (selectedDate && format(selectedDate, 'yyyy-MM-dd') !== dateFromUrl)) {
+      setSelectedDate(parsedDate);
+      didSyncDateRef.current = true;
+    }
+  }, [dateFromUrl, selectedDate]);
 
   // Fetch existing progress when student or date changes (with AbortController)
   useEffect(() => {
@@ -142,7 +208,7 @@ const DailyProgressForm: React.FC = () => {
           if (response.status === 404) {
             // No existing progress, reset form for new entry
             setExistingProgressId(null);
-            setIsEditing(true); // allow entering new data
+            setIsEditing(!isReadOnly); // allow entering new data for teachers only
             resetForm();
             return;
           }
@@ -160,16 +226,16 @@ const DailyProgressForm: React.FC = () => {
             : [{ subject: '', description: '', performance: '', notes: '' }]
         );
         setIsEditing(false); // view mode initially
-      } catch (error: any) {
-        if (error?.name === 'AbortError') return;
+      } catch (error: unknown) {
+        if (error instanceof Error && error.name === 'AbortError') return;
         console.error('Error fetching progress:', error);
         toast({
-          title: 'Error',
-          description: 'Failed to fetch progress entry',
+          title: t('toast.title.error'),
+          description: t('dailyProgress.toast.fetchEntry'),
           variant: 'destructive',
         });
         setExistingProgressId(null);
-        setIsEditing(true);
+        setIsEditing(!isReadOnly);
         resetForm();
       } finally {
         if (!ac.signal.aborted) setIsLoading(false);
@@ -182,12 +248,12 @@ const DailyProgressForm: React.FC = () => {
   }, [selectedStudent, selectedDate]);
 
   const handleAddActivity = () => {
-    if (!isEditing) return;
+    if (!isEditable) return;
     setActivities((prev) => [...prev, { subject: '', description: '', performance: '', notes: '' }]);
   };
 
   const handleRemoveActivity = (index: number) => {
-    if (!isEditing) return;
+    if (!isEditable) return;
     if (activities.length <= 1) return;
     const updatedActivities = [...activities];
     updatedActivities.splice(index, 1);
@@ -199,7 +265,7 @@ const DailyProgressForm: React.FC = () => {
   };
 
   const handleActivityChange = (index: number, field: keyof Activity, value: string) => {
-    if (!isEditing) return;
+    if (!isEditable) return;
     const updatedActivities = [...activities];
     updatedActivities[index] = { ...updatedActivities[index], [field]: value };
     setActivities(updatedActivities);
@@ -207,17 +273,17 @@ const DailyProgressForm: React.FC = () => {
 
   const validateForm = () => {
     if (!selectedStudent) {
-      toast({ title: 'Error', description: 'Please select a student', variant: 'destructive' });
+      toast({ title: t('toast.title.error'), description: t('dailyProgress.toast.selectStudent'), variant: 'destructive' });
       return false;
     }
     if (!selectedDate) {
-      toast({ title: 'Error', description: 'Please select a date', variant: 'destructive' });
+      toast({ title: t('toast.title.error'), description: t('dailyProgress.toast.selectDate'), variant: 'destructive' });
       return false;
     }
     if (activities.some((a) => !a.subject || !a.description || !a.performance)) {
       toast({
-        title: 'Error',
-        description: 'Please fill out all required fields for each activity',
+        title: t('toast.title.error'),
+        description: t('dailyProgress.toast.fillRequired'),
         variant: 'destructive',
       });
       return false;
@@ -254,7 +320,7 @@ const DailyProgressForm: React.FC = () => {
         });
       } else {
         // Not editing existing, no action
-        toast({ title: 'Info', description: 'No changes to save', variant: 'default' });
+        toast({ title: t('toast.title.info'), description: t('dailyProgress.toast.noChanges'), variant: 'default' });
         return;
       }
 
@@ -266,19 +332,23 @@ const DailyProgressForm: React.FC = () => {
       const savedData = await response.json();
 
       toast({
-        title: 'Success',
-        description: `Progress ${existingProgressId ? 'updated' : 'created'} successfully`,
+        title: t('toast.title.success'),
+        description: t('dailyProgress.toast.saved', {
+          action: existingProgressId
+            ? t('dailyProgress.toast.action.updated')
+            : t('dailyProgress.toast.action.created'),
+        }),
       });
 
       // Update state to reflect saved data
       setExistingProgressId(savedData.id || existingProgressId);
       setIsEditing(false);
       setBackupProgress(null);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Error saving progress:', err);
       toast({
-        title: 'Error',
-        description: err.message || 'Failed to save progress. Please try again.',
+        title: t('toast.title.error'),
+        description: t('dailyProgress.toast.saveFailed'),
         variant: 'destructive',
       });
     }
@@ -293,31 +363,35 @@ const DailyProgressForm: React.FC = () => {
           className="mb-4"
         >
           <ArrowLeft className="h-4 w-4 mr-2" />
-          Back to Students
+          {t('student.backToStudents')}
         </Button>
       </div>
       
       <div className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight">Daily Progress Entry</h1>
+        <h1 className="text-3xl font-bold tracking-tight">{t('dailyProgressForm.title')}</h1>
         <p className="text-muted-foreground mt-1">
-          {existingProgressId && !isEditing
-            ? 'Viewing existing progress. Click Edit to modify.'
-            : existingProgressId && isEditing
-            ? 'Editing existing progress.'
-            : 'Create a new progress entry.'}
+          {existingProgressId
+            ? isEditing
+              ? t('dailyProgressForm.subtitle.editing')
+              : isReadOnly
+              ? t('dailyProgressForm.subtitle.viewOnly')
+              : t('dailyProgressForm.subtitle.viewing')
+            : isReadOnly
+            ? t('dailyProgressForm.subtitle.none')
+            : t('dailyProgressForm.subtitle.new')}
         </p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-8">
         <Card className="hover-card">
           <CardHeader>
-            <CardTitle>Student Information</CardTitle>
-            <CardDescription>Select a student and date for this progress entry</CardDescription>
+            <CardTitle>{t('dailyProgressForm.studentInfo.title')}</CardTitle>
+            <CardDescription>{t('dailyProgressForm.studentInfo.desc')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
-                <Label htmlFor="student">Student</Label>
+                <Label htmlFor="student">{t('dailyProgressForm.student.label')}</Label>
                 <Select
                   value={selectedStudent}
                   onValueChange={(val) => {
@@ -327,7 +401,7 @@ const DailyProgressForm: React.FC = () => {
                   disabled={isLoading}
                 >
                   <SelectTrigger id="student" className="focus-within-ring">
-                    <SelectValue placeholder="Select a student" />
+                    <SelectValue placeholder={t('dailyProgressForm.student.placeholder')} />
                   </SelectTrigger>
                   <SelectContent>
                     {students.map((student) => (
@@ -340,7 +414,7 @@ const DailyProgressForm: React.FC = () => {
               </div>
 
               <div className="space-y-2">
-                <Label>Date</Label>
+                <Label>{t('dailyProgressForm.date.label')}</Label>
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button
@@ -349,18 +423,24 @@ const DailyProgressForm: React.FC = () => {
                       disabled={isLoading}
                     >
                       <CalendarIcon className="mr-2 h-4 w-4" />
-                      {selectedDate ? format(selectedDate, 'PPP') : <span>Pick a date</span>}
+                      {selectedDate ? formatDisplayDate(selectedDate) : <span>{t('dailyProgressForm.date.pick')}</span>}
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0">
-                    <Calendar mode="single" selected={selectedDate} onSelect={setSelectedDate} initialFocus />
+                    <Calendar
+                      mode="single"
+                      selected={selectedDate}
+                      onSelect={setSelectedDate}
+                      initialFocus
+                      locale={locale}
+                    />
                   </PopoverContent>
                 </Popover>
               </div>
             </div>
 
             <div>
-              <Label>Attendance</Label>
+              <Label>{t('dailyProgressForm.attendance.label')}</Label>
               <div className="flex space-x-4 mt-2">
                 {['present', 'absent', 'late'].map((status) => (
                   <div className="flex items-center space-x-2" key={status}>
@@ -370,7 +450,7 @@ const DailyProgressForm: React.FC = () => {
                       value={status}
                       checked={attendance === status}
                       onChange={() => setAttendance(status)}
-                      disabled={!isEditing}
+                      disabled={!isEditable}
                       className={`h-4 w-4 ${
                         status === 'present'
                           ? 'text-primary'
@@ -380,7 +460,7 @@ const DailyProgressForm: React.FC = () => {
                       }`}
                     />
                     <Label htmlFor={status} className="cursor-pointer capitalize">
-                      {status}
+                      {getAttendanceLabel(status)}
                     </Label>
                   </div>
                 ))}
@@ -391,10 +471,10 @@ const DailyProgressForm: React.FC = () => {
 
         <Card className="hover-card">
           <CardHeader>
-            <CardTitle>Activities</CardTitle>
+            <CardTitle>{t('dailyProgressForm.activities.title')}</CardTitle>
           </CardHeader>
           <CardDescription className="px-6 pt-0 pb-4">
-            {isEditing ? 'Fill in the activities and performance details.' : 'View the recorded activities and performance.'}
+            {isEditing ? t('dailyProgressForm.activities.desc.edit') : t('dailyProgressForm.activities.desc.view')}
           </CardDescription>
           <CardContent className="space-y-6">
             {activities.map((activity, index) => (
@@ -403,7 +483,7 @@ const DailyProgressForm: React.FC = () => {
                 className="space-y-4 p-4 border border-border rounded-md relative bg-muted"
                 aria-disabled={!isEditing}
               >
-                {isEditing && activities.length > 1 && (
+                {isEditable && activities.length > 1 && (
                   <div className="absolute top-4 right-4">
                     <Button
                       type="button"
@@ -419,49 +499,47 @@ const DailyProgressForm: React.FC = () => {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor={`subject-${index}`}>Subject</Label>
+                    <Label htmlFor={`subject-${index}`}>{t('dailyProgressForm.activity.subject')}</Label>
                     <Input
                       id={`subject-${index}`}
                       value={activity.subject}
                       onChange={(e) => handleActivityChange(index, 'subject', e.target.value)}
-                      placeholder="Enter subject"
+                      placeholder={t('dailyProgressForm.activity.subject.placeholder')}
                       className="focus-within-ring"
-                      readOnly={!isEditing}
+                      readOnly={!isEditable}
                     />
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor={`performance-${index}`}>Performance</Label>
-                    {isEditing ? (
+                    <Label htmlFor={`performance-${index}`}>{t('dailyProgressForm.activity.performance')}</Label>
+                    {isEditable ? (
                       <Select
                         value={activity.performance}
                         onValueChange={(value) => handleActivityChange(index, 'performance', value)}
                       >
                         <SelectTrigger id={`performance-${index}`} className="focus-within-ring">
-                          <SelectValue placeholder="Rate performance" />
+                          <SelectValue placeholder={t('dailyProgressForm.activity.performance.placeholder')} />
                         </SelectTrigger>
                         <SelectContent>
-                          {performanceOptions.map((option) => (
-                            <SelectItem key={option.value} value={option.value}>
-                              {option.label}
-                            </SelectItem>
-                          ))}
+                          <SelectItem value="excellent">{t('dailyProgressForm.activity.performance.excellent')}</SelectItem>
+                          <SelectItem value="good">{t('dailyProgressForm.activity.performance.good')}</SelectItem>
+                          <SelectItem value="needs improvement">{t('dailyProgressForm.activity.performance.needsImprovement')}</SelectItem>
                         </SelectContent>
                       </Select>
                     ) : (
-                      <Input id={`performance-${index}`} value={activity.performance} readOnly />
+                      <Input id={`performance-${index}`} value={getPerformanceLabel(activity.performance)} readOnly />
                     )}
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor={`description-${index}`}>Description</Label>
-                  {isEditing ? (
+                  <Label htmlFor={`description-${index}`}>{t('dailyProgressForm.activity.description')}</Label>
+                  {isEditable ? (
                     <Input
                       id={`description-${index}`}
                       value={activity.description}
                       onChange={(e) => handleActivityChange(index, 'description', e.target.value)}
-                      placeholder="Describe the activity"
+                      placeholder={t('dailyProgressForm.activity.description.placeholder')}
                       className="focus-within-ring"
                     />
                   ) : (
@@ -470,13 +548,13 @@ const DailyProgressForm: React.FC = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor={`notes-${index}`}>Teacher Notes</Label>
-                  {isEditing ? (
+                  <Label htmlFor={`notes-${index}`}>{t('dailyProgressForm.activity.notes')}</Label>
+                  {isEditable ? (
                     <Textarea
                       id={`notes-${index}`}
                       value={activity.notes}
                       onChange={(e) => handleActivityChange(index, 'notes', e.target.value)}
-                      placeholder="Additional notes"
+                      placeholder={t('dailyProgressForm.activity.notes.placeholder')}
                       className="focus-within-ring"
                       rows={3}
                     />
@@ -487,17 +565,17 @@ const DailyProgressForm: React.FC = () => {
               </div>
             ))}
 
-            {isEditing && (
+            {isEditable && (
               <Button type="button" variant="outline" onClick={handleAddActivity} className="w-full">
                 <Plus className="h-4 w-4 mr-2" />
-                Add Activity
+                {t('dailyProgressForm.addActivity')}
               </Button>
             )}
           </CardContent>
 
           <CardFooter className="flex justify-end gap-2">
             {/* View existing (not editing) */}
-            {!isEditing && existingProgressId && (
+            {!isEditing && existingProgressId && !isReadOnly && (
               <Button
                 variant="outline"
                 size="sm"
@@ -513,7 +591,7 @@ const DailyProgressForm: React.FC = () => {
                 }}
               >
                 <Edit2 size={16} className="mr-2" />
-                Edit
+                {t('dailyProgressForm.edit')}
               </Button>
             )}
 
@@ -538,19 +616,21 @@ const DailyProgressForm: React.FC = () => {
                   }}
                 >
                   <XCircle size={16} className="mr-2" />
-                  Cancel Edit
+                  {t('dailyProgressForm.cancelEdit')}
                 </Button>
-                <Button type="submit" disabled={isLoading}>
-                  Update Progress
-                </Button>
+                {!isReadOnly && (
+                  <Button type="submit" disabled={isLoading}>
+                    {t('dailyProgressForm.update')}
+                  </Button>
+                )}
               </>
             )}
 
             {/* Creating new */}
-            {!existingProgressId && isEditing && (
+            {!existingProgressId && isEditing && !isReadOnly && (
               <Button type="submit" disabled={isLoading}>
                 <CheckCircle2 className="h-4 w-4 mr-2" />
-                Save Progress
+                {t('dailyProgressForm.save')}
               </Button>
             )}
           </CardFooter>

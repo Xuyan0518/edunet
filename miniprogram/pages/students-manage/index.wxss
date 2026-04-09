@@ -1,0 +1,14 @@
+.subject-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+
+.subject-name {
+  font-size: 30rpx;
+  font-weight: 600;
+}
+
+.subject-meta {
+  font-size: 24rpx;
+}

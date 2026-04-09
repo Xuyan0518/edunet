@@ -1,0 +1,1 @@
+ALTER TABLE "exams" ADD COLUMN "exam_date" date NOT NULL;

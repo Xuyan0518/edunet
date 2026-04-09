@@ -1,0 +1,18 @@
+.subject-text {
+  flex: 1;
+  min-width: 0;
+  padding-right: 16rpx;
+}
+
+.subject-name {
+  font-size: 28rpx;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.subject-meta {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

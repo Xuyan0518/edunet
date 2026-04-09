@@ -167,9 +167,10 @@ const ProgressForm: React.FC = () => {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.error || 'Failed to save progress');
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error saving progress:', error);
-      alert(error.message || 'Failed to save progress. Please try again.');
+      const message = error instanceof Error ? error.message : 'Failed to save progress. Please try again.';
+      alert(message);
     } finally {
       setIsLoading(false);
     }

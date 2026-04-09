@@ -55,6 +55,90 @@
       "when": 1757322828651,
       "tag": "0007_greedy_exiles",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1775044046455,
+      "tag": "0008_curly_timeslip",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1775045904811,
+      "tag": "0009_powerful_master_mold",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1775046097619,
+      "tag": "0010_sturdy_sheva_callister",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1775046791957,
+      "tag": "0011_minor_penance",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1775047989248,
+      "tag": "0012_perpetual_mystique",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1775057386571,
+      "tag": "0013_overrated_nocturne",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1775291184300,
+      "tag": "0014_add_topic_progress_conditions",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1775460000000,
+      "tag": "0015_add_papers",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1775463600000,
+      "tag": "0016_add_english_subject",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1775467200000,
+      "tag": "0017_add_paper_description",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1775635200000,
+      "tag": "0018_add_updated_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1775636800000,
+      "tag": "0019_backfill_updated_at",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,36 @@
+.row {
+  margin-bottom: 12rpx;
+}
+
+.field-label {
+  font-size: 24rpx;
+  color: #475569;
+  margin-bottom: 6rpx;
+}
+
+.field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+  margin-bottom: 12rpx;
+}
+
+.daily-card {
+  background: #f8fafc;
+  border-radius: 16rpx;
+  padding: 20rpx;
+  margin-top: 16rpx;
+  border: 1rpx solid #e2e8f0;
+}
+
+.title-small {
+  font-weight: 600;
+}
+
+.activity-card {
+  margin-top: 12rpx;
+  padding: 12rpx;
+  border-radius: 12rpx;
+  background: #ffffff;
+  border: 1rpx dashed #e2e8f0;
+}

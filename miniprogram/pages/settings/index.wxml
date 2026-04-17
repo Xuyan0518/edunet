@@ -3,7 +3,7 @@
 
   <view class="section card">
     <view class="list-item">语言：简体中文</view>
-    <view class="list-item">账号：{{user.email}}</view>
+    <view class="list-item">账号：{{user.displayName || user.name || "未命名用户"}}</view>
   </view>
 
   <button wx:if="{{isParent}}" class="btn-outline" bindtap="subscribe">订阅通知</button>

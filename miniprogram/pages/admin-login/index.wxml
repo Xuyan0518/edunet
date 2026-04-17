@@ -1,18 +1,11 @@
 <view class="container">
   <view class="hero">
-    <view class="title">管理员登录</view>
-    <view class="subtitle">仅限管理员账号</view>
+    <view class="title">管理员微信登录</view>
+    <view class="subtitle">仅数据库中已授权的管理员可登录</view>
   </view>
 
   <view class="card">
-    <view class="section">
-      <view class="label">邮箱</view>
-      <input class="input" placeholder="admin@example.com" bindinput="onEmailInput" value="{{email}}" />
-    </view>
-    <view class="section">
-      <view class="label">密码</view>
-      <input class="input" placeholder="请输入密码" password bindinput="onPasswordInput" value="{{password}}" />
-    </view>
-    <button class="btn-primary" loading="{{loading}}" bindtap="submit">登录</button>
+    <button class="btn-primary" loading="{{loading}}" bindtap="submit">微信登录</button>
+    <view class="hint">系统将根据微信身份判断是否具备管理员权限。</view>
   </view>
 </view>

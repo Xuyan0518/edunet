@@ -16,8 +16,8 @@
       <block wx:for="{{filtered}}" wx:key="id">
         <view class="list-item row-between">
           <view class="subject-text">
-            <view class="subject-name">{{item.name}}</view>
-            <view class="muted subject-meta">{{item.email}}</view>
+            <view class="subject-name">{{item.displayName || item.name || "未命名用户"}}</view>
+            <view class="muted subject-meta">{{item.wechatOpenIdMasked || "未绑定微信"}}</view>
           </view>
           <button class="btn-outline" size="mini" data-id="{{item.id}}" bindtap="deleteParent">删除</button>
         </view>

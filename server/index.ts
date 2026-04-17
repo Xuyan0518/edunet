@@ -15,8 +15,6 @@ import {
   yearlySummaryTable,
   teachersTable,
   parentsTable,
-  TeacherSchema,
-  ParentSchema,
   StudentSchema,
   DailyProgressSchema,
   WeeklyFeedbackSchema,
@@ -43,13 +41,12 @@ import {
   TOPIC_STATUS
 } from './schema';
 
-import { generateVerificationToken, sendVerificationEmail, sendVerificationEmailFallback } from './utils/emailVerification';
 import { generateToken } from './utils/auth';
 import { authenticate, requireTeacher, requireParent, requireAdmin } from './middleware/auth';
 import { verifyParentStudentAccess } from './middleware/parentStudent';
 import { syncCatalogForStudentSubjects } from './utils/catalogSync';
-import { randomBytes } from 'node:crypto';
 import { sendWeChatSubscribeMessage } from './utils/wechatNotify';
+import { DEFAULT_USER_NAME, pickDisplayName, toPublicUser } from './auth/userIdentity';
 
 dotenv.config();
 
@@ -155,8 +152,6 @@ const exchangeWeChatCode = async (code: string) => {
   return data;
 };
 
-const buildWechatEmail = (openid: string) => `wx_${openid}@wechat.local`;
-const buildRandomPassword = () => randomBytes(16).toString('hex');
 const dailyTemplateId = process.env.WECHAT_DAILY_TEMPLATE_ID || '';
 const weeklyTemplateId = process.env.WECHAT_WEEKLY_TEMPLATE_ID || '';
 const examTemplateId = process.env.WECHAT_EXAM_TEMPLATE_ID || '';
@@ -264,7 +259,7 @@ const getSubjectProgressSummary = async (studentId: string) => {
 app.get('/api/teachers', authenticate, requireAdmin, async (_, res) => {
   try {
     const result = await db.select().from(teachersTable);
-    res.json(result);
+    res.json(result.map((item) => toPublicUser(item, 'teacher')));
   } catch (err) {
     res.status(500).json({ error: 'Database error' });
   }
@@ -275,78 +270,44 @@ app.get('/api/teachers/:id', authenticate, requireAdmin, async (req, res) => {
   try {
     const result = await db.select().from(teachersTable).where(eq(teachersTable.id, id));
     if (!result.length) return res.status(404).json({ error: 'Teacher not found' });
-    res.json(result[0]);
+    res.json(toPublicUser(result[0], 'teacher'));
   } catch (err) {
     res.status(500).json({ error: 'Database error' });
   }
 });
 
 app.post('/api/teachers', async (req, res) => {
-  const parsed = TeacherSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-  
-  try {
-    console.log('Teacher signup attempt:', { name: req.body.name, email: req.body.email });
-    
-    // Generate verification token
-    const { token, expires } = generateVerificationToken();
-    console.log('Generated verification token:', { token: token.substring(0, 8) + '...', expires });
-    
-    const result = await db.insert(teachersTable).values({
-      name: parsed.data.name,
-      email: parsed.data.email,
-      password: req.body.password,
-      status: 'pending',
-      emailVerified: 'false',
-      verificationToken: token,
-      verificationTokenExpires: expires
-    }).returning();
-    
-    console.log('Teacher account created in database:', result[0].id);
-    
-    // Send verification email (try Gmail SMTP first, fallback to console)
-    let emailSent = false;
-    if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
-      console.log('Attempting to send email via Gmail SMTP...');
-      emailSent = await sendVerificationEmail(req.body.email, token, req.body.name);
-    } else {
-      console.log('Gmail credentials not found, using fallback...');
-    }
-    
-    if (!emailSent) {
-      console.log('Falling back to console email...');
-      emailSent = await sendVerificationEmailFallback(req.body.email, token, req.body.name);
-    }
-    
-    if (!emailSent) {
-      // If email fails, we should probably delete the user or mark them for manual verification
-      console.error('Failed to send verification email for teacher:', req.body.email);
-    } else {
-      console.log('Verification email sent successfully for teacher:', req.body.email);
-    }
-    
-    res.status(201).json({
-      ...result[0],
-      message: 'Account created successfully. Please check your email to verify your account.'
-    });
-  } catch (err) {
-    console.error('Teacher signup error:', err);
-    const message = getErrorMessage(err);
-    if (message.includes('duplicate key')) {
-      return res.status(400).json({ error: 'Email already exists' });
-    }
-    res.status(500).json({ error: 'Database error' });
-  }
+  res.status(410).json({
+    error: 'Email/password signup is deprecated. Use WeChat login to create teacher accounts.',
+  });
 });
 
 app.put('/api/teachers/:id', async (req, res) => {
   const id = req.params.id;
-  const parsed = TeacherSchema.safeParse({ ...req.body, id });
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   try {
-    const result = await db.update(teachersTable).set(parsed.data).where(eq(teachersTable.id, id)).returning();
+    const nextName = pickDisplayName(req.body?.displayName) || pickDisplayName(req.body?.name);
+    const nextStatus = typeof req.body?.status === 'string' ? req.body.status : undefined;
+    const nextAvatar =
+      typeof req.body?.avatarUrl === 'string' && req.body.avatarUrl.trim() ? req.body.avatarUrl.trim() : null;
+
+    const patch: Record<string, unknown> = { updatedAt: new Date() };
+    if (nextName) {
+      patch.name = nextName;
+      patch.displayName = nextName;
+    }
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'avatarUrl')) {
+      patch.avatarUrl = nextAvatar;
+    }
+    if (nextStatus === 'pending' || nextStatus === 'approved' || nextStatus === 'rejected') {
+      patch.status = nextStatus;
+    }
+    if (Object.keys(patch).length === 1) {
+      return res.status(400).json({ error: 'No valid update fields provided' });
+    }
+
+    const result = await db.update(teachersTable).set(patch).where(eq(teachersTable.id, id)).returning();
     if (!result.length) return res.status(404).json({ error: 'Teacher not found' });
-    res.json(result[0]);
+    res.json(toPublicUser(result[0], 'teacher'));
   } catch (err) {
     res.status(500).json({ error: 'Database error' });
   }
@@ -378,7 +339,7 @@ app.get('/api/parents/unassigned', async (req, res) => {
       );
     
     const flattenedParents = unassignedParents.map(p => p.parents);
-    res.status(200).json(flattenedParents);
+    res.status(200).json(flattenedParents.map((item) => toPublicUser(item, 'parent')));
   } catch (error) {
     console.error('Error fetching available parents:', error);
     res.status(500).json({ error: 'Failed to fetch available parents' });
@@ -391,7 +352,7 @@ app.get('/api/parents', authenticate, requireTeacher, async (_, res) => {
       .select()
       .from(parentsTable)
       .where(eq(parentsTable.status, 'approved'));
-    res.json(result);
+    res.json(result.map((item) => toPublicUser(item, 'parent')));
   } catch (err) {
     res.status(500).json({ error: 'Database error' });
   }
@@ -402,7 +363,7 @@ app.get('/api/parents/:id', async (req, res) => {
   try {
     const result = await db.select().from(parentsTable).where(eq(parentsTable.id, id));
     if (!result.length) return res.status(404).json({ error: 'Parent not found' });
-    res.json(result[0]);
+    res.json(toPublicUser(result[0], 'parent'));
   } catch (err) {
     res.status(500).json({ error: 'Database error' });
   }
@@ -419,75 +380,38 @@ app.get('/api/parents/:id/students', authenticate, requireTeacher, async (req, r
 });
 
 app.post('/api/parents', async (req, res) => {
-  const parsed = ParentSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-  
-  try {
-    console.log('Parent signup attempt:', { name: req.body.name, email: req.body.email });
-    
-    // Generate verification token
-    const { token, expires } = generateVerificationToken();
-    console.log('Generated verification token:', { token: token.substring(0, 8) + '...', expires });
-    
-    // Directly save password (no encryption)
-    const result = await db.insert(parentsTable).values({
-      name: parsed.data.name,
-      email: parsed.data.email,
-      password: req.body.password,
-      status: 'pending',
-      emailVerified: 'false',
-      verificationToken: token,
-      verificationTokenExpires: expires
-    }).returning();
-    
-    console.log('Parent account created in database:', result[0].id);
-    
-    // Send verification email (try Gmail SMTP first, fallback to console)
-    let emailSent = false;
-    if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
-      console.log('Attempting to send email via Gmail SMTP...');
-      emailSent = await sendVerificationEmail(req.body.email, token, req.body.name);
-    } else {
-      console.log('Gmail credentials not found, using fallback...');
-    }
-    
-    if (!emailSent) {
-      console.log('Falling back to console email...');
-      emailSent = await sendVerificationEmailFallback(req.body.email, token, req.body.name);
-    }
-    
-    if (!emailSent) {
-      // If email fails, we should probably delete the user or mark them for manual verification
-      console.error('Failed to send verification email for parent:', req.body.email);
-    } else {
-      console.log('Verification email sent successfully for parent:', req.body.email);
-    }
-    
-    res.status(201).json({
-      ...result[0],
-      message: 'Account created successfully. Please check your email to verify your account.'
-    });
-  } catch (err) {
-    console.error('Parent signup error:', err);
-    const message = getErrorMessage(err);
-    if (message.includes('duplicate key')) {
-      return res.status(400).json({ error: 'Email already exists' });
-    }
-    res.status(500).json({ error: 'Database error' });
-  }
+  res.status(410).json({
+    error: 'Email/password signup is deprecated. Use WeChat login to create parent accounts.',
+  });
 });
 
 app.put('/api/parents/:id', async (req, res) => {
   const id = req.params.id;
-  const parsed = ParentSchema.safeParse({ ...req.body, id });
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   try {
-    const result = await db.update(parentsTable).set(parsed.data).where(eq(parentsTable.id, id)).returning();
+    const nextName = pickDisplayName(req.body?.displayName) || pickDisplayName(req.body?.name);
+    const nextStatus = typeof req.body?.status === 'string' ? req.body.status : undefined;
+    const nextAvatar =
+      typeof req.body?.avatarUrl === 'string' && req.body.avatarUrl.trim() ? req.body.avatarUrl.trim() : null;
+
+    const patch: Record<string, unknown> = { updatedAt: new Date() };
+    if (nextName) {
+      patch.name = nextName;
+      patch.displayName = nextName;
+    }
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'avatarUrl')) {
+      patch.avatarUrl = nextAvatar;
+    }
+    if (nextStatus === 'pending' || nextStatus === 'approved' || nextStatus === 'rejected') {
+      patch.status = nextStatus;
+    }
+    if (Object.keys(patch).length === 1) {
+      return res.status(400).json({ error: 'No valid update fields provided' });
+    }
+
+    const result = await db.update(parentsTable).set(patch).where(eq(parentsTable.id, id)).returning();
     if (!result.length) return res.status(404).json({ error: 'Parent not found' });
-    res.json(result[0]);
+    res.json(toPublicUser(result[0], 'parent'));
   } catch (err) {
-    const message = getErrorMessage(err);
-    if (message.includes('duplicate key')) return res.status(400).json({ error: 'Email already exists' });
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -1703,61 +1627,27 @@ app.delete('/api/students/:studentId/papers/:paperId', authenticate, requireTeac
 
 // ========== ADMIN ROUTES ==========
 app.post('/api/admin/login', async (req, res) => {
-  const { email, password } = req.body;
-
-  try {
-    const admins = await db.select().from(adminsTable).where(eq(adminsTable.email, email));
-
-    if (admins.length === 0) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-
-    const admin = admins[0];
-
-    if (admin.password !== password) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-
-    // Exclude password from response
-    const { password: _, ...adminInfo } = admin;
-    
-    const user = {
-      ...adminInfo,
-      role: 'admin' as const
-    };
-    
-    // Generate token
-    const token = generateToken({
-      id: user.id,
-      role: 'admin',
-      email: user.email,
-      name: user.name,
-    });
-
-    return res.json({
-      user,
-      token
-    });
-
-  } catch (error) {
-    console.error('Login error:', error);
-    return res.status(500).json({ error: 'Internal server error' });
-  }
+  res.status(410).json({
+    error: 'Email/password admin login is deprecated. Use /api/auth/wechat with role=admin.',
+  });
 });
 
 
 app.get('/api/admin/pending', authenticate, requireAdmin, async (req, res) => {
   const parents = await db.select().from(parentsTable).where(eq(parentsTable.status, 'pending'));
   const teachers = await db.select().from(teachersTable).where(eq(teachersTable.status, 'pending'));
-  res.json({ parents, teachers });
+  res.json({
+    parents: parents.map((item) => toPublicUser(item, 'parent')),
+    teachers: teachers.map((item) => toPublicUser(item, 'teacher')),
+  });
 });
 
 app.post('/api/admin/approve', authenticate, requireAdmin, async (req, res) => {
   const { id, role } = req.body;
   if (role === 'parent') {
-    await db.update(parentsTable).set({ status: 'approved' }).where(eq(parentsTable.id, id));
+    await db.update(parentsTable).set({ status: 'approved', updatedAt: new Date() }).where(eq(parentsTable.id, id));
   } else if (role === 'teacher') {
-    await db.update(teachersTable).set({ status: 'approved' }).where(eq(teachersTable.id, id));
+    await db.update(teachersTable).set({ status: 'approved', updatedAt: new Date() }).where(eq(teachersTable.id, id));
   }
   res.json({ success: true });
 });
@@ -1765,9 +1655,9 @@ app.post('/api/admin/approve', authenticate, requireAdmin, async (req, res) => {
 app.post('/api/admin/reject', authenticate, requireAdmin, async (req, res) => {
   const { id, role } = req.body;
   if (role === 'parent') {
-    await db.update(parentsTable).set({ status: 'rejected' }).where(eq(parentsTable.id, id));
+    await db.update(parentsTable).set({ status: 'rejected', updatedAt: new Date() }).where(eq(parentsTable.id, id));
   } else if (role === 'teacher') {
-    await db.update(teachersTable).set({ status: 'rejected' }).where(eq(teachersTable.id, id));
+    await db.update(teachersTable).set({ status: 'rejected', updatedAt: new Date() }).where(eq(teachersTable.id, id));
   }
   res.json({ success: true });
 });
@@ -2582,16 +2472,19 @@ app.get('/api/feedback/list', authenticate, verifyParentStudentAccess, async (re
 
 // WeChat Mini Program login
 app.post('/api/auth/wechat', async (req, res) => {
-  const { code, role, name } = req.body as {
+  const { code, role, name, nickname, displayName, avatarUrl } = req.body as {
     code?: string;
-    role?: 'teacher' | 'parent';
+    role?: 'teacher' | 'parent' | 'admin';
     name?: string;
+    nickname?: string;
+    displayName?: string;
+    avatarUrl?: string;
   };
 
   if (!code || typeof code !== 'string') {
     return res.status(400).json({ error: 'Missing code' });
   }
-  if (role !== 'teacher' && role !== 'parent') {
+  if (role !== 'teacher' && role !== 'parent' && role !== 'admin') {
     return res.status(400).json({ error: 'Invalid role' });
   }
 
@@ -2605,165 +2498,151 @@ app.post('/api/auth/wechat', async (req, res) => {
     }
 
     const openid = session.openid;
-    const table = role === 'teacher' ? teachersTable : parentsTable;
-    const openIdColumn = role === 'teacher' ? teachersTable.wechatOpenId : parentsTable.wechatOpenId;
+    const unionid = session.unionid || null;
+    const submittedDisplayName =
+      pickDisplayName(displayName) || pickDisplayName(nickname) || pickDisplayName(name);
+    const nextDisplayName = submittedDisplayName || DEFAULT_USER_NAME;
+    const nextAvatarUrl = typeof avatarUrl === 'string' && avatarUrl.trim() ? avatarUrl.trim() : null;
 
-    // Try login by openid
-    const existing = await db.select().from(table).where(eq(openIdColumn, openid));
-    if (existing.length) {
-      const userRow = existing[0];
-      if (userRow.status !== 'approved') {
-        return res.status(401).json({
-          error: 'Your account is pending admin approval. You will be notified once approved.',
-          status: 'pending_approval',
-        });
-      }
-      if (userRow.emailVerified !== 'true') {
-        return res.status(401).json({
-          error: 'Please verify your email before logging in. Check your inbox for a verification link.',
-        });
+    if (role === 'teacher' || role === 'parent') {
+      const table = role === 'teacher' ? teachersTable : parentsTable;
+      const openIdColumn = role === 'teacher' ? teachersTable.wechatOpenId : parentsTable.wechatOpenId;
+      const unionIdColumn = role === 'teacher' ? teachersTable.wechatUnionId : parentsTable.wechatUnionId;
+
+      let existing = await db.select().from(table).where(eq(openIdColumn, openid)).limit(1);
+
+      if (!existing.length && unionid) {
+        existing = await db.select().from(table).where(eq(unionIdColumn, unionid)).limit(1);
       }
 
-      const { password: _, ...info } = userRow;
-      const token = generateToken({
-        id: info.id,
-        role,
-        email: info.email,
-        name: info.name,
+      if (existing.length) {
+        let userRow = existing[0];
+        const patch: Record<string, unknown> = {};
+        const currentDisplayName = userRow.displayName || userRow.name || DEFAULT_USER_NAME;
+        if (submittedDisplayName && currentDisplayName !== submittedDisplayName) {
+          patch.name = submittedDisplayName;
+          patch.displayName = submittedDisplayName;
+        }
+        if (userRow.wechatOpenId !== openid) {
+          patch.wechatOpenId = openid;
+        }
+        if (unionid && userRow.wechatUnionId !== unionid) {
+          patch.wechatUnionId = unionid;
+        }
+        if (nextAvatarUrl && userRow.avatarUrl !== nextAvatarUrl) {
+          patch.avatarUrl = nextAvatarUrl;
+        }
+        if (Object.keys(patch).length) {
+          patch.updatedAt = new Date();
+          const updatedRows = await db.update(table).set(patch).where(eq(table.id, userRow.id)).returning();
+          userRow = updatedRows[0];
+        }
+
+        if (userRow.status !== 'approved') {
+          return res.status(401).json({
+            error: userRow.status === 'rejected' ? '账号已被管理员拒绝，请联系管理员。' : '账号等待管理员审核。',
+            status: 'pending_approval',
+            user: toPublicUser(userRow, role),
+          });
+        }
+
+        const token = generateToken({
+          id: userRow.id,
+          role,
+          name: userRow.displayName || userRow.name || DEFAULT_USER_NAME,
+        });
+        return res.json({ user: toPublicUser(userRow, role), token });
+      }
+
+      // First login: create pending account bound to WeChat identity only.
+      const createdRows = await db
+        .insert(table)
+        .values({
+          name: nextDisplayName,
+          displayName: nextDisplayName,
+          avatarUrl: nextAvatarUrl,
+          status: 'pending',
+          emailVerified: 'true',
+          email: null,
+          password: null,
+          authProvider: 'wechat',
+          wechatOpenId: openid,
+          wechatUnionId: unionid,
+        })
+        .returning();
+
+      const created = createdRows[0];
+      return res.json({
+        user: toPublicUser(created, role),
+        status: 'pending_approval',
+        message: 'Account created. Pending admin approval.',
       });
-      return res.json({ user: { ...info, role }, token });
     }
 
-    // Create a new pending account linked to this openid
-    const displayName = typeof name === 'string' && name.trim() ? name.trim() : `WeChat User ${openid.slice(0, 6)}`;
-    const createResult = await db
-      .insert(table)
-      .values({
-        name: displayName,
-        email: buildWechatEmail(openid),
-        password: buildRandomPassword(),
-        status: 'pending',
-        emailVerified: 'true',
-        wechatOpenId: openid,
-      })
-      .returning();
+    // role === 'admin': admin must already exist in DB and be mapped to WeChat identity.
+    let admins = await db.select().from(adminsTable).where(eq(adminsTable.wechatOpenId, openid)).limit(1);
+    if (!admins.length && unionid) {
+      admins = await db.select().from(adminsTable).where(eq(adminsTable.wechatUnionId, unionid)).limit(1);
+    }
+    if (!admins.length) {
+      return res.status(403).json({
+        error: '当前微信账号没有管理员权限。',
+        code: 'admin_not_authorized',
+      });
+    }
 
-    const { password: _, ...info } = createResult[0];
-    return res.json({
-      user: { ...info, role },
-      status: 'pending_approval',
-      message: 'Account created. Pending admin approval.',
+    let admin = admins[0];
+    const adminPatch: Record<string, unknown> = {};
+    const adminDisplayName = admin.displayName || admin.name || DEFAULT_USER_NAME;
+    if (submittedDisplayName && adminDisplayName !== submittedDisplayName) {
+      adminPatch.name = submittedDisplayName;
+      adminPatch.displayName = submittedDisplayName;
+    }
+    if (admin.wechatOpenId !== openid) adminPatch.wechatOpenId = openid;
+    if (unionid && admin.wechatUnionId !== unionid) adminPatch.wechatUnionId = unionid;
+    if (nextAvatarUrl && admin.avatarUrl !== nextAvatarUrl) adminPatch.avatarUrl = nextAvatarUrl;
+    if (Object.keys(adminPatch).length) {
+      adminPatch.updatedAt = new Date();
+      const updatedRows = await db.update(adminsTable).set(adminPatch).where(eq(adminsTable.id, admin.id)).returning();
+      admin = updatedRows[0];
+    }
+
+    const token = generateToken({
+      id: admin.id,
+      role: 'admin',
+      name: admin.displayName || admin.name || DEFAULT_USER_NAME,
     });
+    return res.json({ user: toPublicUser(admin, 'admin'), token });
   } catch (err) {
     console.error('WeChat login error:', err);
     res.status(500).json({ error: 'WeChat login failed' });
   }
 });
 
-app.post('/api/login', async (req, res) => {
-  const { email, password, role } = req.body;
-
-  try {
-    if (role === 'parent') {
-      console.log('Parent login attempt:', { email, password, role });
-
-      const parent = await db.select().from(parentsTable)
-        .where(eq(parentsTable.email, email));
-
-      if (!parent.length || parent[0].password !== password) {
-        return res.status(401).json({ error: 'Invalid credentials' });
-      }
-
-      if (parent[0].emailVerified !== 'true') {
-        return res.status(401).json({ error: 'Please verify your email before logging in. Check your inbox for a verification link.' });
-      }
-
-      if (parent[0].status !== 'approved') {
-        return res.status(401).json({ 
-          error: 'Your account is pending admin approval. You will be notified once approved.',
-          status: 'pending_approval'
-        });
-      }
-
-      const { password: _, ...parentInfo } = parent[0];
-      const user = {
-        ...parentInfo,
-        role: 'parent' as const
-      };
-      
-      // Generate token
-      const token = generateToken({
-        id: user.id,
-        role: 'parent',
-        email: user.email,
-        name: user.name,
-      });
-      
-      return res.json({
-        user,
-        token
-      });
-    }
-
-    if (role === 'teacher') {
-      console.log('Teacher login attempt:', { email, password, role });
-
-      const teacher = await db.select().from(teachersTable)
-        .where(eq(teachersTable.email, email));
-
-      if (!teacher.length || teacher[0].password !== password) {
-        return res.status(401).json({ error: 'Invalid credentials' });
-      }
-
-      if (teacher[0].emailVerified !== 'true') {
-        return res.status(401).json({ error: 'Please verify your email before logging in. Check your inbox for a verification link.' });
-      }
-
-      if (teacher[0].status !== 'approved') {
-        return res.status(401).json({ 
-          error: 'Your account is pending admin approval. You will be notified once approved.',
-          status: 'pending_approval'
-        });
-      }
-
-      const { password: _, ...teacherInfo } = teacher[0];
-      const user = {
-        ...teacherInfo,
-        role: 'teacher' as const
-      };
-      
-      // Generate token
-      const token = generateToken({
-        id: user.id,
-        role: 'teacher',
-        email: user.email,
-        name: user.name,
-      });
-      
-      return res.json({
-        user,
-        token
-      });
-    }
-
-    return res.status(400).json({ error: 'Invalid role' });
-
-  } catch (err) {
-    console.error('Login error:', err);
-    res.status(500).json({ error: 'Database error' });
-  }
+app.post('/api/login', async (_req, res) => {
+  res.status(410).json({
+    error: 'Email/password login is deprecated. Use /api/auth/wechat.',
+  });
 });
 
 // ========== PROFILE / SETTINGS ROUTES ==========
 
 app.get('/api/profile', authenticate, async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Authentication required' });
-  const table = req.user.role === 'teacher' ? teachersTable : parentsTable;
   try {
-    const rows = await db.select().from(table).where(eq(table.id, req.user.id));
+    if (req.user.role === 'teacher') {
+      const rows = await db.select().from(teachersTable).where(eq(teachersTable.id, req.user.id)).limit(1);
+      if (!rows.length) return res.status(404).json({ error: 'User not found' });
+      return res.json({ user: toPublicUser(rows[0], 'teacher') });
+    }
+    if (req.user.role === 'parent') {
+      const rows = await db.select().from(parentsTable).where(eq(parentsTable.id, req.user.id)).limit(1);
+      if (!rows.length) return res.status(404).json({ error: 'User not found' });
+      return res.json({ user: toPublicUser(rows[0], 'parent') });
+    }
+    const rows = await db.select().from(adminsTable).where(eq(adminsTable.id, req.user.id)).limit(1);
     if (!rows.length) return res.status(404).json({ error: 'User not found' });
-    const { password: _, ...info } = rows[0];
-    res.json({ user: { ...info, role: req.user.role } });
+    return res.json({ user: toPublicUser(rows[0], 'admin') });
   } catch (err) {
     console.error('Profile fetch error:', err);
     res.status(500).json({ error: 'Database error' });
@@ -2772,57 +2651,49 @@ app.get('/api/profile', authenticate, async (req, res) => {
 
 app.put('/api/profile', authenticate, async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Authentication required' });
-  const { name, email } = req.body;
-  const nameStr = typeof name === 'string' ? name.trim() : '';
-  const emailStr = typeof email === 'string' ? email.trim() : '';
-  if (!nameStr || !emailStr) {
-    return res.status(400).json({ error: 'Name and email are required' });
+  const explicitDisplayName = pickDisplayName(req.body?.displayName) || pickDisplayName(req.body?.name);
+  const hasDisplayName = !!explicitDisplayName;
+  const hasAvatarField = Object.prototype.hasOwnProperty.call(req.body || {}, 'avatarUrl');
+  const nextAvatar = hasAvatarField && typeof req.body?.avatarUrl === 'string' ? req.body.avatarUrl.trim() : null;
+  if (!hasDisplayName && !hasAvatarField) {
+    return res.status(400).json({ error: 'displayName or avatarUrl is required' });
   }
 
-  const table = req.user.role === 'teacher' ? teachersTable : parentsTable;
   try {
-    const updated = await db
-      .update(table)
-      .set({ name: nameStr, email: emailStr })
-      .where(eq(table.id, req.user.id))
-      .returning();
-    if (!updated.length) return res.status(404).json({ error: 'User not found' });
-    const { password: _, ...info } = updated[0];
-    res.json({ user: { ...info, role: req.user.role } });
-  } catch (err) {
-    const message = getErrorMessage(err);
-    if (message.includes('duplicate key')) {
-      return res.status(400).json({ error: 'Email already exists' });
+    const patch: Record<string, unknown> = { updatedAt: new Date() };
+    if (hasDisplayName) {
+      patch.name = explicitDisplayName;
+      patch.displayName = explicitDisplayName;
     }
+    if (hasAvatarField) {
+      patch.avatarUrl = nextAvatar || null;
+    }
+
+    if (req.user.role === 'teacher') {
+      const updated = await db.update(teachersTable).set(patch).where(eq(teachersTable.id, req.user.id)).returning();
+      if (!updated.length) return res.status(404).json({ error: 'User not found' });
+      return res.json({ user: toPublicUser(updated[0], 'teacher') });
+    }
+
+    if (req.user.role === 'parent') {
+      const updated = await db.update(parentsTable).set(patch).where(eq(parentsTable.id, req.user.id)).returning();
+      if (!updated.length) return res.status(404).json({ error: 'User not found' });
+      return res.json({ user: toPublicUser(updated[0], 'parent') });
+    }
+
+    const updated = await db.update(adminsTable).set(patch).where(eq(adminsTable.id, req.user.id)).returning();
+    if (!updated.length) return res.status(404).json({ error: 'User not found' });
+    return res.json({ user: toPublicUser(updated[0], 'admin') });
+  } catch (err) {
     console.error('Profile update error:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
 
-app.put('/api/profile/password', authenticate, async (req, res) => {
-  if (!req.user) return res.status(401).json({ error: 'Authentication required' });
-  const { currentPassword, newPassword } = req.body;
-  if (!currentPassword || !newPassword) {
-    return res.status(400).json({ error: 'Current and new password are required' });
-  }
-  if (typeof newPassword !== 'string' || newPassword.length < 6) {
-    return res.status(400).json({ error: 'Password must be at least 6 characters' });
-  }
-
-  const table = req.user.role === 'teacher' ? teachersTable : parentsTable;
-  try {
-    const rows = await db.select().from(table).where(eq(table.id, req.user.id));
-    if (!rows.length) return res.status(404).json({ error: 'User not found' });
-    if (rows[0].password !== currentPassword) {
-      return res.status(400).json({ error: 'Current password is incorrect' });
-    }
-
-    await db.update(table).set({ password: newPassword }).where(eq(table.id, req.user.id));
-    res.json({ success: true });
-  } catch (err) {
-    console.error('Password update error:', err);
-    res.status(500).json({ error: 'Database error' });
-  }
+app.put('/api/profile/password', authenticate, async (_req, res) => {
+  res.status(410).json({
+    error: 'Password-based profile update is deprecated in WeChat-only auth mode.',
+  });
 });
 
 // ========== TEST ENDPOINTS ==========
@@ -2860,55 +2731,17 @@ app.get('/api/test-gmail', async (req, res) => {
 
 // ========== EMAIL VERIFICATION ROUTES ==========
 
-app.get('/api/verify-email/:token', async (req, res) => {
-  const { token } = req.params;
-  
-  try {
-    // Check if token exists in teachers table
-    const teacher = await db.select().from(teachersTable)
-      .where(eq(teachersTable.verificationToken, token));
-    
-    let parent: typeof teacher = [];
-    if (!teacher.length) {
-      // Check if token exists in parents table
-      parent = await db.select().from(parentsTable)
-        .where(eq(parentsTable.verificationToken, token));
-    }
-    
-    if (!teacher.length && !parent.length) {
-      return res.status(400).json({ error: 'Invalid verification token' });
-    }
-    
-    const user = teacher[0] || parent[0];
-    const table = teacher.length ? teachersTable : parentsTable;
-    
-    // Check if token is expired
-    if (user.verificationTokenExpires && new Date() > new Date(user.verificationTokenExpires)) {
-      return res.status(400).json({ error: 'Verification token has expired' });
-    }
-    
-    // Update user to verified
-    const result = await db.update(table)
-      .set({
-        emailVerified: 'true',
-        verificationToken: null,
-        verificationTokenExpires: null
-      })
-      .where(eq(table.id, user.id))
-      .returning();
-    
-    res.json({
-      message: 'Email verified successfully! You can now log in to your account.',
-      user: result[0]
-    });
-    
-  } catch (err) {
-    console.error('Email verification error:', err);
-    res.status(500).json({ error: 'Database error during verification' });
-  }
+app.get('/api/verify-email/:token', async (_req, res) => {
+  res.status(410).json({
+    error: 'Email verification is deprecated in WeChat-only auth mode.',
+  });
 });
 
 
-app.listen(port, () => {
-  console.log(`🚀 Server running on port ${port}`);
-});
+if (process.env.NODE_ENV !== 'test') {
+  app.listen(port, () => {
+    console.log(`🚀 Server running on port ${port}`);
+  });
+}
+
+export { app };

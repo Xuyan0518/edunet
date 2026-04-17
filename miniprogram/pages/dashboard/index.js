@@ -1,3 +1,5 @@
+const { resolveDisplayName } = require("../../utils/userIdentity");
+
 Page({
   data: {
     userName: "",
@@ -11,7 +13,10 @@ Page({
       wx.reLaunch({ url: "/pages/admin-dashboard/index" });
       return;
     }
-    this.setData({ userName: user?.name || "", isTeacher: user?.role === "teacher" });
+    this.setData({
+      userName: resolveDisplayName(user),
+      isTeacher: user?.role === "teacher",
+    });
   },
 
   goStudents() {

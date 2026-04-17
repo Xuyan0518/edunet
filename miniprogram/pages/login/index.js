@@ -22,15 +22,16 @@ Page({
       desc: "用于完善资料",
       success: (profileRes) => {
         const nickname = profileRes?.userInfo?.nickName || "";
-        this.loginWithWeChat(nickname);
+        const avatarUrl = profileRes?.userInfo?.avatarUrl || "";
+        this.loginWithWeChat({ nickname, avatarUrl });
       },
       fail: () => {
-        this.loginWithWeChat("");
+        this.loginWithWeChat({ nickname: "", avatarUrl: "" });
       },
     });
   },
 
-  loginWithWeChat(nickname) {
+  loginWithWeChat({ nickname, avatarUrl }) {
     wx.login({
       success: (res) => {
         if (!res.code) {
@@ -42,9 +43,9 @@ Page({
         const payload = {
           code: res.code,
           role: this.data.role,
+          nickname,
+          avatarUrl,
         };
-
-        if (nickname) payload.name = nickname;
 
         request({
           url: "/auth/wechat",
@@ -70,8 +71,16 @@ Page({
             }
           })
           .catch((err) => {
+            if (err?.status === "pending_approval") {
+              wx.showModal({
+                title: "等待审核",
+                content: "账号已创建，等待管理员审核后可使用。",
+                showCancel: false,
+              });
+              return;
+            }
             const msg = err?.error || "登录失败";
-            wx.showToast({ title: msg, icon: "error" });
+            wx.showToast({ title: msg, icon: "none" });
           })
           .finally(() => {
             this.setData({ loading: false });

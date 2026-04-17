@@ -139,6 +139,13 @@
       "when": 1775636800000,
       "tag": "0019_backfill_updated_at",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1776409200000,
+      "tag": "0020_wechat_auth_refactor",
+      "breakpoints": true
     }
   ]
 }

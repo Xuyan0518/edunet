@@ -1,4 +1,5 @@
 const { request } = require("../../utils/api");
+const { resolveDisplayName, resolveIdentityHint } = require("../../utils/userIdentity");
 
 Page({
   data: {
@@ -49,9 +50,9 @@ Page({
   onSearchTeacher(e) {
     const query = (e.detail.value || "").trim().toLowerCase();
     const filtered = this.data.teachers.filter((t) => {
-      const name = (t.name || "").toLowerCase();
-      const email = (t.email || "").toLowerCase();
-      return name.includes(query) || email.includes(query);
+      const name = resolveDisplayName(t).toLowerCase();
+      const identity = resolveIdentityHint(t).toLowerCase();
+      return name.includes(query) || identity.includes(query);
     });
     this.setData({ filteredTeachers: filtered });
   },

@@ -7,3 +7,9 @@
 .section {
   margin-bottom: 20rpx;
 }
+
+.hint {
+  margin-top: 20rpx;
+  font-size: 24rpx;
+  color: #64748b;
+}

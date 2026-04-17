@@ -16,33 +16,46 @@ export const UserSchema = z.object({
 
 export const AdminSchema = z.object({
   id: z.string().uuid().optional(),
-  name: z.string().min(2).max(100),
-  email: z.string().email().max(100),
-  password: z.string().min(6).max(100),
+  name: z.string().min(1).max(100).optional(),
+  displayName: z.string().min(1).max(100).optional(),
+  email: z.string().email().max(100).optional().nullable(),
+  password: z.string().min(6).max(100).optional().nullable(),
+  wechatOpenId: z.string().optional(),
+  wechatUnionId: z.string().optional(),
+  avatarUrl: z.string().url().optional().nullable(),
+  authProvider: z.enum(['wechat']).optional().default('wechat'),
 });
 
 export const TeacherSchema = z.object({
   id: z.string().uuid().optional(),
-  name: z.string().min(2).max(100),
-  email: z.string().email().max(100),
-  password: z.string().min(6).max(100),
+  name: z.string().min(1).max(100),
+  displayName: z.string().min(1).max(100).optional(),
+  email: z.string().email().max(100).optional().nullable(),
+  password: z.string().min(6).max(100).optional().nullable(),
   status: z.enum(['pending', 'approved', 'rejected']).optional().default('pending'),
   emailVerified: z.string().optional().default('false'),
   verificationToken: z.string().optional(),
   verificationTokenExpires: z.date().optional(),
-  wechatOpenId: z.string().optional()
+  wechatOpenId: z.string().optional(),
+  wechatUnionId: z.string().optional(),
+  avatarUrl: z.string().url().optional().nullable(),
+  authProvider: z.enum(['wechat']).optional().default('wechat'),
 });
 
 export const ParentSchema = z.object({
   id: z.string().uuid().optional(),
-  name: z.string().min(2).max(100),
-  email: z.string().email().max(100),
-  password: z.string().min(6).max(100),
+  name: z.string().min(1).max(100),
+  displayName: z.string().min(1).max(100).optional(),
+  email: z.string().email().max(100).optional().nullable(),
+  password: z.string().min(6).max(100).optional().nullable(),
   status: z.enum(['pending', 'approved', 'rejected']).optional().default('pending'),
   emailVerified: z.string().optional().default('false'),
   verificationToken: z.string().optional(),
   verificationTokenExpires: z.date().optional(),
-  wechatOpenId: z.string().optional()
+  wechatOpenId: z.string().optional(),
+  wechatUnionId: z.string().optional(),
+  avatarUrl: z.string().url().optional().nullable(),
+  authProvider: z.enum(['wechat']).optional().default('wechat'),
 });
 
 export const StudentSchema = z.object({
@@ -165,35 +178,51 @@ export const users = pgTable('users', {
 export const adminsTable = pgTable('admins', {
   id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
   name: varchar('name', { length: 100 }).notNull(),
-  email: varchar('email', { length: 100 }).unique().notNull(),
-  password: varchar('password', { length: 100 }).notNull(),
+  displayName: varchar('display_name', { length: 100 }),
+  email: varchar('email', { length: 100 }).unique(),
+  password: varchar('password', { length: 100 }),
+  wechatOpenId: varchar('wechat_open_id', { length: 64 }).unique(),
+  wechatUnionId: varchar('wechat_union_id', { length: 64 }).unique(),
+  avatarUrl: text('avatar_url'),
+  authProvider: varchar('auth_provider', { length: 20 }).default('wechat').notNull(),
   createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
 });
 
 export const teachersTable = pgTable('teacher', {
   id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
   name: varchar('name', { length: 100 }).notNull(),
-  email: varchar('email', { length: 100 }).unique().notNull(),
-  password: varchar('password', { length: 100 }).notNull(),
+  displayName: varchar('display_name', { length: 100 }),
+  email: varchar('email', { length: 100 }).unique(),
+  password: varchar('password', { length: 100 }),
   status: varchar('status', { length: 20 }).default('pending').notNull(),
   emailVerified: varchar('email_verified', { length: 5 }).default('false').notNull(),
   verificationToken: varchar('verification_token', { length: 255 }),
   verificationTokenExpires: timestamp('verification_token_expires'),
   wechatOpenId: varchar('wechat_open_id', { length: 64 }).unique(),
+  wechatUnionId: varchar('wechat_union_id', { length: 64 }).unique(),
+  avatarUrl: text('avatar_url'),
+  authProvider: varchar('auth_provider', { length: 20 }).default('wechat').notNull(),
   createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
 });
 
 export const parentsTable = pgTable('parents', {
   id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
   name: varchar('name', { length: 100 }).notNull(),
-  email: varchar('email', { length: 100 }).unique().notNull(),
-  password: varchar('password', { length: 100 }).notNull(),
+  displayName: varchar('display_name', { length: 100 }),
+  email: varchar('email', { length: 100 }).unique(),
+  password: varchar('password', { length: 100 }),
   status: varchar('status', { length: 20 }).default('pending').notNull(),
   emailVerified: varchar('email_verified', { length: 5 }).default('false').notNull(),
   verificationToken: varchar('verification_token', { length: 255 }),
   verificationTokenExpires: timestamp('verification_token_expires'),
   wechatOpenId: varchar('wechat_open_id', { length: 64 }).unique(),
+  wechatUnionId: varchar('wechat_union_id', { length: 64 }).unique(),
+  avatarUrl: text('avatar_url'),
+  authProvider: varchar('auth_provider', { length: 20 }).default('wechat').notNull(),
   createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
 });
 
 export const studentsTable = pgTable('students', {

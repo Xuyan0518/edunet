@@ -15,8 +15,8 @@
       <block wx:for="{{pendingParents}}" wx:key="id">
         <view class="list-item row-between">
           <view class="subject-text">
-            <view class="subject-name">{{item.name}}</view>
-            <view class="muted subject-meta">{{item.email}}</view>
+            <view class="subject-name">{{item.displayName || item.name || "未命名用户"}}</view>
+            <view class="muted subject-meta">{{item.wechatOpenIdMasked || "未绑定微信"}}</view>
           </view>
           <view class="row">
             <button class="btn-outline" size="mini" data-id="{{item.id}}" data-role="parent" bindtap="handleApprove">批准</button>
@@ -36,8 +36,8 @@
       <block wx:for="{{pendingTeachers}}" wx:key="id">
         <view class="list-item row-between">
           <view class="subject-text">
-            <view class="subject-name">{{item.name}}</view>
-            <view class="muted subject-meta">{{item.email}}</view>
+            <view class="subject-name">{{item.displayName || item.name || "未命名用户"}}</view>
+            <view class="muted subject-meta">{{item.wechatOpenIdMasked || "未绑定微信"}}</view>
           </view>
           <view class="row">
             <button class="btn-outline" size="mini" data-id="{{item.id}}" data-role="teacher" bindtap="handleApprove">批准</button>
@@ -61,8 +61,8 @@
       <block wx:for="{{filteredTeachers}}" wx:key="id">
         <view class="list-item row-between">
           <view class="subject-text">
-            <view class="subject-name">{{item.name}}</view>
-            <view class="muted subject-meta">{{item.email}} · {{item.status}}</view>
+            <view class="subject-name">{{item.displayName || item.name || "未命名用户"}}</view>
+            <view class="muted subject-meta">{{item.wechatOpenIdMasked || "未绑定微信"}} · {{item.status}}</view>
           </view>
           <button class="btn-outline" size="mini" data-id="{{item.id}}" bindtap="deleteTeacher">删除</button>
         </view>

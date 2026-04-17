@@ -23,7 +23,14 @@
     "db:migrate": "tsx server/migrate.ts",
     "db:update-schema": "tsx server/run-migration.ts",
     "db:check-schema": "tsx server/check-current-schema.ts",
-    "studio": "npm run dev:studio"
+    "studio": "npm run dev:studio",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:unit": "vitest run tests/unit",
+    "test:api": "vitest run tests/integration tests/business",
+    "test:e2e": "vitest run tests/business",
+    "test:coverage": "vitest run --coverage",
+    "test:load": "node tests/load/smoke-load.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
@@ -96,7 +103,9 @@
     "@types/node": "^22.5.5",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
+    "@types/supertest": "^7.2.0",
     "@vitejs/plugin-react-swc": "^3.5.0",
+    "@vitest/coverage-v8": "^2.1.8",
     "autoprefixer": "^10.4.20",
     "concurrently": "^9.2.0",
     "drizzle-kit": "^0.31.4",
@@ -106,11 +115,13 @@
     "globals": "^15.9.0",
     "lovable-tagger": "^1.1.7",
     "postcss": "^8.4.47",
+    "supertest": "^7.2.2",
     "tailwindcss": "^3.4.11",
     "ts-node": "^10.9.2",
     "tsx": "^4.20.3",
     "typescript": "^5.5.3",
     "typescript-eslint": "^8.0.1",
-    "vite": "^5.4.1"
+    "vite": "^5.4.1",
+    "vitest": "^2.1.8"
   }
 }

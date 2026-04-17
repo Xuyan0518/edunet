@@ -1,4 +1,5 @@
 const { request } = require("../../utils/api");
+const { resolveDisplayName, resolveIdentityHint } = require("../../utils/userIdentity");
 
 Page({
   data: {
@@ -30,7 +31,9 @@ Page({
   onSearch(e) {
     const query = (e.detail.value || "").trim().toLowerCase();
     const filtered = this.data.parents.filter(
-      (p) => p.name.toLowerCase().includes(query) || p.email.toLowerCase().includes(query)
+      (p) =>
+        resolveDisplayName(p).toLowerCase().includes(query) ||
+        resolveIdentityHint(p).toLowerCase().includes(query)
     );
     this.setData({ filtered });
   },

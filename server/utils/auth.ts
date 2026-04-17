@@ -9,8 +9,9 @@ const SECRET_KEY = process.env.JWT_SECRET || 'edunet-secret-key-change-in-produc
 export interface AuthUser {
   id: string;
   role: 'teacher' | 'parent' | 'admin';
-  email: string;
   name: string;
+  displayName?: string;
+  email?: string | null;
   parentId?: string;
 }
 
@@ -25,8 +26,8 @@ export function generateToken(user: AuthUser): string {
   const payload = {
     id: user.id,
     role: user.role,
-    email: user.email,
     name: user.name,
+    displayName: user.displayName || user.name,
     timestamp: Date.now(),
   };
 
@@ -71,8 +72,8 @@ export function verifyToken(token: string): AuthUser | null {
     return {
       id: payload.id,
       role: payload.role,
-      email: payload.email,
-      name: payload.name,
+      name: payload.displayName || payload.name,
+      displayName: payload.displayName || payload.name,
     };
   } catch (error) {
     return null;
@@ -93,8 +94,8 @@ export async function verifyUserInDb(user: AuthUser): Promise<boolean> {
       if (teachers.length === 0) return false;
       const teacher = teachers[0];
       
-      // Check if teacher is still approved and verified
-      return teacher.status === 'approved' && teacher.emailVerified === 'true';
+      // WeChat-only auth: approval status is the sole gate.
+      return teacher.status === 'approved';
     }
     
     if (user.role === 'parent') {
@@ -106,8 +107,8 @@ export async function verifyUserInDb(user: AuthUser): Promise<boolean> {
       if (parents.length === 0) return false;
       const parent = parents[0];
       
-      // Check if parent is still approved and verified
-      return parent.status === 'approved' && parent.emailVerified === 'true';
+      // WeChat-only auth: approval status is the sole gate.
+      return parent.status === 'approved';
     }
     
     if (user.role === 'admin') {

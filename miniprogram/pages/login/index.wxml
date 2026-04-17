@@ -18,11 +18,43 @@
       </radio-group>
     </view>
 
-    <button class="btn-primary" loading="{{loading}}" bindtap="handleWeChatLogin">
-      微信一键登录
-    </button>
+    <block wx:if="{{!needsProfile}}">
+      <button class="btn-primary" loading="{{loading}}" bindtap="handleQuickLogin">
+        微信一键登录
+      </button>
+      <view class="hint">已注册的账号可直接登录；首次登录时将引导您完善头像与昵称。</view>
+    </block>
 
-    <view class="hint">首次登录会创建账号，需管理员审核后可使用。</view>
+    <block wx:else>
+      <view class="hint signup-hint">检测到您尚未注册，请完善以下资料，提交后由管理员审核。</view>
+      <form bindsubmit="handleProfileSubmit">
+        <view class="section">
+          <view class="label">头像</view>
+          <button
+            class="avatar-wrapper"
+            open-type="chooseAvatar"
+            bindchooseavatar="onChooseAvatar"
+          >
+            <image class="avatar" src="{{avatarUrl || defaultAvatarUrl}}" mode="aspectFill" />
+          </button>
+          <view class="avatar-hint">点击选择微信头像</view>
+        </view>
+
+        <view class="section">
+          <view class="label">昵称（管理员将看到此名称以便审核）</view>
+          <input
+            class="input"
+            type="nickname"
+            name="nickname"
+            placeholder="点击输入或选择「使用微信昵称」"
+          />
+        </view>
+
+        <button class="btn-primary" form-type="submit" loading="{{loading}}">
+          提交并登录
+        </button>
+      </form>
+    </block>
 
     <button class="btn-outline admin-btn" size="mini" bindtap="goAdminLogin">管理员登录</button>
   </view>

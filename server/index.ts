@@ -2501,7 +2501,6 @@ app.post('/api/auth/wechat', async (req, res) => {
     const unionid = session.unionid || null;
     const submittedDisplayName =
       pickDisplayName(displayName) || pickDisplayName(nickname) || pickDisplayName(name);
-    const nextDisplayName = submittedDisplayName || DEFAULT_USER_NAME;
     const nextAvatarUrl = typeof avatarUrl === 'string' && avatarUrl.trim() ? avatarUrl.trim() : null;
 
     if (role === 'teacher' || role === 'parent') {
@@ -2517,8 +2516,19 @@ app.post('/api/auth/wechat', async (req, res) => {
 
       if (existing.length) {
         let userRow = existing[0];
+        const storedDisplayName = (userRow.displayName || userRow.name || '').trim();
+        const hasRealNickname = Boolean(storedDisplayName) && storedDisplayName !== DEFAULT_USER_NAME;
+
+        // Legacy / incomplete record: created before the nickname requirement. Force profile completion.
+        if (!hasRealNickname && !submittedDisplayName) {
+          return res.status(400).json({
+            error: '请先填写昵称，管理员需凭此名称审核账号。',
+            code: 'nickname_required',
+          });
+        }
+
         const patch: Record<string, unknown> = {};
-        const currentDisplayName = userRow.displayName || userRow.name || DEFAULT_USER_NAME;
+        const currentDisplayName = storedDisplayName || DEFAULT_USER_NAME;
         if (submittedDisplayName && currentDisplayName !== submittedDisplayName) {
           patch.name = submittedDisplayName;
           patch.displayName = submittedDisplayName;
@@ -2554,12 +2564,20 @@ app.post('/api/auth/wechat', async (req, res) => {
         return res.json({ user: toPublicUser(userRow, role), token });
       }
 
+      // First login: require a human-readable nickname so admins can identify the applicant.
+      if (!submittedDisplayName) {
+        return res.status(400).json({
+          error: '请先填写昵称，管理员需凭此名称审核账号。',
+          code: 'nickname_required',
+        });
+      }
+
       // First login: create pending account bound to WeChat identity only.
       const createdRows = await db
         .insert(table)
         .values({
-          name: nextDisplayName,
-          displayName: nextDisplayName,
+          name: submittedDisplayName,
+          displayName: submittedDisplayName,
           avatarUrl: nextAvatarUrl,
           status: 'pending',
           emailVerified: 'true',

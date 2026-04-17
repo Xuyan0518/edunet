@@ -68,6 +68,47 @@ npm run dev:wechat
 ```
 Then open the `miniprogram/` folder in WeChat DevTools and ensure `project.config.json` uses your AppID.
 
+For Mini Program preview on real devices:
+```sh
+npm run preview:wechat
+```
+This starts the API on port `3900` and creates a public Cloudflare Tunnel URL.
+
+Update `miniprogram/utils/env.js`:
+- Set `API_BASE_URL` to `https://<your-tunnel-domain>/api`
+
+Important notes for preview:
+- The `trycloudflare.com` quick tunnel domain is temporary and changes often.
+- For stable WeChat preview/testing, use a fixed HTTPS domain (deployed backend or a named Cloudflare tunnel).
+- Add your API domain (without `/api`) to WeChat Mini Program server domain allowlist:
+  - `request合法域名`
+  - `uploadFile合法域名` (if used)
+  - `downloadFile合法域名` (if used)
+- Ensure backend `.env` has matching `WECHAT_APP_ID` and `WECHAT_APP_SECRET`.
+
+## Deploy API To Render (Recommended for beta)
+This repo includes `render.yaml` so you can deploy a stable HTTPS API domain without buying a domain first.
+
+1. Push this repo to GitHub.
+2. In Render, click **New +** -> **Blueprint** and select your repo.
+3. Render will detect `render.yaml` and create `edunet-api`.
+4. Fill required env vars in Render:
+   - `DATABASE_URL`
+   - `JWT_SECRET`
+   - `WECHAT_APP_ID`
+   - `WECHAT_APP_SECRET`
+   - `CORS_ORIGIN` (optional, comma-separated)
+   - You can copy from `.env.render.example`
+5. Deploy and wait for green health check on `/api/health`.
+6. Copy the Render URL (for example `https://edunet-api.onrender.com`).
+7. Update `miniprogram/utils/env.js`:
+   - `API_BASE_URL = "https://<render-domain>/api"`
+8. In WeChat public platform, add `<render-domain>` into `request合法域名`.
+
+Note:
+- `localhost` / `http` is only for local devtools debugging, not beta (体验版).
+- If Render free plan sleeps, first request may be slower.
+
 ## Database & migrations
 ```sh
 npm run db:migrate
@@ -78,6 +119,7 @@ npm run db:migrate
 ## Scripts
 - `npm run dev` Start web + API + Drizzle Studio
 - `npm run dev:wechat` Start API + Drizzle Studio (for Mini Program)
+- `npm run start:api` Start API once (for production/deployment)
 - `npm run db:migrate` Run database migrations
 
 ## API overview

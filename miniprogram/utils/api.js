@@ -1,7 +1,9 @@
 const app = getApp();
+const { API_BASE_URL } = require("./env");
+const defaultApiBaseUrl = API_BASE_URL;
 
 const request = ({ url, method = "GET", data, header = {} }) => {
-  const baseUrl = app?.globalData?.apiBaseUrl || "http://localhost:3003/api";
+  const baseUrl = app?.globalData?.apiBaseUrl || defaultApiBaseUrl;
   const token = wx.getStorageSync("token");
   const authHeader = token ? { Authorization: `Bearer ${token}` } : {};
 

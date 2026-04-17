@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: edunet-api
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm ci --include=dev
+    startCommand: npm run start:api
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: WECHAT_APP_ID
+        sync: false
+      - key: WECHAT_APP_SECRET
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false

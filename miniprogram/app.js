@@ -1,6 +1,9 @@
+const { API_BASE_URL } = require("./utils/env");
+
 App({
   globalData: {
-    apiBaseUrl: "http://localhost:3003/api",
+    // Temporary public API URL for WeChat Preview/experience.
+    apiBaseUrl: API_BASE_URL,
     user: null,
     token: null,
   },

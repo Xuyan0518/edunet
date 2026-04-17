@@ -54,9 +54,21 @@ import { sendWeChatSubscribeMessage } from './utils/wechatNotify';
 dotenv.config();
 
 const app = express();
-const port = process.env.API_PORT || 3003;
+const port = process.env.API_PORT || process.env.PORT || 3003;
+const configuredCorsOrigins = (process.env.CORS_ORIGIN || '')
+  .split(',')
+  .map((item) => item.trim())
+  .filter(Boolean);
+const fallbackCorsOrigins = ['http://localhost:3001', 'http://localhost:5173'];
+const allowedCorsOrigins = configuredCorsOrigins.length ? configuredCorsOrigins : fallbackCorsOrigins;
 
-app.use(cors({ origin: 'http://localhost:3001' }));
+app.use(cors({
+  origin: (origin, callback) => {
+    // Non-browser clients (like WeChat Mini Program requests) may not send origin.
+    if (!origin || allowedCorsOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error(`Not allowed by CORS: ${origin}`));
+  },
+}));
 app.use(bodyParser.json());
 
 type TopicStatusValue = (typeof TOPIC_STATUS)[number];
@@ -156,6 +168,10 @@ const deepseekModel = process.env.DEEPSEEK_MODEL || 'deepseek-chat';
 const weeklySummaryPrompt = process.env.DEEPSEEK_WEEKLY_PROMPT || '';
 const quarterlySummaryPrompt = process.env.DEEPSEEK_QUARTERLY_PROMPT || '';
 const yearlySummaryPrompt = process.env.DEEPSEEK_YEARLY_PROMPT || '';
+
+app.get('/api/health', (_, res) => {
+  res.json({ ok: true, timestamp: new Date().toISOString() });
+});
 
 const notifyParent = async (payload: {
   studentId: string;

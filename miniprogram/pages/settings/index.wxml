@@ -4,6 +4,20 @@
   <view class="section card">
     <view class="list-item">语言：简体中文</view>
     <view class="list-item">账号：{{user.displayName || user.name || "未命名用户"}}</view>
+    <button class="btn-outline small-btn" bindtap="startEditName">修改昵称</button>
+
+    <view wx:if="{{editingName}}" class="edit-wrap">
+      <input
+        class="name-input"
+        placeholder="请输入真实姓名或昵称"
+        value="{{draftName}}"
+        bindinput="onNameInput"
+      />
+      <view class="edit-actions">
+        <button class="btn-outline inline-btn" bindtap="cancelEditName">取消</button>
+        <button class="btn-outline inline-btn" loading="{{savingName}}" bindtap="saveDisplayName">保存</button>
+      </view>
+    </view>
   </view>
 
   <button wx:if="{{isParent}}" class="btn-outline" bindtap="subscribe">订阅通知</button>

@@ -25,7 +25,12 @@ Page({
         const avatarUrl = profileRes?.userInfo?.avatarUrl || "";
         this.loginWithWeChat({ nickname, avatarUrl });
       },
-      fail: () => {
+      fail: (err) => {
+        console.warn("getUserProfile failed:", err);
+        wx.showToast({
+          title: "未获取微信昵称，可登录后在设置里手动修改",
+          icon: "none",
+        });
         this.loginWithWeChat({ nickname: "", avatarUrl: "" });
       },
     });

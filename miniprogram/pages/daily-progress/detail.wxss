@@ -36,3 +36,86 @@
 .score-input {
   width: 160rpx;
 }
+
+.score-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16rpx;
+  align-items: center;
+  margin-top: 8rpx;
+}
+
+.score-cell {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+}
+
+.chips-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  margin: 8rpx 0;
+}
+
+.chip-tap {
+  padding: 8rpx 20rpx;
+  border: 1rpx solid #cbd5e1;
+  border-radius: 24rpx;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 24rpx;
+}
+
+.chip-selected {
+  background: #dbeafe;
+  border-color: #2563eb;
+  color: #1d4ed8;
+}
+
+.english-section {
+  border: 1rpx solid #e2e8f0;
+  border-radius: 16rpx;
+  background: #ffffff;
+  margin-bottom: 12rpx;
+  padding: 16rpx;
+}
+
+.english-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4rpx 0;
+}
+
+.english-section-title {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.english-section-meta {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+}
+
+.english-section-summary {
+  font-size: 24rpx;
+  color: #64748b;
+  max-width: 320rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.english-section-toggle {
+  font-size: 22rpx;
+  color: #2563eb;
+}
+
+.english-section-body {
+  margin-top: 12rpx;
+  padding-top: 12rpx;
+  border-top: 1rpx solid #f1f5f9;
+}

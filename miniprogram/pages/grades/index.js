@@ -47,10 +47,11 @@ Page({
           .map((entry) => entry?.subject?.name)
           .filter(Boolean);
         const unique = [];
-        const seen = new Set();
+        const seenDisplay = new Set(["英文"]);
         subjects.forEach((name) => {
-          if (!seen.has(name)) {
-            seen.add(name);
+          const display = formatSubjectName(name);
+          if (!seenDisplay.has(display)) {
+            seenDisplay.add(display);
             unique.push(name);
           }
         });
@@ -61,6 +62,7 @@ Page({
             name,
             displayName: formatSubjectName(name),
             score: "",
+            examDate: "",
             isCustom: false,
           })),
         });
@@ -73,6 +75,7 @@ Page({
             name,
             displayName: formatSubjectName(name),
             score: "",
+            examDate: "",
             isCustom: false,
           })),
         });
@@ -112,19 +115,25 @@ Page({
 
   buildExamSubjectsForExam(exam) {
     const baseSubjects = this.data.baseSubjects || ["英文"];
-    const map = new Map((exam?.subjects || []).map((s) => [s.name, s.score]));
-    const list = baseSubjects.map((name) => ({
-      name,
-      displayName: formatSubjectName(name),
-      score: map.get(name) || "",
-      isCustom: false,
-    }));
+    const map = new Map((exam?.subjects || []).map((s) => [s.name, s]));
+    const trimDate = (v) => (typeof v === "string" ? v.slice(0, 10) : "");
+    const list = baseSubjects.map((name) => {
+      const s = map.get(name);
+      return {
+        name,
+        displayName: formatSubjectName(name),
+        score: s?.score || "",
+        examDate: trimDate(s?.examDate || ""),
+        isCustom: false,
+      };
+    });
     (exam?.subjects || []).forEach((s) => {
       if (!baseSubjects.includes(s.name)) {
         list.push({
           name: s.name,
           displayName: formatSubjectName(s.name),
           score: s.score || "",
+          examDate: trimDate(s.examDate || ""),
           isCustom: true,
         });
       }
@@ -159,6 +168,7 @@ Page({
         name: n,
         displayName: formatSubjectName(n),
         score: "",
+        examDate: "",
         isCustom: false,
       })),
       editingUpdatedAt: "",
@@ -185,9 +195,26 @@ Page({
     }
     const examSubjects = [
       ...this.data.examSubjects,
-      { name, displayName: formatSubjectName(name), score: "", isCustom: true },
+      { name, displayName: formatSubjectName(name), score: "", examDate: "", isCustom: true },
     ];
     this.setData({ examSubjects, customSubjectName: "" });
+  },
+
+  onSubjectDateChange(e) {
+    const index = e.currentTarget.dataset.index;
+    const value = e.detail.value;
+    const examSubjects = [...this.data.examSubjects];
+    if (!examSubjects[index]) return;
+    examSubjects[index].examDate = value;
+    this.setData({ examSubjects });
+  },
+
+  clearSubjectDate(e) {
+    const index = e.currentTarget.dataset.index;
+    const examSubjects = [...this.data.examSubjects];
+    if (!examSubjects[index]) return;
+    examSubjects[index].examDate = "";
+    this.setData({ examSubjects });
   },
 
   removeCustomSubject(e) {
@@ -200,21 +227,28 @@ Page({
   saveExam() {
     if (!this.data.isTeacher) return;
     const name = (this.data.examName || "").trim();
-    const examDate = this.data.examDate || "";
     if (!name) {
       wx.showToast({ title: "请填写考试名称", icon: "none" });
       return;
     }
-    if (!examDate) {
-      wx.showToast({ title: "请选择考试日期", icon: "none" });
+    // Only subjects with a date (or a score, for retroactive entry) are part
+    // of the exam. Others are silently dropped.
+    const subjects = (this.data.examSubjects || [])
+      .map((s) => ({
+        name: s.name,
+        score: (s.score || "").trim(),
+        examDate: (s.examDate || "").trim() || null,
+      }))
+      .filter((s) => s.examDate || s.score);
+    if (!subjects.length) {
+      wx.showToast({ title: "请至少为一个科目设置考试日期", icon: "none" });
       return;
     }
-    const subjects = (this.data.examSubjects || []).map((s) => ({
-      name: s.name,
-      score: (s.score || "").trim(),
-    }));
-    if (!subjects.length || subjects.some((s) => !s.score)) {
-      wx.showToast({ title: "请填写所有科目成绩", icon: "none" });
+    // Parent exam.exam_date = earliest subject date (column is NOT NULL).
+    const dates = subjects.map((s) => s.examDate).filter(Boolean).sort();
+    const examDate = dates[0] || this.data.examDate || "";
+    if (!examDate) {
+      wx.showToast({ title: "请至少为一个科目设置考试日期", icon: "none" });
       return;
     }
     const isEditing = !!this.data.editingExamId;
@@ -249,6 +283,7 @@ Page({
             name: n,
             displayName: formatSubjectName(n),
             score: "",
+            examDate: "",
             isCustom: false,
           })),
           editingUpdatedAt: "",

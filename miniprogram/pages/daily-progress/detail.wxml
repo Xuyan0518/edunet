@@ -62,16 +62,199 @@
           <button wx:if="{{isEditable && !item.locked}}" class="btn-outline" size="mini" data-index="{{index}}" bindtap="removeActivity">删除</button>
         </view>
         <block wx:if="{{item.type === 'english'}}">
-          <view class="field-label">Editing</view>
-          <input class="input" placeholder="Editing" value="{{item.english.editing}}" data-index="{{index}}" bindinput="onActivityChange" data-field="english" data-subfield="editing" disabled="{{!isEditable}}" />
-          <view class="field-label">词汇</view>
-          <input class="input" placeholder="词汇" value="{{item.english.vocab}}" data-index="{{index}}" bindinput="onActivityChange" data-field="english" data-subfield="vocab" disabled="{{!isEditable}}" />
-          <view class="field-label">阅读理解</view>
-          <input class="input" placeholder="阅读理解" value="{{item.english.reading}}" data-index="{{index}}" bindinput="onActivityChange" data-field="english" data-subfield="reading" disabled="{{!isEditable}}" />
-          <view class="field-label">单词句子背诵</view>
-          <input class="input" placeholder="单词句子背诵" value="{{item.english.recitation}}" data-index="{{index}}" bindinput="onActivityChange" data-field="english" data-subfield="recitation" disabled="{{!isEditable}}" />
-          <view class="field-label">作文</view>
-          <input class="input" placeholder="作文" value="{{item.english.essay}}" data-index="{{index}}" bindinput="onActivityChange" data-field="english" data-subfield="essay" disabled="{{!isEditable}}" />
+          <!-- Editing -->
+          <view class="english-section">
+            <view class="english-section-header" data-index="{{index}}" data-subfield="editing" bindtap="toggleEnglishSection">
+              <view class="english-section-title">改错 (Editing)</view>
+              <view class="english-section-meta">
+                <view class="english-section-summary">{{item.english.editing.uiSummary}}</view>
+                <view class="english-section-toggle">{{item.english.editing.uiExpanded ? '收起 ▾' : '展开 ▸'}}</view>
+              </view>
+            </view>
+            <block wx:if="{{item.english.editing.uiExpanded}}">
+              <view class="english-section-body">
+                <view class="row score-row">
+                  <view class="score-cell">
+                    <view class="muted">练习数</view>
+                    <input class="input score-input" type="number" placeholder="0" value="{{item.english.editing.exerciseCount}}" data-index="{{index}}" data-subfield="editing" data-key="exerciseCount" bindinput="onEnglishCountChange" disabled="{{!isEditable}}" />
+                  </view>
+                </view>
+                <block wx:for="{{item.english.editing.exercises}}" wx:for-item="ex" wx:for-index="exIdx" wx:key="exIdx">
+                  <view class="exercise-block" style="margin-top: 10rpx; padding: 8rpx 0;">
+                    <view class="muted">练习 {{exIdx + 1}}</view>
+                    <view class="row score-row">
+                      <view class="score-cell">
+                        <view class="muted">得分</view>
+                        <input class="input score-input" type="digit" placeholder="-" value="{{ex.score}}" data-index="{{index}}" data-subfield="editing" data-exercise-index="{{exIdx}}" bindinput="onExerciseScoreChange" disabled="{{!isEditable}}" />
+                        <view class="muted">%</view>
+                      </view>
+                    </view>
+                    <textarea wx:if="{{ex.showProblems}}" class="input" style="min-height: 120rpx; margin-top: 16rpx;" placeholder="出现的问题" value="{{ex.problems}}" data-index="{{index}}" data-subfield="editing" data-exercise-index="{{exIdx}}" bindinput="onExerciseProblemsChange" disabled="{{!isEditable}}" />
+                  </view>
+                </block>
+                <view wx:if="{{item.english.editing.anyImperfect}}">
+                  <view class="field-label">失分点 (可多选)</view>
+                  <view class="chips-row">
+                    <view wx:for="{{item.english.editing.chips}}" wx:for-item="chip" wx:for-index="chipIdx" wx:key="id" class="chip-tap {{chip.selected ? 'chip-selected' : ''}}" data-index="{{index}}" data-subfield="editing" data-id="{{chip.id}}" bindtap="onLossPointToggle">{{chip.label}}</view>
+                  </view>
+                  <input class="input" placeholder="其他失分点 (可选)" value="{{item.english.editing.otherLossPointText}}" data-index="{{index}}" data-subfield="editing" bindinput="onEnglishOtherChange" disabled="{{!isEditable}}" />
+                </view>
+              </view>
+            </block>
+          </view>
+
+          <!-- Reading -->
+          <view class="english-section">
+            <view class="english-section-header" data-index="{{index}}" data-subfield="reading" bindtap="toggleEnglishSection">
+              <view class="english-section-title">阅读理解 (Reading)</view>
+              <view class="english-section-meta">
+                <view class="english-section-summary">{{item.english.reading.uiSummary}}</view>
+                <view class="english-section-toggle">{{item.english.reading.uiExpanded ? '收起 ▾' : '展开 ▸'}}</view>
+              </view>
+            </view>
+            <block wx:if="{{item.english.reading.uiExpanded}}">
+              <view class="english-section-body">
+                <view class="row score-row">
+                  <view class="score-cell">
+                    <view class="muted">文章数</view>
+                    <input class="input score-input" type="number" placeholder="0" value="{{item.english.reading.articleCount}}" data-index="{{index}}" data-subfield="reading" data-key="articleCount" bindinput="onEnglishCountChange" disabled="{{!isEditable}}" />
+                  </view>
+                </view>
+                <block wx:for="{{item.english.reading.exercises}}" wx:for-item="ex" wx:for-index="exIdx" wx:key="exIdx">
+                  <view class="exercise-block" style="margin-top: 10rpx; padding: 8rpx 0;">
+                    <view class="muted">文章 {{exIdx + 1}}</view>
+                    <view class="row score-row">
+                      <view class="score-cell">
+                        <view class="muted">得分</view>
+                        <input class="input score-input" type="digit" placeholder="-" value="{{ex.score}}" data-index="{{index}}" data-subfield="reading" data-exercise-index="{{exIdx}}" bindinput="onExerciseScoreChange" disabled="{{!isEditable}}" />
+                        <view class="muted">%</view>
+                      </view>
+                    </view>
+                    <textarea wx:if="{{ex.showProblems}}" class="input" style="min-height: 120rpx; margin-top: 16rpx;" placeholder="出现的问题" value="{{ex.problems}}" data-index="{{index}}" data-subfield="reading" data-exercise-index="{{exIdx}}" bindinput="onExerciseProblemsChange" disabled="{{!isEditable}}" />
+                  </view>
+                </block>
+                <view wx:if="{{item.english.reading.anyImperfect}}">
+                  <view class="field-label">失分点 (可多选)</view>
+                  <view class="chips-row">
+                    <view wx:for="{{item.english.reading.chips}}" wx:for-item="chip" wx:for-index="chipIdx" wx:key="id" class="chip-tap {{chip.selected ? 'chip-selected' : ''}}" data-index="{{index}}" data-subfield="reading" data-id="{{chip.id}}" bindtap="onLossPointToggle">{{chip.label}}</view>
+                  </view>
+                  <input class="input" placeholder="其他失分点 (可选)" value="{{item.english.reading.otherLossPointText}}" data-index="{{index}}" data-subfield="reading" bindinput="onEnglishOtherChange" disabled="{{!isEditable}}" />
+                </view>
+              </view>
+            </block>
+          </view>
+
+          <!-- Grammar -->
+          <view class="english-section">
+            <view class="english-section-header" data-index="{{index}}" data-subfield="grammar" bindtap="toggleEnglishSection">
+              <view class="english-section-title">语法 (Grammar)</view>
+              <view class="english-section-meta">
+                <view class="english-section-summary">{{item.english.grammar.uiSummary}}</view>
+                <view class="english-section-toggle">{{item.english.grammar.uiExpanded ? '收起 ▾' : '展开 ▸'}}</view>
+              </view>
+            </view>
+            <block wx:if="{{item.english.grammar.uiExpanded}}">
+              <view class="english-section-body">
+                <view class="row score-row">
+                  <view class="score-cell">
+                    <view class="muted">练习数</view>
+                    <input class="input score-input" type="number" placeholder="0" value="{{item.english.grammar.exerciseCount}}" data-index="{{index}}" data-subfield="grammar" data-key="exerciseCount" bindinput="onEnglishCountChange" disabled="{{!isEditable}}" />
+                  </view>
+                </view>
+                <block wx:for="{{item.english.grammar.exercises}}" wx:for-item="ex" wx:for-index="exIdx" wx:key="exIdx">
+                  <view class="exercise-block" style="margin-top: 10rpx; padding: 8rpx 0;">
+                    <view class="muted">练习 {{exIdx + 1}}</view>
+                    <view class="row score-row">
+                      <view class="score-cell">
+                        <view class="muted">得分</view>
+                        <input class="input score-input" type="digit" placeholder="-" value="{{ex.score}}" data-index="{{index}}" data-subfield="grammar" data-exercise-index="{{exIdx}}" bindinput="onExerciseScoreChange" disabled="{{!isEditable}}" />
+                        <view class="muted">%</view>
+                      </view>
+                    </view>
+                    <textarea wx:if="{{ex.showProblems}}" class="input" style="min-height: 120rpx; margin-top: 16rpx;" placeholder="出现的问题" value="{{ex.problems}}" data-index="{{index}}" data-subfield="grammar" data-exercise-index="{{exIdx}}" bindinput="onExerciseProblemsChange" disabled="{{!isEditable}}" />
+                  </view>
+                </block>
+                <view wx:if="{{item.english.grammar.anyImperfect}}">
+                  <view class="field-label">失分点 (可多选)</view>
+                  <view class="chips-row">
+                    <view wx:for="{{item.english.grammar.chips}}" wx:for-item="chip" wx:for-index="chipIdx" wx:key="id" class="chip-tap {{chip.selected ? 'chip-selected' : ''}}" data-index="{{index}}" data-subfield="grammar" data-id="{{chip.id}}" bindtap="onLossPointToggle">{{chip.label}}</view>
+                  </view>
+                  <input class="input" placeholder="其他失分点 (可选)" value="{{item.english.grammar.otherLossPointText}}" data-index="{{index}}" data-subfield="grammar" bindinput="onEnglishOtherChange" disabled="{{!isEditable}}" />
+                </view>
+              </view>
+            </block>
+          </view>
+
+          <!-- Vocab -->
+          <view class="english-section">
+            <view class="english-section-header" data-index="{{index}}" data-subfield="vocab" bindtap="toggleEnglishSection">
+              <view class="english-section-title">词汇 (Vocab)</view>
+              <view class="english-section-meta">
+                <view class="english-section-summary">{{item.english.vocab.uiSummary}}</view>
+                <view class="english-section-toggle">{{item.english.vocab.uiExpanded ? '收起 ▾' : '展开 ▸'}}</view>
+              </view>
+            </view>
+            <block wx:if="{{item.english.vocab.uiExpanded}}">
+              <view class="english-section-body">
+                <view class="row score-row">
+                  <view class="score-cell">
+                    <view class="muted">单词数</view>
+                    <input class="input score-input" type="number" placeholder="0" value="{{item.english.vocab.vocabularyWordCount}}" data-index="{{index}}" data-subfield="vocab" data-key="vocabularyWordCount" bindinput="onEnglishCountChange" disabled="{{!isEditable}}" />
+                  </view>
+                  <view class="score-cell">
+                    <view class="muted">句子数</view>
+                    <input class="input score-input" type="number" placeholder="0" value="{{item.english.vocab.vocabularySentenceCount}}" data-index="{{index}}" data-subfield="vocab" data-key="vocabularySentenceCount" bindinput="onEnglishCountChange" disabled="{{!isEditable}}" />
+                  </view>
+                </view>
+              </view>
+            </block>
+          </view>
+
+          <!-- Recitation -->
+          <view class="english-section">
+            <view class="english-section-header" data-index="{{index}}" data-subfield="recitation" bindtap="toggleEnglishSection">
+              <view class="english-section-title">单词句子背诵 (Recitation)</view>
+              <view class="english-section-meta">
+                <view class="english-section-summary">{{item.english.recitation.uiSummary}}</view>
+                <view class="english-section-toggle">{{item.english.recitation.uiExpanded ? '收起 ▾' : '展开 ▸'}}</view>
+              </view>
+            </view>
+            <block wx:if="{{item.english.recitation.uiExpanded}}">
+              <view class="english-section-body">
+                <input class="input" placeholder="背诵说明" value="{{item.english.recitation.text}}" data-index="{{index}}" data-subfield="recitation" bindinput="onEnglishTextChange" disabled="{{!isEditable}}" />
+              </view>
+            </block>
+          </view>
+
+          <!-- Essay -->
+          <view class="english-section">
+            <view class="english-section-header" data-index="{{index}}" data-subfield="essay" bindtap="toggleEnglishSection">
+              <view class="english-section-title">作文 (Essay)</view>
+              <view class="english-section-meta">
+                <view class="english-section-summary">{{item.english.essay.uiSummary}}</view>
+                <view class="english-section-toggle">{{item.english.essay.uiExpanded ? '收起 ▾' : '展开 ▸'}}</view>
+              </view>
+            </view>
+            <block wx:if="{{item.english.essay.uiExpanded}}">
+              <view class="english-section-body">
+                <input class="input" placeholder="题目" value="{{item.english.essay.title}}" data-index="{{index}}" bindinput="onEssayTitleChange" disabled="{{!isEditable}}" />
+                <input class="input" placeholder="作文评价" value="{{item.english.essay.text}}" data-index="{{index}}" data-subfield="essay" bindinput="onEnglishTextChange" disabled="{{!isEditable}}" />
+                <view class="row score-row">
+                  <view class="score-cell">
+                    <view class="muted">得分</view>
+                    <input class="input score-input" type="digit" placeholder="-" value="{{item.english.essay.score}}" data-index="{{index}}" data-subfield="essay" bindinput="onEnglishScoreChange" disabled="{{!isEditable}}" />
+                  </view>
+                  <checkbox-group class="score-cell" data-index="{{index}}" bindchange="onEssayCompletedToggle">
+                    <label class="row">
+                      <checkbox value="done" checked="{{item.english.essay.completed}}" disabled="{{!isEditable}}" />
+                      <view class="muted">已完成</view>
+                    </label>
+                  </checkbox-group>
+                </view>
+              </view>
+            </block>
+          </view>
+
           <view class="field-label">评论</view>
           <textarea class="input textarea-scroll" placeholder="可选评论..." value="{{item.comment}}" data-index="{{index}}" bindinput="onActivityChange" data-field="comment" disabled="{{!isEditable}}" maxlength="-1"></textarea>
           <view class="field-label">试卷练习</view>

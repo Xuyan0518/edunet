@@ -17,16 +17,103 @@ import {
   parentsTable,
   StudentSchema,
   DailyProgressSchema,
+  DailyProgressRequestSchema,
+  EnglishFieldsV2Schema,
   WeeklyFeedbackSchema,
   ExamSchema,
   ExamScoreSchema,
+  EXAM_TYPES,
   QuarterlySummarySchema,
   YearlySummarySchema,
   type Student,
   adminsTable
 } from './schema';
 
+import { extractEnglishStats, normalizeActivities } from './utils/englishNormalize';
+import { chinaTodayDateString, parseDateString } from './utils/chinaDate';
 import {
+  defaultCycleForDate,
+  effectiveTargetsFor,
+  evaluateCompletion,
+  pickCoveringCycle,
+  syntheticCycleFor,
+  type ResolvedCycle,
+} from './utils/weeklyCycles';
+import { validateLossPointsRequired } from './utils/englishValidation';
+import { enrichLossPointLabels, type LossPointLookup } from './utils/lossPointLabels';
+import {
+  ENHANCED_WEEKLY_PROMPT,
+  aggregateAttendance,
+  aggregateEnglishStats,
+  aggregateLossPoints,
+  parseStructuredSummary,
+} from './utils/aiWeeklySummary';
+import {
+  daysUntilExam,
+  effectiveReminderDate,
+  isExamUpcoming,
+} from './utils/examWindow';
+import {
+  computeAnalyticsForPeriod,
+  defaultHalfYearPeriod,
+  defaultYearPeriod,
+  previousPeriod,
+} from './utils/studentAnalytics';
+import { pickCurrentTerm } from './utils/academicTerms';
+
+// Apply V2 English normalization to a daily_progress row's activities. Used at
+// every read/write boundary so legacy rows look V2 to consumers and new writes
+// land in V2 shape regardless of whether the client sent legacy strings.
+const withV2Activities = <T extends { activities?: unknown }>(row: T): T => {
+  if (!row || row.activities == null) return row;
+  return { ...row, activities: normalizeActivities(row.activities) } as T;
+};
+
+// Post-normalize structural sanity check on V2 English blocks (Part 9).
+// Catches programmer-error regressions in normalizeEnglishFields by running
+// the strict Zod schema on every english block after normalization. Should
+// always pass for well-formed normalize output; if it fires, the bug is in
+// the normalizer (or the client crafted a deliberately broken object).
+const validateNormalizedEnglish = (
+  activities: unknown,
+): { ok: true } | { ok: false; errors: Array<{ activityIndex: number; path: string; message: string }> } => {
+  if (!Array.isArray(activities)) return { ok: true };
+  const errors: Array<{ activityIndex: number; path: string; message: string }> = [];
+  activities.forEach((a, idx) => {
+    if (!a || typeof a !== 'object') return;
+    const eng = (a as { english?: unknown }).english;
+    if (!eng) return;
+    const result = EnglishFieldsV2Schema.safeParse(eng);
+    if (!result.success) {
+      result.error.errors.forEach((e) => {
+        errors.push({ activityIndex: idx, path: e.path.join('.'), message: e.message });
+      });
+    }
+  });
+  return errors.length === 0 ? { ok: true } : { ok: false, errors };
+};
+
+// Load id→label lookup for the active loss-point catalog. Cheap query (~25 rows).
+// Called per-write to keep snapshots current; if this becomes a hot path we can
+// memoize with TTL.
+const loadLossPointLookup = async (): Promise<LossPointLookup> => {
+  const rows = await db
+    .select({ id: lossPointsTable.id, label: lossPointsTable.label })
+    .from(lossPointsTable);
+  const map = new Map<string, string>();
+  for (const r of rows) map.set(r.id, r.label);
+  return map;
+};
+
+import {
+  weeklyStudyCyclesTable,
+  studentWeeklyTaskTargetsTable,
+  WeeklyStudyCycleSchema,
+  StudentWeeklyTaskTargetsSchema,
+  lossPointCategoriesTable,
+  lossPointsTable,
+  academicTermsTable,
+  AcademicTermSchema,
   subjectsTable,
   topicsTable,
   studentSubjectsTable,
@@ -596,10 +683,10 @@ app.get('/api/students/:studentId/exams', authenticate, verifyParentStudentAcces
       .select()
       .from(examScoresTable)
       .where(inArray(examScoresTable.examId, examIds));
-    const scoreMap = new Map<string, { name: string; score: string }[]>();
+    const scoreMap = new Map<string, { name: string; score: string; scope: string | null; examDate: string | Date | null }[]>();
     scores.forEach((s) => {
       const list = scoreMap.get(s.examId) || [];
-      list.push({ name: s.name, score: s.score });
+      list.push({ name: s.name, score: s.score, scope: s.scope ?? null, examDate: s.examDate ?? null });
       scoreMap.set(s.examId, list);
     });
     const payload = exams.map((e) => ({
@@ -607,6 +694,8 @@ app.get('/api/students/:studentId/exams', authenticate, verifyParentStudentAcces
       studentId: e.studentId,
       name: e.name,
       examDate: e.examDate,
+      examType: e.examType,
+      reminderDate: e.reminderDate,
       createdAt: e.createdAt,
       updatedAt: e.updatedAt,
       updatedByName: e.updatedByName,
@@ -623,6 +712,12 @@ app.post('/api/students/:studentId/exams', authenticate, requireTeacher, async (
   const { studentId } = req.params;
   const name = String(req.body?.name || '').trim();
   const examDate = String(req.body?.examDate || '').trim();
+  // Part 6 additions: examType, reminderDate, subjects[].scope. All optional —
+  // an exam can be SCHEDULED (no scores yet) and edited later.
+  const examTypeRaw = String(req.body?.examType || '').trim().toUpperCase();
+  const examType = EXAM_TYPES.includes(examTypeRaw as any) ? examTypeRaw : null;
+  const reminderDateRaw = String(req.body?.reminderDate || '').trim();
+  const reminderDate = parseDateString(reminderDateRaw);
   const subjects = Array.isArray(req.body?.subjects) ? req.body.subjects : [];
   if (!name) return res.status(400).json({ error: 'Missing exam name' });
   if (!examDate) return res.status(400).json({ error: 'Missing exam date' });
@@ -631,9 +726,20 @@ app.post('/api/students/:studentId/exams', authenticate, requireTeacher, async (
   const parsedExam = ExamSchema.safeParse({ studentId, name });
   if (!parsedExam.success) return res.status(400).json({ error: parsedExam.error.flatten() });
 
+  // Score is now optional (scheduled-only exams have empty scores). Subjects
+  // need at least a name; scope/score may be empty.
   const normalized = subjects
-    .map((s: any) => ({ name: String(s.name || '').trim(), score: String(s.score || '').trim() }))
-    .filter((s: any) => s.name && s.score);
+    .map((s: any) => {
+      const subjectDateRaw = String(s.examDate ?? '').trim();
+      const subjectDate = parseDateString(subjectDateRaw);
+      return {
+        name: String(s.name || '').trim(),
+        score: String(s.score ?? '').trim(),
+        scope: typeof s.scope === 'string' ? s.scope.trim() : '',
+        examDate: subjectDateRaw && subjectDate ? subjectDateRaw : null,
+      };
+    })
+    .filter((s: any) => s.name);
 
   if (!normalized.length) return res.status(400).json({ error: 'Invalid subjects' });
 
@@ -644,16 +750,27 @@ app.post('/api/students/:studentId/exams', authenticate, requireTeacher, async (
         studentId,
         name,
         examDate,
+        examType,
+        reminderDate: reminderDateRaw ? reminderDate : null,
         updatedAt: new Date(),
         updatedByName: req.user?.name || null,
       })
       .returning();
     const exam = examRows[0];
-    const scoreRows = normalized.map((s: any) => ({ examId: exam.id, name: s.name, score: s.score }));
+    const scoreRows = normalized.map((s: any) => ({
+      examId: exam.id,
+      name: s.name,
+      score: s.score,
+      scope: s.scope || null,
+      examDate: s.examDate,
+    }));
     await db.insert(examScoresTable).values(scoreRows);
     const studentRows = await db.select().from(studentsTable).where(eq(studentsTable.id, studentId));
     const student = studentRows[0];
-    if (student) {
+    // Only notify parents when this is a RESULT post (at least one score
+    // entered). Pure schedule entries shouldn't ping the parent yet.
+    const hasAnyScore = normalized.some((s: any) => s.score);
+    if (student && hasAnyScore) {
       await notifyParent({
         studentId,
         parentId: student.parentId ?? null,
@@ -677,6 +794,10 @@ app.put('/api/exams/:id', authenticate, requireTeacher, async (req, res) => {
   const name = String(req.body?.name || '').trim();
   const studentId = String(req.body?.studentId || '').trim();
   const examDate = String(req.body?.examDate || '').trim();
+  const examTypeRaw = String(req.body?.examType || '').trim().toUpperCase();
+  const examType = EXAM_TYPES.includes(examTypeRaw as any) ? examTypeRaw : null;
+  const reminderDateRaw = String(req.body?.reminderDate || '').trim();
+  const reminderDate = parseDateString(reminderDateRaw);
   const subjects = Array.isArray(req.body?.subjects) ? req.body.subjects : [];
   const clientUpdatedAt = parseTimestamp(req.body?.updatedAt);
   if (!name) return res.status(400).json({ error: 'Missing exam name' });
@@ -685,8 +806,17 @@ app.put('/api/exams/:id', authenticate, requireTeacher, async (req, res) => {
   if (!clientUpdatedAt) return res.status(400).json({ error: 'Missing updatedAt' });
 
   const normalized = subjects
-    .map((s: any) => ({ name: String(s.name || '').trim(), score: String(s.score || '').trim() }))
-    .filter((s: any) => s.name && s.score);
+    .map((s: any) => {
+      const subjectDateRaw = String(s.examDate ?? '').trim();
+      const subjectDate = parseDateString(subjectDateRaw);
+      return {
+        name: String(s.name || '').trim(),
+        score: String(s.score ?? '').trim(),
+        scope: typeof s.scope === 'string' ? s.scope.trim() : '',
+        examDate: subjectDateRaw && subjectDate ? subjectDateRaw : null,
+      };
+    })
+    .filter((s: any) => s.name);
 
   if (!normalized.length) return res.status(400).json({ error: 'Invalid subjects' });
 
@@ -706,12 +836,34 @@ app.put('/api/exams/:id', authenticate, requireTeacher, async (req, res) => {
     const now = new Date();
     const updatedByName = req.user?.name || null;
     await db.update(examsTable)
-      .set({ name, examDate, updatedAt: now, updatedByName })
+      .set({
+        name,
+        examDate,
+        examType,
+        reminderDate: reminderDateRaw ? reminderDate : null,
+        updatedAt: now,
+        updatedByName,
+      })
       .where(eq(examsTable.id, id));
     await db.delete(examScoresTable).where(eq(examScoresTable.examId, id));
-    const scoreRows = normalized.map((s: any) => ({ examId: id, name: s.name, score: s.score }));
+    const scoreRows = normalized.map((s: any) => ({
+      examId: id,
+      name: s.name,
+      score: s.score,
+      scope: s.scope || null,
+      examDate: s.examDate,
+    }));
     await db.insert(examScoresTable).values(scoreRows);
-    res.json({ ...existing[0], name, examDate, subjects: normalized, updatedAt: now, updatedByName });
+    res.json({
+      ...existing[0],
+      name,
+      examDate,
+      examType,
+      reminderDate: reminderDateRaw ? reminderDate : null,
+      subjects: normalized,
+      updatedAt: now,
+      updatedByName,
+    });
   } catch (err) {
     console.error('Error updating exam:', err);
     res.status(500).json({ error: 'Database error' });
@@ -740,6 +892,90 @@ app.delete('/api/exams/:id', authenticate, requireTeacher, async (req, res) => {
     res.json({ message: 'Exam deleted successfully' });
   } catch (err) {
     console.error('Error deleting exam:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// "即将到来的考试" dashboard card. Returns exams across all students that are
+// inside their reminder window (effective reminder ≤ today ≤ examDate).
+app.get('/api/exams/upcoming', authenticate, requireTeacher, async (req, res) => {
+  try {
+    const requested = req.query?.date;
+    const today = requested ? parseDateString(requested) : chinaTodayDateString();
+    if (!today) return res.status(400).json({ error: 'Invalid date; expected YYYY-MM-DD' });
+
+    // We expand per-subject. Pull all exams whose parent date is today-or-future
+    // OR which have at least one subject with a today-or-future date — keep it
+    // simple by pulling all and filtering in code by per-subject effective date.
+    const allExams = await db
+      .select({
+        id: examsTable.id,
+        studentId: examsTable.studentId,
+        name: examsTable.name,
+        examDate: examsTable.examDate,
+        examType: examsTable.examType,
+        reminderDate: examsTable.reminderDate,
+      })
+      .from(examsTable)
+      .orderBy(examsTable.examDate);
+
+    if (!allExams.length) return res.json({ date: today, upcoming: [] });
+
+    const examIds = allExams.map((r) => r.id);
+    const studentIds = [...new Set(allExams.map((r) => r.studentId))];
+    const [scores, students] = await Promise.all([
+      db.select().from(examScoresTable).where(inArray(examScoresTable.examId, examIds)),
+      db.select({
+        id: studentsTable.id,
+        name: studentsTable.name,
+        grade: studentsTable.grade,
+      }).from(studentsTable).where(inArray(studentsTable.id, studentIds)),
+    ]);
+    const studentMap = new Map(students.map((s) => [s.id, s]));
+    const examMap = new Map(allExams.map((e) => [e.id, e]));
+
+    type Row = {
+      id: string;
+      name: string;
+      examType: string | null;
+      examDate: string | Date;
+      reminderDate: string | Date | null;
+      effectiveReminderDate: string | null;
+      daysUntil: number;
+      student: { id: string; name: string; grade: string };
+      subject: { name: string; score: string; scope: string | null; examDate: string | Date };
+    };
+
+    const upcoming: Row[] = [];
+    for (const s of scores) {
+      const exam = examMap.get(s.examId);
+      if (!exam) continue;
+      const subjectDate = s.examDate ?? exam.examDate;
+      if (!isExamUpcoming(today, subjectDate, exam.reminderDate)) continue;
+      const student = studentMap.get(exam.studentId);
+      upcoming.push({
+        id: exam.id,
+        name: exam.name,
+        examType: exam.examType,
+        examDate: exam.examDate,
+        reminderDate: exam.reminderDate,
+        effectiveReminderDate: effectiveReminderDate(subjectDate, exam.reminderDate),
+        daysUntil: daysUntilExam(today, subjectDate),
+        student: student
+          ? { id: student.id, name: student.name, grade: student.grade }
+          : { id: exam.studentId, name: '', grade: '' },
+        subject: {
+          name: s.name,
+          score: s.score,
+          scope: s.scope,
+          examDate: subjectDate,
+        },
+      });
+    }
+    upcoming.sort((a, b) => (a.daysUntil ?? 0) - (b.daysUntil ?? 0));
+    res.json({ date: today, upcoming });
+  } catch (err) {
+    console.error('Error fetching upcoming exams:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -952,6 +1188,252 @@ app.put('/api/students/:studentId/yearly-summary', authenticate, requireTeacher,
     res.status(500).json({ error: 'Database error' });
   }
 });
+
+// ====== ACADEMIC TERMS (Part 8) ======
+//
+// Configurable per-year term windows (WA1 / WA2 / WA3 / FINALS). Used by the
+// Part 7 term analytics endpoint to default the date window when caller
+// omits startDate/endDate.
+
+app.get('/api/academic-terms', authenticate, requireTeacher, async (_, res) => {
+  try {
+    const rows = await db
+      .select()
+      .from(academicTermsTable)
+      .orderBy(desc(academicTermsTable.year), academicTermsTable.startDate);
+    res.json(rows);
+  } catch (err) {
+    console.error('Error listing academic terms:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.post('/api/academic-terms', authenticate, requireTeacher, async (req, res) => {
+  const parsed = AcademicTermSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const { year, termType, startDate, endDate, notes } = parsed.data;
+  if (startDate > endDate) return res.status(400).json({ error: 'startDate must be <= endDate' });
+  try {
+    const [row] = await db
+      .insert(academicTermsTable)
+      .values({
+        year,
+        termType,
+        startDate,
+        endDate,
+        notes: notes ?? null,
+        updatedAt: new Date(),
+        updatedByName: req.user?.name || null,
+      })
+      .returning();
+    res.status(201).json(row);
+  } catch (err) {
+    // Duplicate (year, termType) hits the unique index — surface a clean 409.
+    if (String((err as { message?: string })?.message || '').includes('uq_academic_terms_year_term')) {
+      return res.status(409).json({ error: 'Term already exists for this (year, termType)' });
+    }
+    console.error('Error creating academic term:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.put('/api/academic-terms/:id', authenticate, requireTeacher, async (req, res) => {
+  const { id } = req.params;
+  const parsed = AcademicTermSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const clientUpdatedAt = parseTimestamp(req.body?.updatedAt);
+  if (!clientUpdatedAt) return res.status(400).json({ error: 'Missing updatedAt' });
+  const { year, termType, startDate, endDate, notes } = parsed.data;
+  if (startDate > endDate) return res.status(400).json({ error: 'startDate must be <= endDate' });
+  try {
+    const existing = await db.select().from(academicTermsTable).where(eq(academicTermsTable.id, id)).limit(1);
+    if (!existing.length) return res.status(404).json({ error: 'Term not found' });
+    if (!isSameTimestamp(existing[0].updatedAt, clientUpdatedAt)) {
+      return res.status(409).json({
+        error: 'CONFLICT',
+        updatedAt: existing[0].updatedAt,
+        updatedByName: existing[0].updatedByName,
+      });
+    }
+    const [row] = await db
+      .update(academicTermsTable)
+      .set({
+        year,
+        termType,
+        startDate,
+        endDate,
+        notes: notes ?? null,
+        updatedAt: new Date(),
+        updatedByName: req.user?.name || null,
+      })
+      .where(eq(academicTermsTable.id, id))
+      .returning();
+    res.json(row);
+  } catch (err) {
+    console.error('Error updating academic term:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.delete('/api/academic-terms/:id', authenticate, requireTeacher, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const clientUpdatedAt = parseTimestamp((req.query as any).updatedAt || req.body?.updatedAt);
+    if (!clientUpdatedAt) return res.status(400).json({ error: 'Missing updatedAt' });
+    const existing = await db.select().from(academicTermsTable).where(eq(academicTermsTable.id, id)).limit(1);
+    if (!existing.length) return res.status(404).json({ error: 'Term not found' });
+    if (!isSameTimestamp(existing[0].updatedAt, clientUpdatedAt)) {
+      return res.status(409).json({
+        error: 'CONFLICT',
+        updatedAt: existing[0].updatedAt,
+        updatedByName: existing[0].updatedByName,
+      });
+    }
+    await db.delete(academicTermsTable).where(eq(academicTermsTable.id, id));
+    res.json({ message: 'Term deleted' });
+  } catch (err) {
+    console.error('Error deleting academic term:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.get('/api/academic-terms/current', authenticate, requireTeacher, async (req, res) => {
+  try {
+    const requested = req.query?.date;
+    const date = requested ? parseDateString(requested) : chinaTodayDateString();
+    if (!date) return res.status(400).json({ error: 'Invalid date; expected YYYY-MM-DD' });
+    const rows = await db.select().from(academicTermsTable);
+    const term = pickCurrentTerm(rows, date);
+    res.json({ date, term });
+  } catch (err) {
+    console.error('Error resolving current term:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// ====== STUDENT ANALYTICS (Part 7) ======
+//
+// Three reporting windows: term / half-year / year. Each returns
+// { current, previous, subjectProgress }.
+//   - current/previous metrics: attendance + presentRate, English stats,
+//     English task completion (per-task ratios + cycles fully completed),
+//     loss-point histogram, exam score trend.
+//   - subjectProgress: snapshot at "now" (topic-progress isn't time-versioned),
+//     so it's the same in current and previous; we return it once at the
+//     top level.
+// All endpoints require studentId via query string and respect the parent
+// access middleware.
+
+// Shared handler factory keeps the three endpoints DRY.
+const buildAnalyticsHandler = (
+  resolvePeriod: (req: import('express').Request) => { startDate: string; endDate: string } | { error: string },
+) => async (req: import('express').Request, res: import('express').Response) => {
+  const studentIdParam = String(req.query?.studentId || '');
+  if (!studentIdParam) return res.status(400).json({ error: 'Missing studentId' });
+  const period = resolvePeriod(req);
+  if ('error' in period) return res.status(400).json({ error: period.error });
+  try {
+    const lossPointLookup = await loadLossPointLookup();
+    const helpers = { lossPointLookup, normalizeActivities };
+    const [current, previous, subjectProgress] = await Promise.all([
+      computeAnalyticsForPeriod(db, studentIdParam, period.startDate, period.endDate, helpers),
+      (async () => {
+        const prev = previousPeriod(period);
+        return computeAnalyticsForPeriod(db, studentIdParam, prev.startDate, prev.endDate, helpers);
+      })(),
+      getSubjectProgressSummary(studentIdParam),
+    ]);
+    res.json({ current, previous, subjectProgress });
+  } catch (err) {
+    console.error('Error computing analytics:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+};
+
+// Year: defaults to the current calendar year (CST). Override via ?startDate=&endDate=.
+app.get(
+  '/api/analytics/student/year',
+  authenticate,
+  verifyParentStudentAccess,
+  buildAnalyticsHandler((req) => {
+    const startQ = req.query?.startDate ? parseDateString(req.query.startDate) : null;
+    const endQ = req.query?.endDate ? parseDateString(req.query.endDate) : null;
+    if ((startQ && !endQ) || (!startQ && endQ)) return { error: 'Provide both startDate and endDate or neither' };
+    if (startQ && endQ) {
+      if (startQ > endQ) return { error: 'startDate must be <= endDate' };
+      return { startDate: startQ, endDate: endQ };
+    }
+    return defaultYearPeriod();
+  }),
+);
+
+// Half-year: defaults to current half (H1 / H2 in CST). Override via ?startDate=&endDate=.
+app.get(
+  '/api/analytics/student/half-year',
+  authenticate,
+  verifyParentStudentAccess,
+  buildAnalyticsHandler((req) => {
+    const startQ = req.query?.startDate ? parseDateString(req.query.startDate) : null;
+    const endQ = req.query?.endDate ? parseDateString(req.query.endDate) : null;
+    if ((startQ && !endQ) || (!startQ && endQ)) return { error: 'Provide both startDate and endDate or neither' };
+    if (startQ && endQ) {
+      if (startQ > endQ) return { error: 'startDate must be <= endDate' };
+      return { startDate: startQ, endDate: endQ };
+    }
+    const half = defaultHalfYearPeriod();
+    return { startDate: half.startDate, endDate: half.endDate };
+  }),
+);
+
+// Term: defaults to the academic_term covering today CST when no dates are
+// provided. If no term covers today, callers MUST supply startDate+endDate.
+app.get(
+  '/api/analytics/student/term',
+  authenticate,
+  verifyParentStudentAccess,
+  async (req, res) => {
+    const studentIdParam = String(req.query?.studentId || '');
+    if (!studentIdParam) return res.status(400).json({ error: 'Missing studentId' });
+    const startQ = req.query?.startDate ? parseDateString(req.query.startDate) : null;
+    const endQ = req.query?.endDate ? parseDateString(req.query.endDate) : null;
+    if ((startQ && !endQ) || (!startQ && endQ)) {
+      return res.status(400).json({ error: 'Provide both startDate and endDate or neither' });
+    }
+    let period: { startDate: string; endDate: string };
+    let resolvedTerm: ReturnType<typeof pickCurrentTerm> = null;
+    if (startQ && endQ) {
+      if (startQ > endQ) return res.status(400).json({ error: 'startDate must be <= endDate' });
+      period = { startDate: startQ, endDate: endQ };
+    } else {
+      // Default to the academic_term covering today.
+      const today = chinaTodayDateString();
+      const termRows = await db.select().from(academicTermsTable);
+      resolvedTerm = pickCurrentTerm(termRows, today);
+      if (!resolvedTerm) {
+        return res.status(400).json({
+          error: 'No academic term covers today; pass startDate and endDate explicitly or configure a term via POST /api/academic-terms',
+        });
+      }
+      period = { startDate: resolvedTerm.startDate, endDate: resolvedTerm.endDate };
+    }
+    try {
+      const lossPointLookup = await loadLossPointLookup();
+      const helpers = { lossPointLookup, normalizeActivities };
+      const [current, previous, subjectProgress] = await Promise.all([
+        computeAnalyticsForPeriod(db, studentIdParam, period.startDate, period.endDate, helpers),
+        (async () => {
+          const prev = previousPeriod(period);
+          return computeAnalyticsForPeriod(db, studentIdParam, prev.startDate, prev.endDate, helpers);
+        })(),
+        getSubjectProgressSummary(studentIdParam),
+      ]);
+      res.json({ current, previous, subjectProgress, term: resolvedTerm });
+    } catch (err) {
+      console.error('Error computing term analytics:', err);
+      res.status(500).json({ error: 'Database error' });
+    }
+  },
+);
 
 // ====== SUBJECT & TOPIC ROUTES ======
 // List all subjects
@@ -1721,7 +2203,7 @@ const handleProgressStudent = async (req: any, res: any) => {
       return res.status(404).json({ error: 'No progress found for this student on this date' });
     }
 
-    res.json(progress[0]);
+    res.json(withV2Activities(progress[0]));
   } catch (err) {
     console.error('Error fetching student progress:', err);
     res.status(500).json({ error: 'Database error' });
@@ -1780,7 +2262,7 @@ app.get('/api/students/:studentId/progress', authenticate, verifyParentStudentAc
       .orderBy(desc(dailyProgress.date));
 
     console.log(`Found ${progress.length} progress records for student ${studentId}`);
-    res.json(progress);
+    res.json(progress.map(withV2Activities));
   } catch (err) {
     console.error('Error fetching student progress:', err);
     res.status(500).json({ error: 'Database error' });
@@ -1793,9 +2275,338 @@ app.get('/api/progress', authenticate, requireTeacher, async (_, res) => {
     console.log('Fetching all daily progress...');
     const result = await db.select().from(dailyProgress).orderBy(desc(dailyProgress.date));
     console.log(`Found ${result.length} progress records`);
-    res.json(result);
+    res.json(result.map(withV2Activities));
   } catch (err) {
     console.error('Error fetching daily progress:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// Daily missing-record reminder. At ~20:30 CST teachers need a quick view of
+// which students still have no daily_progress row for today, so they can
+// finish records before evening study ends at 21:00. ?date= overrides the
+// default of "today in Asia/Shanghai".
+app.get('/api/daily-progress/missing', authenticate, requireTeacher, async (req, res) => {
+  try {
+    const requestedDate = req.query?.date;
+    const date = requestedDate
+      ? parseDateString(requestedDate)
+      : chinaTodayDateString();
+    if (!date) {
+      return res.status(400).json({ error: 'Invalid date; expected YYYY-MM-DD' });
+    }
+
+    const missing = await db
+      .select({
+        id: studentsTable.id,
+        name: studentsTable.name,
+        grade: studentsTable.grade,
+      })
+      .from(studentsTable)
+      .leftJoin(
+        dailyProgress,
+        and(
+          eq(dailyProgress.studentId, studentsTable.id),
+          eq(dailyProgress.date, date),
+        ),
+      )
+      .where(isNull(dailyProgress.id))
+      .orderBy(studentsTable.name);
+
+    res.json({ date, missing });
+  } catch (err) {
+    console.error('Error fetching missing daily-progress records:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// ========== LOSS-POINT CATALOG (Part 4) ==========
+
+// Returns categories with their active loss points nested. Used by the
+// miniprogram to populate the multi-select chips on the daily-progress page.
+app.get('/api/loss-points', authenticate, requireTeacher, async (_, res) => {
+  try {
+    const categories = await db
+      .select()
+      .from(lossPointCategoriesTable)
+      .orderBy(lossPointCategoriesTable.orderIndex, lossPointCategoriesTable.name);
+    const points = await db
+      .select()
+      .from(lossPointsTable)
+      .where(eq(lossPointsTable.isActive, true))
+      .orderBy(lossPointsTable.orderIndex, lossPointsTable.label);
+    const byCategory = new Map<string, typeof points>();
+    for (const p of points) {
+      const list = byCategory.get(p.categoryId) ?? [];
+      list.push(p);
+      byCategory.set(p.categoryId, list);
+    }
+    res.json({
+      categories: categories.map((c) => ({
+        id: c.id,
+        code: c.code,
+        name: c.name,
+        orderIndex: c.orderIndex,
+        points: (byCategory.get(c.id) ?? []).map((p) => ({
+          id: p.id,
+          code: p.code,
+          label: p.label,
+          description: p.description,
+          orderIndex: p.orderIndex,
+        })),
+      })),
+    });
+  } catch (err) {
+    console.error('Error fetching loss-point catalog:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// ========== WEEKLY STUDY CYCLES (Part 3) ==========
+
+// Resolve the cycle covering `dateStr`. If a stored row exists, use it;
+// otherwise return the synthesised Sun→Thu default. Shared by several routes.
+const resolveCycleForDate = async (dateStr: string): Promise<ResolvedCycle> => {
+  const allCycles = await db
+    .select({
+      id: weeklyStudyCyclesTable.id,
+      startDate: weeklyStudyCyclesTable.startDate,
+      endDate: weeklyStudyCyclesTable.endDate,
+      notes: weeklyStudyCyclesTable.notes,
+    })
+    .from(weeklyStudyCyclesTable);
+  return pickCoveringCycle(allCycles, dateStr) ?? syntheticCycleFor(dateStr);
+};
+
+app.get('/api/weekly-cycles', authenticate, requireTeacher, async (_, res) => {
+  try {
+    const rows = await db
+      .select()
+      .from(weeklyStudyCyclesTable)
+      .orderBy(desc(weeklyStudyCyclesTable.startDate));
+    res.json(rows);
+  } catch (err) {
+    console.error('Error listing weekly cycles:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.post('/api/weekly-cycles', authenticate, requireTeacher, async (req, res) => {
+  const parsed = WeeklyStudyCycleSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const { startDate, endDate, notes } = parsed.data;
+  if (startDate > endDate) {
+    return res.status(400).json({ error: 'startDate must be <= endDate' });
+  }
+  try {
+    const [row] = await db
+      .insert(weeklyStudyCyclesTable)
+      .values({
+        startDate,
+        endDate,
+        notes: notes ?? null,
+        updatedAt: new Date(),
+        updatedByName: req.user?.name || null,
+      })
+      .returning();
+    res.status(201).json(row);
+  } catch (err) {
+    console.error('Error creating weekly cycle:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.get('/api/weekly-cycles/current', authenticate, requireTeacher, async (req, res) => {
+  try {
+    const requested = req.query?.date;
+    const date = requested ? parseDateString(requested) : chinaTodayDateString();
+    if (!date) return res.status(400).json({ error: 'Invalid date; expected YYYY-MM-DD' });
+    const cycle = await resolveCycleForDate(date);
+    res.json({ date, cycle });
+  } catch (err) {
+    console.error('Error resolving current weekly cycle:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// ========== STUDENT WEEKLY TASK TARGETS (Part 3) ==========
+
+app.get('/api/students/:studentId/weekly-targets', authenticate, requireTeacher, async (req, res) => {
+  const { studentId } = req.params;
+  const cycleIdParam = req.query?.cycleId;
+  try {
+    let cycleId: string | null = null;
+    if (typeof cycleIdParam === 'string' && cycleIdParam) {
+      cycleId = cycleIdParam;
+    } else {
+      const date = chinaTodayDateString();
+      const cycle = await resolveCycleForDate(date);
+      cycleId = cycle.id; // null when synthesised
+    }
+
+    let stored: typeof studentWeeklyTaskTargetsTable.$inferSelect | null = null;
+    if (cycleId) {
+      const rows = await db
+        .select()
+        .from(studentWeeklyTaskTargetsTable)
+        .where(
+          and(
+            eq(studentWeeklyTaskTargetsTable.studentId, studentId),
+            eq(studentWeeklyTaskTargetsTable.cycleId, cycleId),
+          ),
+        )
+        .limit(1);
+      stored = rows[0] ?? null;
+    }
+    res.json({
+      studentId,
+      cycleId,
+      stored,
+      effective: effectiveTargetsFor(stored),
+    });
+  } catch (err) {
+    console.error('Error fetching weekly targets:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.put('/api/students/:studentId/weekly-targets', authenticate, requireTeacher, async (req, res) => {
+  const { studentId } = req.params;
+  const parsed = StudentWeeklyTaskTargetsSchema.safeParse({ ...req.body, studentId });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const data = parsed.data;
+  try {
+    // Confirm the cycle exists (we never auto-create cycles from the targets
+    // endpoint to keep cycle creation an explicit teacher action).
+    const cycleRow = await db
+      .select({ id: weeklyStudyCyclesTable.id })
+      .from(weeklyStudyCyclesTable)
+      .where(eq(weeklyStudyCyclesTable.id, data.cycleId))
+      .limit(1);
+    if (!cycleRow.length) {
+      return res.status(404).json({ error: 'Cycle not found; create it first via POST /api/weekly-cycles' });
+    }
+    // Upsert by (studentId, cycleId)
+    const existing = await db
+      .select()
+      .from(studentWeeklyTaskTargetsTable)
+      .where(
+        and(
+          eq(studentWeeklyTaskTargetsTable.studentId, studentId),
+          eq(studentWeeklyTaskTargetsTable.cycleId, data.cycleId),
+        ),
+      )
+      .limit(1);
+    const values = {
+      studentId,
+      cycleId: data.cycleId,
+      readingTarget: data.readingTarget,
+      editingTarget: data.editingTarget,
+      grammarTarget: data.grammarTarget,
+      vocabTarget: data.vocabTarget,
+      compositionTarget: data.compositionTarget,
+      isGrammarRequired: data.isGrammarRequired,
+      isEditingRequired: data.isEditingRequired,
+      updatedAt: new Date(),
+      updatedByName: req.user?.name || null,
+    };
+    if (existing.length) {
+      const [row] = await db
+        .update(studentWeeklyTaskTargetsTable)
+        .set(values)
+        .where(eq(studentWeeklyTaskTargetsTable.id, existing[0].id))
+        .returning();
+      return res.json(row);
+    }
+    const [row] = await db
+      .insert(studentWeeklyTaskTargetsTable)
+      .values(values)
+      .returning();
+    res.status(201).json(row);
+  } catch (err) {
+    console.error('Error upserting weekly targets:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// Friday "本周英文任务未完成学生" card. Computes per-student English completion
+// across the cycle covering `date` (default: today CST) and returns any whose
+// required tasks aren't all met. Heavy: O(students) progress reads — fine for
+// classroom-sized rosters; revisit if rosters grow into the thousands.
+app.get('/api/weekly-tasks/incomplete', authenticate, requireTeacher, async (req, res) => {
+  try {
+    const requested = req.query?.date;
+    const date = requested ? parseDateString(requested) : chinaTodayDateString();
+    if (!date) return res.status(400).json({ error: 'Invalid date; expected YYYY-MM-DD' });
+    const cycle = await resolveCycleForDate(date);
+
+    const students = await db
+      .select({ id: studentsTable.id, name: studentsTable.name, grade: studentsTable.grade })
+      .from(studentsTable)
+      .orderBy(studentsTable.name);
+
+    // Per-student stored targets for this cycle (if any).
+    let storedTargetsByStudent: Map<string, typeof studentWeeklyTaskTargetsTable.$inferSelect> = new Map();
+    if (cycle.id) {
+      const targetsRows = await db
+        .select()
+        .from(studentWeeklyTaskTargetsTable)
+        .where(eq(studentWeeklyTaskTargetsTable.cycleId, cycle.id));
+      storedTargetsByStudent = new Map(targetsRows.map((r) => [r.studentId, r]));
+    }
+
+    // All daily_progress rows in the cycle window — single query, then group.
+    const progressRows = await db
+      .select()
+      .from(dailyProgress)
+      .where(
+        and(
+          gte(dailyProgress.date, cycle.startDate),
+          lte(dailyProgress.date, cycle.endDate),
+        ),
+      );
+    const progressByStudent = new Map<string, typeof progressRows>();
+    for (const r of progressRows) {
+      const list = progressByStudent.get(r.studentId) ?? [];
+      list.push(r);
+      progressByStudent.set(r.studentId, list);
+    }
+
+    const incomplete: Array<{
+      id: string;
+      name: string;
+      grade: string;
+      completion: ReturnType<typeof evaluateCompletion>;
+    }> = [];
+    for (const s of students) {
+      const targets = effectiveTargetsFor(storedTargetsByStudent.get(s.id) ?? null);
+      const stats = (progressByStudent.get(s.id) ?? []).reduce(
+        (acc, row) => {
+          const dayStats = extractEnglishStats(normalizeActivities(row.activities));
+          acc.readingArticleCount += dayStats.readingArticleCount;
+          acc.editingExerciseCount += dayStats.editingExerciseCount;
+          acc.grammarExerciseCount += dayStats.grammarExerciseCount;
+          acc.vocabSentenceCount += dayStats.vocabSentenceCount;
+          acc.compositionCompletedCount += dayStats.compositionCompletedCount;
+          return acc;
+        },
+        {
+          readingArticleCount: 0,
+          editingExerciseCount: 0,
+          grammarExerciseCount: 0,
+          vocabSentenceCount: 0,
+          compositionCompletedCount: 0,
+        },
+      );
+      const completion = evaluateCompletion(targets, stats);
+      if (!completion.allRequiredMet) {
+        incomplete.push({ id: s.id, name: s.name, grade: s.grade, completion });
+      }
+    }
+
+    res.json({ date, cycle, incomplete });
+  } catch (err) {
+    console.error('Error computing incomplete weekly tasks:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -1834,14 +2645,19 @@ app.get('/api/feedback', async (_, res) => {
 app.post('/api/progress', authenticate, requireTeacher, async (req, res) => {
   try {
     console.log('Received progress data:', req.body);
-    
-    const { studentId, date, attendance, attendanceStart, attendanceEnd, summary, activities } = req.body;
-    
-    // Validate required fields
-    if (!studentId || !date || !attendance || !activities) {
-      return res.status(400).json({ error: 'Missing required fields' });
+
+    // Part 9: structurally validate the request body via Zod before doing any
+    // DB work. Catches missing fields, bad UUIDs, malformed dates/times, and
+    // empty activities arrays in one place with field-level error messages.
+    const parsed = DailyProgressRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: 'INVALID_PAYLOAD',
+        details: parsed.error.flatten(),
+      });
     }
-    
+    const { studentId, date, attendance, attendanceStart, attendanceEnd, summary, activities } = parsed.data;
+
     // Check if progress already exists for this student and date
     const existingProgress = await db
       .select()
@@ -1853,7 +2669,29 @@ app.post('/api/progress', authenticate, requireTeacher, async (req, res) => {
       return res.status(409).json({ error: 'Progress already exists for this student and date' });
     }
     
-    // Insert new progress
+    // Insert new progress (normalize English V2 on the way in so that even
+    // legacy clients posting string-only `english` blocks land in V2 shape).
+    // Loss-point validation runs first so we reject unscored entries with
+    // missing loss points before we touch the DB.
+    const lossPointValidation = validateLossPointsRequired(activities);
+    if (!lossPointValidation.ok) {
+      return res.status(400).json({
+        error: 'LOSS_POINTS_REQUIRED',
+        details: lossPointValidation.errors,
+      });
+    }
+    const lossPointLookup = await loadLossPointLookup();
+    const enrichedActivities = enrichLossPointLabels(activities, lossPointLookup);
+    const normalizedActivities = normalizeActivities(enrichedActivities);
+    // Part 9: post-normalize structural sanity check — catches normalize
+    // regressions before they hit the DB.
+    const englishStructural = validateNormalizedEnglish(normalizedActivities);
+    if (!englishStructural.ok) {
+      return res.status(400).json({
+        error: 'INVALID_ENGLISH_STRUCTURE',
+        details: englishStructural.errors,
+      });
+    }
     const newProgress = await db.insert(dailyProgress).values({
       studentId,
       date: date,
@@ -1861,15 +2699,15 @@ app.post('/api/progress', authenticate, requireTeacher, async (req, res) => {
       attendanceStart: attendanceStart || null,
       attendanceEnd: attendanceEnd || null,
       summary: summary || null,
-      activities,
+      activities: normalizedActivities as Record<string, unknown>[],
       updatedAt: new Date(),
       updatedByName: req.user?.name || null,
     }).returning();
-    
+
     // Daily progress is teacher-only; skip parent notifications.
 
     console.log('Progress saved successfully:', newProgress[0]);
-    res.status(201).json(newProgress[0]);
+    res.status(201).json(withV2Activities(newProgress[0]));
   } catch (err) {
     console.error('Error creating progress:', err);
     res.status(500).json({ error: 'Database error' });
@@ -1879,13 +2717,18 @@ app.post('/api/progress', authenticate, requireTeacher, async (req, res) => {
 app.put('/api/progress/:id', authenticate, requireTeacher, async (req, res) => {
   const id = req.params.id;
   try {
-    const { studentId, date, attendance, attendanceStart, attendanceEnd, summary, activities, updatedAt } = req.body;
-    
-    // Validate required fields
-    if (!studentId || !date || !attendance || !activities) {
-      return res.status(400).json({ error: 'Missing required fields' });
+    // Part 9: same Zod validation as POST. updatedAt is checked separately
+    // below for the optimistic-locking contract.
+    const parsed = DailyProgressRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: 'INVALID_PAYLOAD',
+        details: parsed.error.flatten(),
+      });
     }
-    
+    const { studentId, date, attendance, attendanceStart, attendanceEnd, summary, activities } = parsed.data;
+    const { updatedAt } = req.body;
+
     // Prevent duplicates on update
     const dup = await db
       .select()
@@ -1910,6 +2753,27 @@ app.put('/api/progress/:id', authenticate, requireTeacher, async (req, res) => {
       });
     }
 
+    // Same loss-point validation + label-snapshot enrichment as POST so an
+    // edit that introduces (or removes) a score is held to the same contract.
+    const lossPointValidation = validateLossPointsRequired(activities);
+    if (!lossPointValidation.ok) {
+      return res.status(400).json({
+        error: 'LOSS_POINTS_REQUIRED',
+        details: lossPointValidation.errors,
+      });
+    }
+    const lossPointLookup = await loadLossPointLookup();
+    const enrichedActivities = enrichLossPointLabels(activities, lossPointLookup);
+    const normalizedActivitiesPut = normalizeActivities(enrichedActivities);
+    // Part 9: post-normalize structural sanity check (same as POST).
+    const englishStructuralPut = validateNormalizedEnglish(normalizedActivitiesPut);
+    if (!englishStructuralPut.ok) {
+      return res.status(400).json({
+        error: 'INVALID_ENGLISH_STRUCTURE',
+        details: englishStructuralPut.errors,
+      });
+    }
+
     const data = {
       studentId,
       date: date,
@@ -1917,13 +2781,13 @@ app.put('/api/progress/:id', authenticate, requireTeacher, async (req, res) => {
       attendanceStart: attendanceStart || null,
       attendanceEnd: attendanceEnd || null,
       summary: summary || null,
-      activities,
+      activities: normalizedActivitiesPut as Record<string, unknown>[],
       updatedAt: new Date(),
       updatedByName: req.user?.name || null,
     };
-    
+
     const result = await db.update(dailyProgress).set(data).where(eq(dailyProgress.id, id)).returning();
-    res.json(result[0]);
+    res.json(withV2Activities(result[0]));
   } catch (err) {
     console.error('Error updating progress:', err);
     res.status(500).json({ error: 'Database error' });
@@ -1965,7 +2829,7 @@ app.get('/api/progress/list', authenticate, verifyParentStudentAccess, async (re
       .from(dailyProgress)
       .where(eq(dailyProgress.studentId, String(studentId)))
       .orderBy(desc(dailyProgress.date));
-    res.json(rows);
+    res.json(rows.map(withV2Activities));
   } catch (err) {
     console.error('progress/list error:', err);
     res.status(500).json({ error: 'Database error' });
@@ -2148,17 +3012,33 @@ app.post('/api/ai/weekly-summary', authenticate, requireTeacher, async (req, res
       )
       .orderBy(studentPapersTable.date);
     const subjectProgress = await getSubjectProgressSummary(studentId);
+
+    // Part 5: enrich the AI context so the model can reference concrete
+    // numbers and loss-points instead of guessing.
+    const v2Progress = progress.map(withV2Activities);
+    const lossPointLookup = await loadLossPointLookup();
+    const englishStats = aggregateEnglishStats(v2Progress);
+    const lossPointBreakdown = aggregateLossPoints(v2Progress, lossPointLookup);
+    const attendanceRollup = aggregateAttendance(v2Progress);
     const context = {
       student,
       weekStarting,
       weekEnding: contextWeekEnding,
       recordWeekEnding: weekEnding,
-      dailyProgress: progress,
+      attendance: attendanceRollup,
+      englishStats,
+      lossPoints: lossPointBreakdown,
+      dailyProgress: v2Progress,
       papers,
       subjectProgress,
     };
-    const summary = await callDeepSeek(weeklySummaryPrompt, context);
-    res.json({ summary });
+    // Operator-supplied prompt wins; otherwise use the Part 5 enhanced prompt.
+    const promptToUse = weeklySummaryPrompt && weeklySummaryPrompt.trim()
+      ? weeklySummaryPrompt
+      : ENHANCED_WEEKLY_PROMPT;
+    const raw = await callDeepSeek(promptToUse, context);
+    const structured = parseStructuredSummary(raw);
+    res.json(structured);
   } catch (err) {
     const message = getErrorMessage(err);
     if (message.includes('AI_NOT_CONFIGURED')) {
@@ -2266,7 +3146,7 @@ app.post('/api/ai/quarterly-summary', authenticate, requireTeacher, async (req, 
       student,
       startDate,
       endDate,
-      dailyProgress: daily,
+      dailyProgress: daily.map(withV2Activities),
       weeklyReports: weekly,
       papers,
       exams: examPayload,
@@ -2379,7 +3259,7 @@ app.post('/api/ai/yearly-summary', authenticate, requireTeacher, async (req, res
       year: yearNum,
       startDate,
       endDate,
-      dailyProgress: daily,
+      dailyProgress: daily.map(withV2Activities),
       weeklyReports: weekly,
       papers,
       exams: examPayload,

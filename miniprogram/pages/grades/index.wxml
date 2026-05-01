@@ -11,16 +11,19 @@
     </view>
     <view class="field-label">考试名称</view>
     <input class="input" placeholder="例如 WA1" value="{{examName}}" bindinput="onFieldInput" data-field="examName" />
-    <view class="field-label">考试日期</view>
-    <picker mode="date" value="{{examDate}}" bindchange="onExamDateChange">
-      <view class="chip">{{examDate || "选择日期"}}</view>
-    </picker>
-    <view class="field-label">科目成绩</view>
+    <view class="field-label">科目</view>
+    <view class="muted" style="margin-bottom: 8rpx;">为有考试的科目设置日期；未设置日期的科目不会加入此次考试。考试结束后再回来填写分数。</view>
     <block wx:for="{{examSubjects}}" wx:key="index">
-      <view class="subject-row">
+      <view class="subject-row" style="flex-wrap: wrap; row-gap: 8rpx;">
         <view class="subject-name">{{item.displayName || item.name}}</view>
-        <input class="input subject-input" placeholder="分数" value="{{item.score}}" data-index="{{index}}" bindinput="onSubjectScoreInput" />
+        <input class="input subject-input" placeholder="分数（选填）" value="{{item.score}}" data-index="{{index}}" bindinput="onSubjectScoreInput" />
         <button wx:if="{{item.isCustom}}" class="btn-outline" size="mini" data-index="{{index}}" bindtap="removeCustomSubject">删除</button>
+        <view style="flex: 1 1 100%; display: flex; gap: 8rpx; align-items: center;">
+          <picker mode="date" value="{{item.examDate}}" data-index="{{index}}" bindchange="onSubjectDateChange" style="flex: 1;">
+            <view class="chip {{item.examDate ? '' : 'muted'}}" style="font-size: 24rpx;">{{item.examDate || "未参加此次考试 · 点击设置日期"}}</view>
+          </picker>
+          <button wx:if="{{item.examDate}}" class="btn-outline" size="mini" data-index="{{index}}" bindtap="clearSubjectDate">移除</button>
+        </view>
       </view>
     </block>
     <view class="custom-row">
@@ -50,11 +53,14 @@
             <button wx:if="{{isTeacher}}" class="btn-outline" size="mini" data-id="{{item.id}}" bindtap="deleteExam">删除</button>
           </view>
         </view>
-        <view class="muted" style="margin-top: 6rpx;">日期：{{item.examDate || "-"}}</view>
+        <view class="muted" style="margin-top: 6rpx;">默认日期：{{item.examDate || "-"}}</view>
         <block wx:for="{{item.subjects}}" wx:key="index">
           <view class="list-item row-between">
-            <view>{{item.displayName || item.name}}</view>
-            <view class="chip">{{item.score}}</view>
+            <view>
+              <view>{{item.displayName || item.name}}</view>
+              <view wx:if="{{item.examDate}}" class="muted" style="font-size: 22rpx; margin-top: 4rpx;">{{item.examDate}}</view>
+            </view>
+            <view class="chip">{{item.score || "未录入"}}</view>
           </view>
         </block>
       </view>

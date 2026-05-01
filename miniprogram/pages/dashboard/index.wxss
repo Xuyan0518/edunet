@@ -34,3 +34,32 @@
 .manage-btn {
   flex: 1 1 180rpx;
 }
+
+.missing-card {
+  margin-bottom: 20rpx;
+}
+
+.missing-badge {
+  min-width: 56rpx;
+  padding: 4rpx 16rpx;
+  border-radius: 24rpx;
+  background: #e5e7eb;
+  color: #374151;
+  font-weight: 700;
+  text-align: center;
+}
+
+.missing-badge.warn {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.missing-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16rpx;
+  margin-top: 12rpx;
+  border: 1rpx solid #e5e7eb;
+  border-radius: 12rpx;
+}

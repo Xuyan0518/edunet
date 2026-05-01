@@ -134,6 +134,84 @@ export const api = {
     }
   },
 
+  // Daily Progress: students with no record on the given date (defaults to
+  // today in Asia/Shanghai server-side). Used by the "今日未记录学生" dashboard
+  // card around 20:30 CST when teachers wrap up evening study.
+  async getMissingDailyProgress(date?: string): Promise<{
+    date: string;
+    missing: Array<{ id: string; name: string; grade: string }>;
+  } | null> {
+    try {
+      const url = date
+        ? `${buildApiUrl('daily-progress/missing')}?date=${encodeURIComponent(date)}`
+        : buildApiUrl('daily-progress/missing');
+      const response = await fetch(url, { headers: getAuthHeaders() });
+      if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  // Upcoming exams card: exams across all students whose effective reminder
+  // window includes `date` (default: today CST). Powers the "即将到来的考试" card.
+  async getUpcomingExams(date?: string): Promise<{
+    date: string;
+    upcoming: Array<{
+      id: string;
+      name: string;
+      examType: string | null;
+      examDate: string;
+      reminderDate: string | null;
+      effectiveReminderDate: string | null;
+      daysUntil: number;
+      student: { id: string; name: string; grade: string };
+      subjects: Array<{ name: string; score: string; scope: string | null }>;
+    }>;
+  } | null> {
+    try {
+      const url = date
+        ? `${buildApiUrl('exams/upcoming')}?date=${encodeURIComponent(date)}`
+        : buildApiUrl('exams/upcoming');
+      const response = await fetch(url, { headers: getAuthHeaders() });
+      if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  // Weekly task completion: students whose required English tasks are not all
+  // met for the cycle covering `date`. Powers the "本周英文任务未完成学生" card.
+  async getIncompleteWeeklyTasks(date?: string): Promise<{
+    date: string;
+    cycle: { id: string | null; startDate: string; endDate: string; notes: string | null };
+    incomplete: Array<{
+      id: string;
+      name: string;
+      grade: string;
+      completion: {
+        reading: { completed: number; target: number; met: boolean };
+        editing: { completed: number; target: number; met: boolean; required: boolean };
+        grammar: { completed: number; target: number; met: boolean; required: boolean };
+        vocab: { completed: number; target: number; met: boolean };
+        composition: { completed: number; target: number; met: boolean };
+        allRequiredMet: boolean;
+      };
+    }>;
+  } | null> {
+    try {
+      const url = date
+        ? `${buildApiUrl('weekly-tasks/incomplete')}?date=${encodeURIComponent(date)}`
+        : buildApiUrl('weekly-tasks/incomplete');
+      const response = await fetch(url, { headers: getAuthHeaders() });
+      if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
   // Daily Progress
   async getStudentProgress(studentId: string): Promise<DailyProgress[] | null> {
     try {

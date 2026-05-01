@@ -9,12 +9,202 @@ const attendanceMap = [
   { value: "absent", label: "缺席" },
 ];
 
+// V2 English fields. Each scored sub-skill (editing/reading/grammar) carries
+// score/totalScore/count + lossPointIds/lossPointLabelsSnapshot/otherLossPointText.
+// Vocab carries a sentence-count, recitation is text-only, essay carries
+// title/completed/score. Server-side validation requires loss points whenever
+// editing/reading/grammar has a numeric score (Part 4).
+
+const toLegacyText = (v) => {
+  if (v == null) return "";
+  if (typeof v === "string") return v;
+  if (typeof v === "object" && typeof v.text === "string") return v.text;
+  return "";
+};
+
+const toIntOrZero = (v) => {
+  if (typeof v === "number" && isFinite(v) && v >= 0) return Math.floor(v);
+  if (typeof v === "string" && v.trim() !== "") {
+    const n = Number(v);
+    if (isFinite(n) && n >= 0) return Math.floor(n);
+  }
+  return 0;
+};
+
+const toScoreOrNull = (v) => {
+  if (v === "" || v == null) return null;
+  if (typeof v === "number" && isFinite(v)) return v;
+  const n = Number(v);
+  return isFinite(n) ? n : null;
+};
+
+const defaultFieldFor = (kind) => {
+  if (kind === "editing" || kind === "grammar") {
+    return {
+      text: "",
+      score: null,
+      totalScore: 100,
+      exerciseCount: 0,
+      exercises: [],
+      lossPointIds: [],
+      lossPointLabelsSnapshot: [],
+      otherLossPointText: "",
+    };
+  }
+  if (kind === "reading") {
+    return {
+      text: "",
+      score: null,
+      totalScore: 100,
+      articleCount: 0,
+      exercises: [],
+      lossPointIds: [],
+      lossPointLabelsSnapshot: [],
+      otherLossPointText: "",
+    };
+  }
+  if (kind === "vocab") return { text: "", vocabularySentenceCount: 0, vocabularyWordCount: 0 };
+  if (kind === "recitation") return { text: "" };
+  if (kind === "essay") {
+    return {
+      text: "",
+      title: "",
+      completed: false,
+      score: null,
+      totalScore: null,
+      lossPointIds: [],
+      lossPointLabelsSnapshot: [],
+      otherLossPointText: "",
+    };
+  }
+  return { text: "" };
+};
+
+const toV2Field = (raw, kind) => {
+  const def = defaultFieldFor(kind);
+  if (raw == null) return def;
+  if (typeof raw === "string") return { ...def, text: raw };
+  if (typeof raw !== "object") return def;
+  const out = { ...def, ...raw };
+  out.text = toLegacyText(raw);
+  if ("lossPointIds" in def) {
+    out.lossPointIds = Array.isArray(raw.lossPointIds) ? raw.lossPointIds.slice() : [];
+    out.lossPointLabelsSnapshot = Array.isArray(raw.lossPointLabelsSnapshot)
+      ? raw.lossPointLabelsSnapshot.slice()
+      : [];
+    out.otherLossPointText = typeof raw.otherLossPointText === "string" ? raw.otherLossPointText : "";
+  }
+  if ("score" in def) out.score = toScoreOrNull(raw.score);
+  if ("totalScore" in def) {
+    const ts = toScoreOrNull(raw.totalScore);
+    out.totalScore = ts == null ? def.totalScore : ts;
+  }
+  if (kind === "editing" || kind === "grammar") out.exerciseCount = toIntOrZero(raw.exerciseCount);
+  if (kind === "reading") out.articleCount = toIntOrZero(raw.articleCount);
+  if (kind === "vocab") {
+    out.vocabularySentenceCount = toIntOrZero(raw.vocabularySentenceCount);
+    out.vocabularyWordCount = toIntOrZero(raw.vocabularyWordCount);
+  }
+  if (kind === "editing" || kind === "grammar" || kind === "reading") {
+    const count = kind === "reading" ? out.articleCount : out.exerciseCount;
+    out.exercises = buildExercisesArray(raw.exercises, count, out.score, out.text);
+  }
+  if (kind === "essay") out.completed = raw.completed === true;
+  if (kind === "essay") out.title = typeof raw.title === "string" ? raw.title : "";
+  return out;
+};
+
+const computeSectionSummary = (code, block) => {
+  const exercisesScored = (Array.isArray(block.exercises) ? block.exercises : []).filter((ex) => ex.isScored);
+  const avg = (list) =>
+    list.length ? Math.round(list.reduce((s, ex) => s + Number(ex.score), 0) / list.length) : null;
+  if (code === "editing" || code === "grammar") {
+    const count = block.exerciseCount || 0;
+    if (count === 0) return "未练习";
+    const a = avg(exercisesScored);
+    return a == null ? `${count} 练习` : `${count} 练习 · 平均 ${a}%`;
+  }
+  if (code === "reading") {
+    const count = block.articleCount || 0;
+    if (count === 0) return "未练习";
+    const a = avg(exercisesScored);
+    return a == null ? `${count} 篇` : `${count} 篇 · 平均 ${a}%`;
+  }
+  if (code === "vocab") {
+    const w = block.vocabularyWordCount || 0;
+    const s = block.vocabularySentenceCount || 0;
+    if (!w && !s) return "未练习";
+    return `单词 ${w} · 句子 ${s}`;
+  }
+  if (code === "recitation") {
+    const t = (block.text || "").trim();
+    if (!t) return "未练习";
+    return t.length > 12 ? t.slice(0, 12) + "…" : t;
+  }
+  if (code === "essay") {
+    const title = (block.title || "").trim();
+    const text = (block.text || "").trim();
+    const score = block.score;
+    const completed = block.completed === true;
+    if (!title && !text && score == null && !completed) return "未练习";
+    const titleStr = title || "无题";
+    return completed ? `已完成 · ${titleStr}` : `未完成 · ${titleStr}`;
+  }
+  return "";
+};
+
+const computeSectionHasData = (code, block) => {
+  const exercises = Array.isArray(block.exercises) ? block.exercises : [];
+  if (code === "editing" || code === "grammar") {
+    return (block.exerciseCount || 0) > 0 || exercises.some((ex) => ex.isScored) || (block.text || "").trim().length > 0;
+  }
+  if (code === "reading") {
+    return (block.articleCount || 0) > 0 || exercises.some((ex) => ex.isScored) || (block.text || "").trim().length > 0;
+  }
+  if (code === "vocab") {
+    return (block.vocabularyWordCount || 0) > 0 || (block.vocabularySentenceCount || 0) > 0;
+  }
+  if (code === "recitation") {
+    return (block.text || "").trim().length > 0;
+  }
+  if (code === "essay") {
+    return Boolean(
+      (block.title || "").trim() ||
+      (block.text || "").trim() ||
+      block.score != null ||
+      block.completed === true
+    );
+  }
+  return false;
+};
+
+const buildExercisesArray = (raw, count, legacyScore, legacyText) => {
+  const incoming = Array.isArray(raw) ? raw : [];
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    const e = incoming[i];
+    if (e && typeof e === "object" && !Array.isArray(e)) {
+      out.push({
+        score: toScoreOrNull(e.score),
+        problems: typeof e.problems === "string" ? e.problems : "",
+      });
+    } else {
+      out.push({
+        score: i === 0 && incoming.length === 0 ? legacyScore : null,
+        problems: i === 0 && incoming.length === 0 ? (legacyText || "") : "",
+      });
+    }
+  }
+  return out;
+};
+
 const buildEnglishFields = (input = {}) => ({
-  editing: input.editing || "",
-  vocab: input.vocab || input.vocabulary || "",
-  reading: input.reading || "",
-  recitation: input.recitation || input.memory || "",
-  essay: input.essay || "",
+  editing: toV2Field(input.editing, "editing"),
+  reading: toV2Field(input.reading, "reading"),
+  grammar: toV2Field(input.grammar, "grammar"),
+  vocab: toV2Field(input.vocab || input.vocabulary, "vocab"),
+  recitation: toV2Field(input.recitation || input.memory, "recitation"),
+  essay: toV2Field(input.essay, "essay"),
 });
 
 const isEnglishSubject = (subject = {}) => {
@@ -138,6 +328,7 @@ Page({
     papersUpdatedAt: "",
     papersUpdatedBy: "",
     papersUpdatedAtText: "",
+    lossPointCatalog: { editing: [], reading: [], grammar: [], essay: [] },
   },
 
   onLoad(query) {
@@ -168,7 +359,82 @@ Page({
     this.fetchSubjects();
     this.fetchPaperTypes();
     this.fetchPaperSchools();
+    this.fetchLossPointCatalog();
     this.fetchProgress();
+  },
+
+  fetchLossPointCatalog() {
+    request({ url: "/loss-points" })
+      .then((data) => {
+        const catalog = { editing: [], reading: [], grammar: [], essay: [] };
+        (data?.categories || []).forEach((cat) => {
+          if (cat.code in catalog) {
+            catalog[cat.code] = (cat.points || []).map((p) => ({ id: p.id, label: p.label }));
+          }
+        });
+        this.setData({ lossPointCatalog: catalog }, () => this.refreshActivityChips());
+      })
+      .catch(() => {
+        // Catalog is optional for legacy/non-scored editing; ignore failures.
+      });
+  },
+
+  // Recompute chip selections on every activities update so WXML can render
+  // them declaratively (WeChat WXML can't filter inside templates).
+  decorateActivities(activities) {
+    const catalog = this.data.lossPointCatalog || {};
+    const sections = ["editing", "reading", "grammar", "vocab", "recitation", "essay"];
+    return (activities || []).map((a) => {
+      if (!a || a.type !== "english" || !a.english) return a;
+      const eng = { ...a.english };
+      sections.forEach((code) => {
+        const block = eng[code] || {};
+        let decorated = { ...block };
+
+        if (code === "editing" || code === "reading" || code === "grammar") {
+          const ids = Array.isArray(block.lossPointIds) ? block.lossPointIds : [];
+          const exercises = (Array.isArray(block.exercises) ? block.exercises : []).map((ex) => {
+            const n = ex.score == null || ex.score === "" ? null : Number(ex.score);
+            const isScored = n !== null && Number.isFinite(n);
+            return {
+              ...ex,
+              showProblems: isScored && n < 100,
+              isScored,
+            };
+          });
+          decorated = {
+            ...decorated,
+            exercises,
+            anyImperfect: exercises.some((ex) => ex.showProblems),
+            chips: (catalog[code] || []).map((p) => ({
+              id: p.id,
+              label: p.label,
+              selected: ids.indexOf(p.id) >= 0,
+            })),
+          };
+        }
+
+        decorated.uiSummary = computeSectionSummary(code, decorated);
+        decorated.uiHasData = computeSectionHasData(code, decorated);
+        // Auto-expand sections that already have data when the page first
+        // renders. Once the user toggles, the explicit value sticks.
+        decorated.uiExpanded = block.uiExpanded === undefined ? decorated.uiHasData : block.uiExpanded;
+        eng[code] = decorated;
+      });
+      return { ...a, english: eng };
+    });
+  },
+
+  toggleEnglishSection(e) {
+    const idx = e.currentTarget.dataset.index;
+    const sub = e.currentTarget.dataset.subfield;
+    const a = this.data.activities[idx];
+    const block = a?.english?.[sub] || {};
+    this.updateEnglishBlock(idx, sub, { uiExpanded: !block.uiExpanded });
+  },
+
+  refreshActivityChips() {
+    this.setData({ activities: this.decorateActivities(this.data.activities) });
   },
 
   today() {
@@ -251,7 +517,7 @@ Page({
               attendanceStart: "18:00",
               attendanceEnd: "21:00",
               summary: "",
-              activities: [buildEnglishActivity()],
+              activities: this.decorateActivities([buildEnglishActivity()]),
               lastUpdatedAt: "",
               lastUpdatedBy: "",
               lastUpdatedAtText: "",
@@ -275,7 +541,9 @@ Page({
             attendanceStart: entry.attendanceStart || "18:00",
             attendanceEnd: entry.attendanceEnd || "21:00",
             summary: entry.summary || "",
-            activities: activities.length ? activities : [buildEnglishActivity()],
+            activities: this.decorateActivities(
+              activities.length ? activities : [buildEnglishActivity()],
+            ),
             isEditing: false,
             isEditable: false,
             backup: null,
@@ -307,7 +575,7 @@ Page({
       attendanceLabel: "出席",
       attendanceStart: "18:00",
       attendanceEnd: "21:00",
-      activities: [buildEnglishActivity()],
+      activities: this.decorateActivities([buildEnglishActivity()]),
       lastUpdatedAt: "",
       lastUpdatedBy: "",
       lastUpdatedAtText: "",
@@ -473,20 +741,127 @@ Page({
   },
 
   onActivityChange(e) {
+    // Used for non-V2 fields: generic activity practiceProgress / definitionRecitation,
+    // english.comment. V2 english scored sub-fields go through dedicated handlers
+    // below (so we never accidentally overwrite an object with a string).
     if (!this.data.isEditable) return;
     const index = e.currentTarget.dataset.index;
     const field = e.currentTarget.dataset.field;
-    const subfield = e.currentTarget.dataset.subfield;
     const activities = [...this.data.activities];
-    if (subfield) {
-      activities[index][field] = {
-        ...(activities[index][field] || {}),
-        [subfield]: e.detail.value,
-      };
-    } else {
-      activities[index][field] = e.detail.value;
+    activities[index] = { ...activities[index], [field]: e.detail.value };
+    this.setData({ activities: this.decorateActivities(activities) });
+  },
+
+  // ---- V2 English handlers ----
+
+  updateEnglishBlock(index, sub, patch) {
+    const activities = [...this.data.activities];
+    const a = activities[index];
+    if (!a || a.type !== "english" || !a.english) return;
+    const eng = { ...a.english };
+    eng[sub] = { ...(eng[sub] || {}), ...patch };
+    activities[index] = { ...a, english: eng };
+    this.setData({ activities: this.decorateActivities(activities) });
+  },
+
+  onEnglishTextChange(e) {
+    if (!this.data.isEditable) return;
+    const idx = e.currentTarget.dataset.index;
+    const sub = e.currentTarget.dataset.subfield;
+    this.updateEnglishBlock(idx, sub, { text: e.detail.value });
+  },
+
+  onEnglishScoreChange(e) {
+    if (!this.data.isEditable) return;
+    const idx = e.currentTarget.dataset.index;
+    const sub = e.currentTarget.dataset.subfield;
+    this.updateEnglishBlock(idx, sub, { score: toScoreOrNull(e.detail.value) });
+  },
+
+  onEnglishCountChange(e) {
+    if (!this.data.isEditable) return;
+    const idx = e.currentTarget.dataset.index;
+    const sub = e.currentTarget.dataset.subfield; // editing/reading/grammar/vocab
+    const key = e.currentTarget.dataset.key;       // exerciseCount/articleCount/vocabularySentenceCount
+    if (!key) return;
+    const count = toIntOrZero(e.detail.value);
+    const patch = { [key]: count };
+    if (sub === "editing" || sub === "grammar" || sub === "reading") {
+      const a = this.data.activities[idx];
+      const block = a?.english?.[sub] || {};
+      const existing = Array.isArray(block.exercises) ? block.exercises : [];
+      const next = [];
+      for (let i = 0; i < count; i++) {
+        next.push(existing[i] || { score: null, problems: "" });
+      }
+      patch.exercises = next;
     }
-    this.setData({ activities });
+    this.updateEnglishBlock(idx, sub, patch);
+  },
+
+  onExerciseScoreChange(e) {
+    if (!this.data.isEditable) return;
+    const idx = e.currentTarget.dataset.index;
+    const sub = e.currentTarget.dataset.subfield;
+    const exIdx = Number(e.currentTarget.dataset.exerciseIndex);
+    if (!Number.isInteger(exIdx)) return;
+    const a = this.data.activities[idx];
+    const block = a?.english?.[sub] || {};
+    const list = Array.isArray(block.exercises) ? block.exercises.slice() : [];
+    while (list.length <= exIdx) list.push({ score: null, problems: "" });
+    list[exIdx] = { ...list[exIdx], score: toScoreOrNull(e.detail.value) };
+    this.updateEnglishBlock(idx, sub, { exercises: list });
+  },
+
+  onExerciseProblemsChange(e) {
+    if (!this.data.isEditable) return;
+    const idx = e.currentTarget.dataset.index;
+    const sub = e.currentTarget.dataset.subfield;
+    const exIdx = Number(e.currentTarget.dataset.exerciseIndex);
+    if (!Number.isInteger(exIdx)) return;
+    const a = this.data.activities[idx];
+    const block = a?.english?.[sub] || {};
+    const list = Array.isArray(block.exercises) ? block.exercises.slice() : [];
+    while (list.length <= exIdx) list.push({ score: null, problems: "" });
+    list[exIdx] = { ...list[exIdx], problems: e.detail.value };
+    this.updateEnglishBlock(idx, sub, { exercises: list });
+  },
+
+  onEnglishOtherChange(e) {
+    if (!this.data.isEditable) return;
+    const idx = e.currentTarget.dataset.index;
+    const sub = e.currentTarget.dataset.subfield;
+    this.updateEnglishBlock(idx, sub, { otherLossPointText: e.detail.value });
+  },
+
+  onLossPointToggle(e) {
+    if (!this.data.isEditable) return;
+    const idx = e.currentTarget.dataset.index;
+    const sub = e.currentTarget.dataset.subfield;
+    const id = e.currentTarget.dataset.id;
+    if (!id) return;
+    const a = this.data.activities[idx];
+    const block = a?.english?.[sub] || {};
+    const ids = Array.isArray(block.lossPointIds) ? block.lossPointIds.slice() : [];
+    const at = ids.indexOf(id);
+    if (at >= 0) ids.splice(at, 1);
+    else ids.push(id);
+    // Server re-snapshots labels on save — leave local snapshot unchanged.
+    this.updateEnglishBlock(idx, sub, { lossPointIds: ids });
+  },
+
+  onEssayCompletedToggle(e) {
+    if (!this.data.isEditable) return;
+    const idx = e.currentTarget.dataset.index;
+    // checkbox-group emits e.detail.value as array of selected values
+    const checked = Array.isArray(e.detail.value) ? e.detail.value.includes("done") : !!e.detail.value;
+    this.updateEnglishBlock(idx, "essay", { completed: checked });
+  },
+
+  onEssayTitleChange(e) {
+    if (!this.data.isEditable) return;
+    const idx = e.currentTarget.dataset.index;
+    this.updateEnglishBlock(idx, "essay", { title: e.detail.value });
   },
 
   syncPaperPickers() {
@@ -639,14 +1014,14 @@ Page({
       return;
     }
     const activities = [...this.data.activities, buildActivityForSubject(subject)];
-    this.setData({ activities: ensureEnglishActivity(activities) });
+    this.setData({ activities: this.decorateActivities(ensureEnglishActivity(activities)) });
   },
 
   removeActivity(e) {
     if (!this.data.isEditable) return;
     const index = e.currentTarget.dataset.index;
     const activities = this.data.activities.filter((_, i) => i !== index);
-    this.setData({ activities: ensureEnglishActivity(activities) });
+    this.setData({ activities: this.decorateActivities(ensureEnglishActivity(activities)) });
   },
 
   startEdit() {
@@ -732,6 +1107,32 @@ Page({
       return;
     }
 
+    // Strip the locally-derived helper fields (chips, hasAnyScore, per-exercise
+    // showProblems/isScored) from each english sub-block before saving. They
+    // are precomputed for WXML rendering only — the server doesn't store them.
+    const stripDerived = (eng) => {
+      const out = {};
+      Object.keys(eng || {}).forEach((k) => {
+        const v = eng[k];
+        if (v && typeof v === "object" && !Array.isArray(v)) {
+          // eslint-disable-next-line no-unused-vars
+          const { chips, hasAnyScore, anyImperfect, uiSummary, uiHasData, uiExpanded, ...rest } = v;
+          if (Array.isArray(rest.exercises)) {
+            rest.exercises = rest.exercises.map((ex) => {
+              // eslint-disable-next-line no-unused-vars
+              const { showProblems, isScored, ...exRest } = ex || {};
+              return exRest;
+            });
+          }
+          out[k] = rest;
+        } else {
+          out[k] = v;
+        }
+      });
+      return out;
+    };
+    const stripChips = stripDerived;
+
     const cleaned = ensureEnglishActivity(this.data.activities).map((a) => {
       const type = a.type || (a.english ? "english" : "generic");
       const payload = {
@@ -743,7 +1144,7 @@ Page({
         comment: a.comment || "",
       };
       if (type === "english") {
-        payload.english = a.english || buildEnglishFields();
+        payload.english = stripChips(a.english || buildEnglishFields());
       }
       return payload;
     });
@@ -809,6 +1210,18 @@ Page({
       })
       .catch((err) => {
         if (showConflictModal(err, () => this.fetchProgress())) return;
+        if (err?.error === "LOSS_POINTS_REQUIRED") {
+          const fields = (err.details || [])
+            .map((d) => d.field)
+            .filter((v, i, arr) => arr.indexOf(v) === i)
+            .join("、");
+          wx.showModal({
+            title: "请选择失分点",
+            content: `${fields ? fields + " " : ""}已填写分数，需选择至少一个失分点或填写其他失分点说明`,
+            showCancel: false,
+          });
+          return;
+        }
         if (err?.error?.includes?.("Progress already exists")) {
           wx.showToast({ title: "该日期已有记录", icon: "none" });
           return;

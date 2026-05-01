@@ -4,6 +4,81 @@
     <view class="subtitle">欢迎回来，{{userName}}</view>
   </view>
 
+  <view wx:if="{{isTeacher}}" class="card missing-card">
+    <view class="row-between" bindtap="toggleMissing">
+      <view class="tile-title">今日未记录学生</view>
+      <view class="row-between" style="gap: 12rpx;">
+        <view class="missing-badge {{missingStudents.length > 0 ? 'warn' : ''}}">
+          {{missingLoading ? '...' : missingStudents.length}}
+        </view>
+        <view class="muted">{{missingExpanded ? '收起' : '展开'}}</view>
+      </view>
+    </view>
+    <view class="muted" style="margin-top: 4rpx;">{{missingDate}} · 点击进入记录</view>
+    <block wx:if="{{missingExpanded}}">
+      <view wx:if="{{missingError}}" class="muted" style="margin-top: 12rpx;">{{missingError}}</view>
+      <view wx:elif="{{!missingLoading && missingStudents.length === 0}}" class="muted" style="margin-top: 12rpx;">所有学生今日都已记录</view>
+      <block wx:for="{{missingStudents}}" wx:key="id">
+        <view class="missing-row" data-id="{{item.id}}" bindtap="goRecordMissing">
+          <view>{{item.name}}</view>
+          <view class="muted">Grade {{item.grade}}</view>
+        </view>
+      </block>
+    </block>
+  </view>
+
+  <view wx:if="{{isTeacher}}" class="card missing-card">
+    <view class="row-between" bindtap="toggleUpcoming">
+      <view class="tile-title">即将到来的考试</view>
+      <view class="row-between" style="gap: 12rpx;">
+        <view class="missing-badge {{upcomingExams.length > 0 ? 'warn' : ''}}">
+          {{upcomingLoading ? '...' : upcomingExams.length}}
+        </view>
+        <view class="muted">{{upcomingExpanded ? '收起' : '展开'}}</view>
+      </view>
+    </view>
+    <view class="muted" style="margin-top: 4rpx;">提醒窗口内的考试</view>
+    <block wx:if="{{upcomingExpanded}}">
+      <view wx:if="{{upcomingError}}" class="muted" style="margin-top: 12rpx;">{{upcomingError}}</view>
+      <view wx:elif="{{!upcomingLoading && upcomingExams.length === 0}}" class="muted" style="margin-top: 12rpx;">近期没有考试</view>
+      <block wx:for="{{upcomingExams}}" wx:key="id">
+        <view class="missing-row">
+          <view>
+            <view>{{item.title}}</view>
+            <view class="muted" style="font-size: 22rpx; margin-top: 4rpx;">{{item.subtitle}}</view>
+            <view wx:if="{{item.subjects}}" class="muted" style="font-size: 22rpx; margin-top: 4rpx;">{{item.subjects}}</view>
+          </view>
+        </view>
+      </block>
+    </block>
+  </view>
+
+  <view wx:if="{{isTeacher}}" class="card missing-card">
+    <view class="row-between" bindtap="toggleIncomplete">
+      <view class="tile-title">本周英文任务未完成学生</view>
+      <view class="row-between" style="gap: 12rpx;">
+        <view class="missing-badge {{incompleteStudents.length > 0 ? 'warn' : ''}}">
+          {{incompleteLoading ? '...' : incompleteStudents.length}}
+        </view>
+        <view class="muted">{{incompleteExpanded ? '收起' : '展开'}}</view>
+      </view>
+    </view>
+    <view class="muted" style="margin-top: 4rpx;">{{incompleteCycleStart}} → {{incompleteCycleEnd}}</view>
+    <block wx:if="{{incompleteExpanded}}">
+      <view wx:if="{{incompleteError}}" class="muted" style="margin-top: 12rpx;">{{incompleteError}}</view>
+      <view wx:elif="{{!incompleteLoading && incompleteStudents.length === 0}}" class="muted" style="margin-top: 12rpx;">本周所有学生都已完成必做任务</view>
+      <block wx:for="{{incompleteStudents}}" wx:key="id">
+        <view class="missing-row" data-id="{{item.id}}" bindtap="goRecordMissing">
+          <view>
+            <view>{{item.name}}</view>
+            <view class="muted" style="font-size: 22rpx; margin-top: 4rpx;">未完成：{{item.unmet}}</view>
+          </view>
+          <view class="muted">Grade {{item.grade}}</view>
+        </view>
+      </block>
+    </block>
+  </view>
+
   <view class="dashboard-grid">
     <view wx:if="{{isTeacher}}" class="row-two">
       <view class="card tile" bindtap="goDaily">

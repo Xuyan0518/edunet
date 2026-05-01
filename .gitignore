@@ -24,5 +24,7 @@ dist-ssr
 *.sw?
 
 .env
-Dockerfile.lock 
+Dockerfile.lock
 
+# WeChat DevTools per-user setting (urlCheck, etc.) — never commit
+miniprogram/project.private.config.json

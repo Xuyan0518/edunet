@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,7 @@ import { useI18n } from '@/context/I18nContext';
 import {Badge} from '@/components/ui/badge';
 import { dailyProgress, students, weeklyFeedback } from '@/utils/demoData';
 import { Link } from 'react-router-dom';
+import { api } from '@/services/api';
 
 interface DashboardCardProps {
   title: string;
@@ -124,6 +125,224 @@ const DashboardCard: React.FC<DashboardCardProps> = ({ title, description, icon,
 //   );
 // };
 
+type MissingStudent = { id: string; name: string; grade: string };
+
+type IncompleteEntry = {
+  id: string;
+  name: string;
+  grade: string;
+  completion: {
+    reading: { completed: number; target: number; met: boolean };
+    editing: { completed: number; target: number; met: boolean; required: boolean };
+    grammar: { completed: number; target: number; met: boolean; required: boolean };
+    vocab: { completed: number; target: number; met: boolean };
+    composition: { completed: number; target: number; met: boolean };
+    allRequiredMet: boolean;
+  };
+};
+
+const unmetLabels = (c: IncompleteEntry['completion']): string[] => {
+  const out: string[] = [];
+  if (!c.reading.met) out.push(`阅读 ${c.reading.completed}/${c.reading.target}`);
+  if (c.editing.required && !c.editing.met) out.push(`改错 ${c.editing.completed}/${c.editing.target}`);
+  if (c.grammar.required && !c.grammar.met) out.push(`语法 ${c.grammar.completed}/${c.grammar.target}`);
+  if (!c.vocab.met) out.push(`词汇 ${c.vocab.completed}/${c.vocab.target}`);
+  if (!c.composition.met) out.push(`作文 ${c.composition.completed}/${c.composition.target}`);
+  return out;
+};
+
+type UpcomingExam = {
+  id: string;
+  name: string;
+  examType: string | null;
+  examDate: string;
+  daysUntil: number;
+  student: { id: string; name: string; grade: string };
+  subjects: Array<{ name: string; score: string; scope: string | null }>;
+};
+
+const UpcomingExamsCard: React.FC = () => {
+  const [data, setData] = useState<UpcomingExam[] | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    api.getUpcomingExams().then((res) => {
+      if (cancelled) return;
+      if (res) setData(res.upcoming);
+      setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const count = data?.length ?? 0;
+  return (
+    <Card className="hover-card">
+      <CardHeader>
+        <CardTitle className="flex items-center justify-between">
+          <span>即将到来的考试</span>
+          <Badge variant={count > 0 ? 'default' : 'secondary'}>{loading ? '...' : count}</Badge>
+        </CardTitle>
+        <CardDescription>提醒窗口内的考试</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <p className="text-sm text-muted-foreground">加载中…</p>
+        ) : count === 0 ? (
+          <p className="text-sm text-muted-foreground">近期没有考试</p>
+        ) : (
+          <ul className="space-y-2">
+            {data!.map((e) => (
+              <li key={e.id} className="rounded-md border border-border px-3 py-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">
+                    {e.student.name} · {e.name}
+                    {e.examType ? ` (${e.examType})` : ''}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {e.examDate} · {e.daysUntil > 0 ? `还有 ${e.daysUntil} 天` : e.daysUntil === 0 ? '今天' : `已过 ${-e.daysUntil} 天`}
+                  </span>
+                </div>
+                {e.subjects.length > 0 && (
+                  <ul className="mt-1 text-xs text-muted-foreground space-y-0.5">
+                    {e.subjects.map((s, i) => (
+                      <li key={i}>
+                        · {s.name}
+                        {s.scope ? ` — ${s.scope}` : ''}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
+const IncompleteWeeklyTasksCard: React.FC = () => {
+  const [data, setData] = useState<{
+    cycle: { startDate: string; endDate: string };
+    incomplete: IncompleteEntry[];
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    api.getIncompleteWeeklyTasks().then((res) => {
+      if (cancelled) return;
+      if (res) setData({ cycle: res.cycle, incomplete: res.incomplete });
+      setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const count = data?.incomplete.length ?? 0;
+  return (
+    <Card className="hover-card">
+      <CardHeader>
+        <CardTitle className="flex items-center justify-between">
+          <span>本周英文任务未完成学生</span>
+          <Badge variant={count > 0 ? 'destructive' : 'secondary'}>{loading ? '...' : count}</Badge>
+        </CardTitle>
+        <CardDescription>
+          {data ? `${data.cycle.startDate} → ${data.cycle.endDate}` : '加载中…'}
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <p className="text-sm text-muted-foreground">加载中…</p>
+        ) : count === 0 ? (
+          <p className="text-sm text-muted-foreground">本周所有学生都已完成必做任务</p>
+        ) : (
+          <ul className="space-y-2">
+            {data!.incomplete.map((s) => (
+              <li
+                key={s.id}
+                className="rounded-md border border-border px-3 py-2"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">{s.name}</span>
+                  <span className="text-xs text-muted-foreground">Grade {s.grade}</span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  未完成：{unmetLabels(s.completion).join('、')}
+                </p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
+const MissingDailyProgressCard: React.FC = () => {
+  const [date, setDate] = useState<string>('');
+  const [missing, setMissing] = useState<MissingStudent[] | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    api.getMissingDailyProgress().then((res) => {
+      if (cancelled) return;
+      if (res) {
+        setDate(res.date);
+        setMissing(res.missing);
+      }
+      setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const count = missing?.length ?? 0;
+  return (
+    <Card className="hover-card">
+      <CardHeader>
+        <CardTitle className="flex items-center justify-between">
+          <span>今日未记录学生</span>
+          <Badge variant={count > 0 ? 'destructive' : 'secondary'}>{loading ? '...' : count}</Badge>
+        </CardTitle>
+        <CardDescription>
+          {date ? `${date} · 点击进入记录页面` : '加载中…'}
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <p className="text-sm text-muted-foreground">加载中…</p>
+        ) : count === 0 ? (
+          <p className="text-sm text-muted-foreground">所有学生今日都已记录</p>
+        ) : (
+          <ul className="space-y-2">
+            {missing!.map((s) => (
+              <li key={s.id}>
+                <Link
+                  to={`/progress-form?student=${encodeURIComponent(s.id)}&date=${encodeURIComponent(date)}`}
+                  className="flex items-center justify-between rounded-md border border-border px-3 py-2 hover:bg-accent"
+                >
+                  <span>{s.name}</span>
+                  <span className="text-xs text-muted-foreground">Grade {s.grade}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
 const Dashboard: React.FC = () => {
   const { user, role } = useAuth();
   const { t } = useI18n();
@@ -141,6 +360,14 @@ const Dashboard: React.FC = () => {
             : t('dashboard.welcome.parent', { name: user?.name ?? '' })}
         </p>
       </div>
+
+      {role === 'teacher' && (
+        <div className="mb-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <MissingDailyProgressCard />
+          <IncompleteWeeklyTasksCard />
+          <UpcomingExamsCard />
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         {role === 'teacher' ? (

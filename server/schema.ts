@@ -65,6 +65,91 @@ export const StudentSchema = z.object({
   parentId: z.string().uuid().nullable().optional(),
 });
 
+// Loss-point references stored on each scored English sub-field.
+// (Catalog tables are introduced in Part 4; this shape only describes what
+// the V2 English fields persist on a daily record.)
+export const LossPointRefsSchema = z.object({
+  lossPointIds: z.array(z.string()).default([]),
+  lossPointLabelsSnapshot: z.array(z.string()).default([]),
+  otherLossPointText: z.string().default(''),
+});
+
+// V2 English sub-field schemas. All scored fields share the same loss-point
+// shape; counts vary by field semantically (articleCount/exerciseCount/etc.).
+export const EnglishEditingV2Schema = LossPointRefsSchema.extend({
+  text: z.string().default(''),
+  score: z.number().nullable().default(null),
+  totalScore: z.number().nullable().default(10),
+  exerciseCount: z.number().int().nonnegative().default(0),
+});
+
+export const EnglishReadingV2Schema = LossPointRefsSchema.extend({
+  text: z.string().default(''),
+  score: z.number().nullable().default(null),
+  totalScore: z.number().nullable().default(10),
+  articleCount: z.number().int().nonnegative().default(0),
+});
+
+export const EnglishGrammarV2Schema = LossPointRefsSchema.extend({
+  text: z.string().default(''),
+  score: z.number().nullable().default(null),
+  totalScore: z.number().nullable().default(10),
+  exerciseCount: z.number().int().nonnegative().default(0),
+});
+
+export const EnglishVocabV2Schema = z.object({
+  text: z.string().default(''),
+  vocabularySentenceCount: z.number().int().nonnegative().default(0),
+});
+
+export const EnglishRecitationV2Schema = z.object({
+  text: z.string().default(''),
+});
+
+export const EnglishEssayV2Schema = LossPointRefsSchema.extend({
+  text: z.string().default(''),
+  title: z.string().default(''),
+  completed: z.boolean().default(false),
+  score: z.number().nullable().default(null),
+  totalScore: z.number().nullable().default(null),
+});
+
+export const EnglishFieldsV2Schema = z.object({
+  editing: EnglishEditingV2Schema,
+  reading: EnglishReadingV2Schema,
+  grammar: EnglishGrammarV2Schema,
+  vocab: EnglishVocabV2Schema,
+  recitation: EnglishRecitationV2Schema,
+  essay: EnglishEssayV2Schema,
+});
+
+// Activity payload is intentionally permissive: legacy clients still send
+// strings inside `english` and bare {subject, description, performance, notes}
+// objects. Normalization happens server-side via normalizeActivities() before
+// persist and on read. We keep validation loose here to avoid rejecting valid
+// historical data on read.
+export const DailyProgressActivitySchema = z
+  .object({
+    // Legacy keys
+    subject: z.string().optional(),
+    description: z.string().optional(),
+    performance: z.string().optional(),
+    notes: z.string().optional(),
+    // Miniprogram keys
+    subjectId: z.string().optional(),
+    subjectName: z.string().optional(),
+    subjectDisplayName: z.string().optional(),
+    type: z.string().optional(),
+    practiceProgress: z.string().optional(),
+    definitionRecitation: z.string().optional(),
+    comment: z.string().optional(),
+    papers: z.array(z.unknown()).optional(),
+    locked: z.boolean().optional(),
+    // English block: legacy strings or V2 objects, both accepted on input.
+    english: z.unknown().optional(),
+  })
+  .passthrough();
+
 export const DailyProgressSchema = z.object({
   id: z.string().uuid().optional(),
   studentId: z.string().uuid(), // Changed from number
@@ -73,14 +158,22 @@ export const DailyProgressSchema = z.object({
   attendanceStart: z.string().optional(),
   attendanceEnd: z.string().optional(),
   summary: z.string().optional(),
-  activities: z.array(
-    z.object({
-      subject: z.string(),
-      description: z.string(),
-      performance: z.string(),
-      notes: z.string().optional()
-    })
-  ),
+  activities: z.array(DailyProgressActivitySchema),
+});
+
+// Wire-format request body for POST/PUT /api/progress (Part 9). Differs from
+// DailyProgressSchema in that `date` is the YYYY-MM-DD string the client
+// actually sends rather than a JS Date, and attendance times are HH:mm
+// strings. updatedAt is required for PUT only — endpoint validates that
+// separately.
+export const DailyProgressRequestSchema = z.object({
+  studentId: z.string().uuid({ message: 'studentId must be a UUID' }),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, { message: 'date must be YYYY-MM-DD' }),
+  attendance: z.enum(['present', 'absent', 'late']),
+  attendanceStart: z.string().regex(/^\d{2}:\d{2}$/).nullable().optional(),
+  attendanceEnd: z.string().regex(/^\d{2}:\d{2}$/).nullable().optional(),
+  summary: z.string().nullable().optional(),
+  activities: z.array(DailyProgressActivitySchema).min(1, 'At least one activity is required'),
 });
 
 export const WeeklyFeedbackSchema = z.object({
@@ -95,17 +188,28 @@ export const WeeklyFeedbackSchema = z.object({
   nextWeekFocus: z.string().optional()
 });
 
+// Exam types for the assessment cycle. Stored as a free-form varchar in DB so
+// we can accept legacy/null values, but new writes are validated against this
+// enum at the API boundary.
+export const EXAM_TYPES = ['WA1', 'WA2', 'WA3', 'FINALS'] as const;
+export type ExamType = (typeof EXAM_TYPES)[number];
+
 export const ExamSchema = z.object({
   id: z.string().uuid().optional(),
   studentId: z.string().uuid(),
   name: z.string().min(1).max(50),
+  examType: z.enum(EXAM_TYPES).nullable().optional(),
+  reminderDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
 });
 
 export const ExamScoreSchema = z.object({
   id: z.string().uuid().optional(),
   examId: z.string().uuid(),
   name: z.string().min(1).max(50),
-  score: z.string().min(1).max(20),
+  // Score becomes optional so an exam can be SCHEDULED before it is taken;
+  // POST/PUT semantics: empty score → scheduled, non-empty → recorded result.
+  score: z.string().max(20).optional().default(''),
+  scope: z.string().nullable().optional(),
 });
 
 export const QuarterlySummarySchema = z.object({
@@ -241,14 +345,13 @@ export const dailyProgress = pgTable('daily_progress', {
   attendanceStart: varchar('attendance_start', { length: 5 }),
   attendanceEnd: varchar('attendance_end', { length: 5 }),
   summary: text('summary'),
-  activities: jsonb('activities').$type<
-    {
-      subject: string;
-      description: string;
-      performance: string;
-      notes?: string;
-    }[]
-  >().notNull(),
+  // Activities is intentionally typed loosely: legacy rows persist
+  // {subject, description, performance, notes} and miniprogram rows persist
+  // {subjectId, subjectName, type, english:{...}, comment, papers}, while V2
+  // English fields are objects with text/score/counts/lossPointIds.
+  // Always run rows through normalizeActivities() (server/utils/englishNormalize)
+  // before exposing to consumers — types here are advisory only.
+  activities: jsonb('activities').$type<Record<string, unknown>[]>().notNull(),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
   updatedByName: varchar('updated_by_name', { length: 100 }),
@@ -278,6 +381,11 @@ export const examsTable = pgTable('exams', {
   studentId: uuid('student_id').references(() => studentsTable.id).notNull(),
   name: varchar('name', { length: 50 }).notNull(),
   examDate: date('exam_date').notNull(),
+  // Part 6: assessment cycle (WA1 / WA2 / WA3 / FINALS) and the date from which
+  // the exam should appear on the upcoming-exams dashboard card. Null means
+  // the operator has not categorised the exam yet — UI falls back to "其他".
+  examType: varchar('exam_type', { length: 20 }),
+  reminderDate: date('reminder_date'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
   updatedByName: varchar('updated_by_name', { length: 100 }),
@@ -287,7 +395,16 @@ export const examScoresTable = pgTable('exam_scores', {
   id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
   examId: uuid('exam_id').references(() => examsTable.id).notNull(),
   name: varchar('name', { length: 50 }).notNull(),
-  score: varchar('score', { length: 20 }).notNull(),
+  // Score is now nullable: an exam can be SCHEDULED (no score yet) and later
+  // EDITED to record the result. Existing rows keep their values; new
+  // scheduled-only rows write empty string.
+  score: varchar('score', { length: 20 }).notNull().default(''),
+  // Per-subject scope text for the upcoming exam (e.g. "Chapters 5-8, focus
+  // on quadratic equations"). Null on legacy rows.
+  scope: text('scope'),
+  // Per-subject exam date. Null falls back to the parent exam's exam_date.
+  // Lets a single exam group (e.g. WA2) span multiple sittings.
+  examDate: date('exam_date'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -391,6 +508,132 @@ export const studentPapersTable = pgTable('student_papers', {
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
   updatedByName: varchar('updated_by_name', { length: 100 }),
+});
+
+// ====== Weekly study cycles & per-student weekly task targets (Part 3) ======
+// Cycles default to Sunday → Thursday but are stored explicitly so teachers
+// can shift weeks for holidays / makeups. When no row covers a given date,
+// the server synthesises a Sun→Thu fallback (see server/utils/weeklyCycles.ts).
+export const weeklyStudyCyclesTable = pgTable('weekly_study_cycles', {
+  id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
+  startDate: date('start_date').notNull(),
+  endDate: date('end_date').notNull(),
+  notes: text('notes'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+  updatedByName: varchar('updated_by_name', { length: 100 }),
+}, (table) => ({
+  uqCycleStartEnd: uniqueIndex('uq_weekly_cycle_start_end').on(table.startDate, table.endDate),
+}));
+
+// Per (student, cycle) target overrides. Missing row → use hardcoded defaults
+// (5 reading / 5 editing / 5 grammar / 50 vocab / 1 composition; both required).
+export const studentWeeklyTaskTargetsTable = pgTable('student_weekly_task_targets', {
+  id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
+  studentId: uuid('student_id').references(() => studentsTable.id).notNull(),
+  cycleId: uuid('cycle_id').references(() => weeklyStudyCyclesTable.id).notNull(),
+  readingTarget: integer('reading_target').notNull().default(5),
+  editingTarget: integer('editing_target').notNull().default(5),
+  grammarTarget: integer('grammar_target').notNull().default(5),
+  vocabTarget: integer('vocab_target').notNull().default(50),
+  compositionTarget: integer('composition_target').notNull().default(1),
+  isGrammarRequired: boolean('is_grammar_required').notNull().default(true),
+  isEditingRequired: boolean('is_editing_required').notNull().default(true),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+  updatedByName: varchar('updated_by_name', { length: 100 }),
+}, (table) => ({
+  uqStudentCycle: uniqueIndex('uq_student_weekly_targets').on(table.studentId, table.cycleId),
+}));
+
+export const WeeklyStudyCycleSchema = z.object({
+  id: z.string().uuid().optional(),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  notes: z.string().optional().nullable(),
+});
+
+export const StudentWeeklyTaskTargetsSchema = z.object({
+  id: z.string().uuid().optional(),
+  studentId: z.string().uuid(),
+  cycleId: z.string().uuid(),
+  readingTarget: z.number().int().nonnegative().default(5),
+  editingTarget: z.number().int().nonnegative().default(5),
+  grammarTarget: z.number().int().nonnegative().default(5),
+  vocabTarget: z.number().int().nonnegative().default(50),
+  compositionTarget: z.number().int().nonnegative().default(1),
+  isGrammarRequired: z.boolean().default(true),
+  isEditingRequired: z.boolean().default(true),
+});
+
+// ====== Academic terms (Part 8) ======
+// Term config for the academic year. termType is one of EXAM_TYPES (WA1/WA2/
+// WA3/FINALS) — the term leading up to that assessment. Teachers configure
+// per academic year. Used by the Part 7 term-analytics endpoint to default
+// the date window when caller omits startDate/endDate.
+export const academicTermsTable = pgTable('academic_terms', {
+  id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
+  year: integer('year').notNull(),
+  termType: varchar('term_type', { length: 20 }).notNull(),
+  startDate: date('start_date').notNull(),
+  endDate: date('end_date').notNull(),
+  notes: text('notes'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+  updatedByName: varchar('updated_by_name', { length: 100 }),
+}, (table) => ({
+  uqYearTerm: uniqueIndex('uq_academic_terms_year_term').on(table.year, table.termType),
+}));
+
+export const AcademicTermSchema = z.object({
+  id: z.string().uuid().optional(),
+  year: z.number().int().min(2000).max(3000),
+  termType: z.enum(['WA1', 'WA2', 'WA3', 'FINALS']),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  notes: z.string().nullable().optional(),
+});
+
+// ====== Loss-point catalog (Part 4) ======
+// Categories scope loss points to a particular English sub-skill (editing /
+// reading / grammar / essay). Teachers select from the catalog when entering
+// scores; teachers cannot create new loss points (per spec).
+export const lossPointCategoriesTable = pgTable('loss_point_categories', {
+  id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
+  code: varchar('code', { length: 64 }).notNull().unique(),
+  name: varchar('name', { length: 120 }).notNull(),
+  orderIndex: integer('order_index').notNull().default(0),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const lossPointsTable = pgTable('loss_points', {
+  id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
+  categoryId: uuid('category_id').references(() => lossPointCategoriesTable.id).notNull(),
+  code: varchar('code', { length: 64 }).notNull(),
+  label: varchar('label', { length: 200 }).notNull(),
+  description: text('description'),
+  orderIndex: integer('order_index').notNull().default(0),
+  isActive: boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (table) => ({
+  uqCategoryCode: uniqueIndex('uq_loss_point_category_code').on(table.categoryId, table.code),
+}));
+
+export const LossPointCategorySchema = z.object({
+  id: z.string().uuid().optional(),
+  code: z.string().max(64),
+  name: z.string().max(120),
+  orderIndex: z.number().int().nonnegative().default(0),
+});
+
+export const LossPointSchema = z.object({
+  id: z.string().uuid().optional(),
+  categoryId: z.string().uuid(),
+  code: z.string().max(64),
+  label: z.string().max(200),
+  description: z.string().nullable().optional(),
+  orderIndex: z.number().int().nonnegative().default(0),
+  isActive: z.boolean().default(true),
 });
 
 // TypeScript Types (automatically includes UUID strings)

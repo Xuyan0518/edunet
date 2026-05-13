@@ -33,6 +33,12 @@
     <view class="field-label" style="margin-top: 12rpx;">试卷描述</view>
     <input class="input" placeholder="例如：试卷一" value="{{description}}" bindinput="onDescriptionInput" />
 
+    <view class="field-label" style="margin-top: 12rpx;">做得好的地方 *</view>
+    <textarea class="input textarea-scroll" style="height: 140rpx;" placeholder="例如：审题更仔细，基础题稳定" value="{{strengths}}" bindinput="onStrengthsInput" maxlength="-1"></textarea>
+
+    <view class="field-label" style="margin-top: 12rpx;">需要改进的地方 *</view>
+    <textarea class="input textarea-scroll" style="height: 140rpx;" placeholder="例如：计算步骤不够完整，压轴题时间不足" value="{{improvements}}" bindinput="onImprovementsInput" maxlength="-1"></textarea>
+
     <view class="field-label" style="margin-top: 12rpx;">日期</view>
     <picker mode="date" value="{{date}}" bindchange="onDateChange">
       <view class="chip">{{date}}</view>
@@ -74,6 +80,8 @@
                     <view class="paper-score-strong">{{paper.score || "-"}}/{{paper.total || "-"}}</view>
                   </view>
                   <view wx:if="{{paper.description}}" class="muted">{{paper.description}}</view>
+                  <view wx:if="{{paper.strengths}}" class="muted">做得好的地方：{{paper.strengths}}</view>
+                  <view wx:if="{{paper.improvements}}" class="muted">需要改进的地方：{{paper.improvements}}</view>
                 </view>
                 <view class="row" wx:if="{{isTeacher}}">
                   <button class="btn-outline" size="mini" data-id="{{paper.id}}" bindtap="startEdit">编辑</button>

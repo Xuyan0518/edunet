@@ -46,11 +46,27 @@ const decorateTopic = (topic) => {
 const countTopics = (topics) =>
   (topics || []).reduce((sum, t) => sum + 1 + countTopics(t.children || []), 0);
 
+const collectTopicStatus = (topics = []) => {
+  const bucket = { completed: 0, in_progress: 0, not_started: 0 };
+  const walk = (nodes) => {
+    (nodes || []).forEach((n) => {
+      const status = n.status || "not_started";
+      if (status === "completed" || status === "in_progress" || status === "not_started") {
+        bucket[status] += 1;
+      }
+      if (n.children && n.children.length) walk(n.children);
+    });
+  };
+  walk(topics);
+  return bucket;
+};
+
 Page({
   data: {
     student: {},
     subjects: [],
     isTeacher: false,
+    isParent: false,
     expandedSubjects: {},
     expandedTopics: {},
     parents: [],
@@ -60,13 +76,15 @@ Page({
     parentName: "",
     dailyUnread: false,
     weeklyUnread: false,
+    parentStudents: [],
   },
 
   onLoad(query) {
     this.studentId = query.id;
     const user = wx.getStorageSync("user");
     const isTeacher = user?.role === "teacher";
-    this.setData({ isTeacher });
+    const isParent = user?.role === "parent";
+    this.setData({ isTeacher, isParent });
     if (isTeacher) this.fetchParents();
   },
 
@@ -84,6 +102,7 @@ Page({
     const tasks = [this.fetchStudent(), this.fetchSubjects()];
     if (!this.data.isTeacher) {
       tasks.push(this.checkWeeklyUnread());
+      tasks.push(this.fetchParentStudents());
     }
     return Promise.all(tasks);
   },
@@ -124,6 +143,7 @@ Page({
       .then((data) => {
         const subjects = (data || []).map((entry) => {
           const topics = (entry.topics || []).map(decorateTopic);
+          const statusSummary = collectTopicStatus(topics);
           const subject = entry.subject
             ? { ...entry.subject, displayName: formatSubjectName(entry.subject.name) }
             : entry.subject;
@@ -132,6 +152,7 @@ Page({
             topics,
             mainCount: topics.length,
             totalCount: countTopics(topics),
+            statusSummary,
           };
         });
         const expandedSubjects = { ...this.data.expandedSubjects };
@@ -147,6 +168,18 @@ Page({
         this.setData({ subjects, expandedSubjects, expandedTopics });
       })
       .catch(() => wx.showToast({ title: "获取科目失败", icon: "error" }));
+  },
+
+  fetchParentStudents() {
+    if (!this.data.isParent) return Promise.resolve();
+    return request({ url: "/students" })
+      .then((data) => {
+        const list = Array.isArray(data) ? data : [];
+        this.setData({ parentStudents: list });
+      })
+      .catch(() => {
+        this.setData({ parentStudents: [] });
+      });
   },
 
   checkDailyUnread() {
@@ -243,6 +276,16 @@ Page({
 
   openYearlySummary() {
     wx.navigateTo({ url: `/pages/yearly-summary/index?studentId=${this.studentId}` });
+  },
+
+  goSettings() {
+    wx.navigateTo({ url: "/pages/settings/index" });
+  },
+
+  switchStudent(e) {
+    const id = e?.currentTarget?.dataset?.id;
+    if (!id || id === this.studentId) return;
+    wx.redirectTo({ url: `/pages/student-detail/index?id=${id}` });
   },
 
   manageSubjects() {

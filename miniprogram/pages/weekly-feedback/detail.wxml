@@ -23,29 +23,47 @@
     <block wx:if="{{!progressLoading && progressEntries.length === 0}}">
       <view class="muted">本周暂无每日进度</view>
     </block>
-    <block wx:for="{{progressEntries}}" wx:key="id">
+    <block wx:for="{{progressEntries}}" wx:for-item="day" wx:key="id">
       <view class="daily-card">
-        <view class="row-between">
-          <view class="title-small">{{item.date}}</view>
-          <view class="chip">{{item.attendanceLabel}}</view>
+        <view class="row-between daily-head" data-key="{{day.id || day.date}}" bindtap="toggleProgressEntry">
+          <view>
+            <view class="title-small">{{day.date}}</view>
+            <view class="muted daily-preview">{{day.previewText}}</view>
+          </view>
+          <view class="row">
+            <view class="chip">{{day.attendanceLabel}}</view>
+            <view class="muted">{{expandedProgressMap[day.id || day.date] ? "收起" : "展开"}}</view>
+          </view>
         </view>
-        <view class="muted" wx:if="{{item.attendanceStart || item.attendanceEnd}}">
-          时间 {{item.attendanceStart || "--"}} - {{item.attendanceEnd || "--"}}
+        <view class="muted" wx:if="{{day.attendanceStart || day.attendanceEnd}}">
+          时间 {{day.attendanceStart || "--"}} - {{day.attendanceEnd || "--"}}
         </view>
-        <block wx:for="{{item.activities}}" wx:key="index">
-          <view class="activity-card">
-            <view class="field-label">{{item.subjectDisplayName || item.subjectName || "科目"}}</view>
-            <block wx:if="{{item.type === 'english'}}">
-              <view class="muted">Editing：{{item.english.editing}}</view>
-              <view class="muted">词汇：{{item.english.vocab}}</view>
-              <view class="muted">阅读理解：{{item.english.reading}}</view>
-              <view class="muted">单词句子背诵：{{item.english.recitation}}</view>
-              <view class="muted">作文：{{item.english.essay}}</view>
-            </block>
-            <block wx:else>
-              <view class="muted">练习进度：{{item.practiceProgress}}</view>
-              <view class="muted">定义背诵：{{item.definitionRecitation}}</view>
-            </block>
+        <block wx:if="{{expandedProgressMap[day.id || day.date]}}">
+          <block wx:for="{{day.activities}}" wx:for-item="activity" wx:key="index">
+            <view class="activity-card">
+              <view class="field-label">{{activity.subjectDisplayName || activity.subjectName || "科目"}}</view>
+              <view class="activity-summary">{{activity.summaryLine || "已记录"}}</view>
+              <block wx:for="{{activity.detailLines}}" wx:for-item="line" wx:key="index">
+                <view class="muted">- {{line.label}}：{{line.value}}</view>
+              </block>
+              <block wx:if="{{activity.papers && activity.papers.length}}">
+                <view class="paper-title">试卷 / 测验</view>
+                <block wx:for="{{activity.papers}}" wx:for-item="paper" wx:key="index">
+                  <view class="paper-item">
+                    <view>{{paper.title}}</view>
+                    <view class="muted" wx:if="{{paper.typeName || paper.schoolName}}">
+                      {{paper.typeName || "--"}} · {{paper.schoolName || "--"}}
+                    </view>
+                    <view class="muted" wx:if="{{paper.strengths}}">做得好的地方：{{paper.strengths}}</view>
+                    <view class="muted" wx:if="{{paper.improvements}}">需要改进的地方：{{paper.improvements}}</view>
+                  </view>
+                </block>
+              </block>
+            </view>
+          </block>
+          <view wx:if="{{day.summary}}" class="daily-summary">
+            <view class="field-label">当日总结</view>
+            <view class="muted">{{day.summary}}</view>
           </view>
         </block>
       </view>

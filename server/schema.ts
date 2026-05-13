@@ -502,6 +502,8 @@ export const studentPapersTable = pgTable('student_papers', {
   typeId: uuid('type_id').references(() => paperTypesTable.id).notNull(),
   schoolId: uuid('school_id').references(() => paperSchoolsTable.id).notNull(),
   description: text('description'),
+  strengths: text('strengths'),
+  improvements: text('improvements'),
   date: date('date').notNull(),
   score: integer('score'),
   total: integer('total'),

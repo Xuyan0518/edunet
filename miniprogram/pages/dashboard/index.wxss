@@ -63,3 +63,32 @@
   border: 1rpx solid #e5e7eb;
   border-radius: 12rpx;
 }
+
+.parent-focus-card {
+  border: 1rpx solid #bfdbfe;
+  background: linear-gradient(135deg, #ffffff 0%, #eff6ff 100%);
+  margin-bottom: 20rpx;
+}
+
+.parent-student-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18rpx 16rpx;
+  margin-top: 12rpx;
+  border: 1rpx solid #dbeafe;
+  border-radius: 14rpx;
+  background: #ffffff;
+}
+
+.empty-state {
+  border: 1rpx dashed #93c5fd;
+  border-radius: 14rpx;
+  padding: 18rpx;
+  background: #f8fbff;
+}
+
+.empty-title {
+  font-weight: 700;
+  margin-bottom: 6rpx;
+}

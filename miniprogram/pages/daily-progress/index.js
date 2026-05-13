@@ -42,11 +42,6 @@ Page({
 
   onShow() {
     const user = wx.getStorageSync("user");
-    if (user?.role === "parent") {
-      wx.showToast({ title: "家长仅查看每周汇报", icon: "none" });
-      wx.navigateBack();
-      return;
-    }
     this.setData({ isTeacher: user?.role === "teacher" });
     this.fetchStudents();
   },

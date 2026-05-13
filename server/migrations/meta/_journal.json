@@ -181,6 +181,13 @@
       "when": 1777987200000,
       "tag": "0025_add_per_subject_exam_date",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1778073600000,
+      "tag": "0026_add_paper_strengths_improvements",
+      "breakpoints": true
     }
   ]
 }

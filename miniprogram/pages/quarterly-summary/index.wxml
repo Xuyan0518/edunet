@@ -30,6 +30,9 @@
       <button wx:if="{{isTeacher}}" class="btn-outline" size="mini" bindtap="generateSummary" disabled="{{aiLoading}}">
         {{aiLoading ? "生成中..." : "自动生成"}}
       </button>
+      <button wx:if="{{isTeacher}}" class="btn-outline" size="mini" bindtap="exportRangeReport" disabled="{{exportLoading}}">
+        {{exportLoading ? "导出中..." : "导出范围报告"}}
+      </button>
       <button class="btn-outline" size="mini" bindtap="openSummaryView" disabled="{{!summary}}">
         查看全文
       </button>

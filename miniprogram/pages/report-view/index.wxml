@@ -5,6 +5,11 @@
   </view>
 
   <view class="section card">
+    <view class="row" style="margin-bottom: 12rpx;">
+      <button class="btn-outline" size="mini" bindtap="copyContent">复制内容</button>
+      <button wx:if="{{exportReady}}" class="btn-outline" size="mini" bindtap="saveToLocal" loading="{{saving}}">保存到本地</button>
+    </view>
+    <view wx:if="{{exportReady}}" class="muted" style="margin-bottom: 10rpx;">支持复制 Markdown；保存后可在微信内预览并转发。</view>
     <view class="report-content" selectable="true">{{content || "暂无内容"}}</view>
   </view>
 </view>

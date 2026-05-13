@@ -1,5 +1,7 @@
 .subject-card {
   margin-top: 16rpx;
+  border: 1rpx solid #dbeafe;
+  background: linear-gradient(180deg, #ffffff 0%, #eff6ff 100%);
 }
 
 .subject-title {
@@ -72,4 +74,54 @@
   background: #2563eb;
   border-color: #2563eb;
   color: #fff;
+}
+
+.status-summary-row {
+  display: flex;
+  gap: 12rpx;
+  flex-wrap: wrap;
+  margin-top: 10rpx;
+}
+
+.status-pill {
+  padding: 8rpx 18rpx;
+  border-radius: 999rpx;
+  font-size: 22rpx;
+  font-weight: 700;
+}
+
+.completed-pill {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.progress-pill {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.waiting-pill {
+  background: #e2e8f0;
+  color: #475569;
+}
+
+.parent-student-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12rpx;
+  padding: 14rpx;
+  border: 1rpx solid #dbeafe;
+  border-radius: 14rpx;
+  background: #ffffff;
+}
+
+.active-parent-student-row {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+.parent-actions-card {
+  border: 1rpx solid #bfdbfe;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
 }

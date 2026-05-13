@@ -5,6 +5,7 @@ Page({
   data: {
     userName: "",
     isTeacher: false,
+    isParent: false,
     manageOpen: false,
     missingDate: "",
     missingStudents: [],
@@ -27,6 +28,9 @@ Page({
     upcomingLoading: false,
     upcomingError: "",
     upcomingExpanded: false,
+    parentStudents: [],
+    parentStudentsLoading: false,
+    parentStudentsError: "",
   },
 
   onShow() {
@@ -36,16 +40,50 @@ Page({
       return;
     }
     const isTeacher = user?.role === "teacher";
+    const isParent = user?.role === "parent";
     this.setData({
       userName: resolveDisplayName(user),
       isTeacher,
+      isParent,
     });
+    if (isParent) {
+      this.loadParentStudentsAndRedirect();
+      return;
+    }
     if (isTeacher) {
       this.loadMissing();
       this.loadWeeklyMissing();
       this.loadIncomplete();
       this.loadUpcomingExams();
     }
+  },
+
+  loadParentStudentsAndRedirect() {
+    this.setData({ parentStudentsLoading: true, parentStudentsError: "" });
+    request({ url: "/students" })
+      .then((data) => {
+        const students = Array.isArray(data) ? data : [];
+        if (students.length === 1) {
+          wx.reLaunch({ url: `/pages/student-detail/index?id=${students[0].id}` });
+          return;
+        }
+        this.setData({
+          parentStudents: students,
+          parentStudentsLoading: false,
+        });
+      })
+      .catch(() => {
+        this.setData({
+          parentStudentsLoading: false,
+          parentStudentsError: "加载学生失败，请稍后重试",
+        });
+      });
+  },
+
+  openParentStudent(e) {
+    const id = e?.currentTarget?.dataset?.id;
+    if (!id) return;
+    wx.navigateTo({ url: `/pages/student-detail/index?id=${id}` });
   },
 
   loadUpcomingExams() {

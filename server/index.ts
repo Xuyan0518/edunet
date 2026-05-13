@@ -40,6 +40,7 @@ import {
   type ResolvedCycle,
 } from './utils/weeklyCycles';
 import { validateLossPointsRequired } from './utils/englishValidation';
+import { validateActivityNarratives } from './utils/activityNarrativeValidation';
 import { enrichLossPointLabels, type LossPointLookup } from './utils/lossPointLabels';
 import {
   ENHANCED_WEEKLY_PROMPT,
@@ -214,6 +215,24 @@ const parseOptionalInt = (value: unknown) => {
   return Math.trunc(num);
 };
 
+const requirePaperEvaluations = (
+  papers: unknown[],
+): { ok: true } | { ok: false; details: Array<{ index: number; missingFields: string[] }> } => {
+  const details: Array<{ index: number; missingFields: string[] }> = [];
+  papers.forEach((raw, index) => {
+    const paper = (raw && typeof raw === 'object') ? (raw as Record<string, unknown>) : {};
+    const strengths = String(paper.strengths || '').trim();
+    const improvements = String(paper.improvements || '').trim();
+    const missingFields: string[] = [];
+    if (!strengths) missingFields.push('strengths');
+    if (!improvements) missingFields.push('improvements');
+    if (missingFields.length) {
+      details.push({ index, missingFields });
+    }
+  });
+  return details.length ? { ok: false, details } : { ok: true };
+};
+
 type WeChatSessionResponse = {
   openid?: string;
   unionid?: string;
@@ -339,6 +358,116 @@ const getSubjectProgressSummary = async (studentId: string) => {
     map.set(row.subjectId, item);
   });
   return Array.from(map.values());
+};
+
+const toDateString = (value: string | Date | null | undefined) => {
+  if (!value) return '';
+  if (typeof value === 'string') return value.slice(0, 10);
+  return format(value, 'yyyy-MM-dd');
+};
+
+const buildMarkdownReport = (params: {
+  studentName: string;
+  grade: string;
+  startDate: string;
+  endDate: string;
+  subjectProgress: Array<{
+    subjectName: string;
+    totalTopics: number;
+    completed: number;
+    inProgress: number;
+    notStarted: number;
+  }>;
+  daily: Array<any>;
+  weekly: Array<any>;
+  papers: Array<any>;
+  exams: Array<any>;
+}) => {
+  const lines: string[] = [];
+  lines.push(`# 学生学习总结报告`);
+  lines.push('');
+  lines.push(`- 学生：${params.studentName}`);
+  lines.push(`- 年级：${params.grade}`);
+  lines.push(`- 日期范围：${params.startDate} ~ ${params.endDate}`);
+  lines.push(`- 生成时间：${format(new Date(), 'yyyy-MM-dd HH:mm')}`);
+  lines.push('');
+
+  lines.push('## 章节完成情况');
+  if (!params.subjectProgress.length) {
+    lines.push('- 暂无章节进度数据');
+  } else {
+    params.subjectProgress.forEach((s) => {
+      lines.push(`- ${s.subjectName || '未命名科目'}：完成 ${s.completed}/${s.totalTopics}，进行中 ${s.inProgress}，未开始 ${s.notStarted}`);
+    });
+  }
+  lines.push('');
+
+  lines.push('## 每日进度');
+  if (!params.daily.length) {
+    lines.push('- 暂无每日进度');
+  } else {
+    params.daily.forEach((d) => {
+      lines.push(`### ${toDateString(d.date)}`);
+      lines.push(`- 出勤：${d.attendance || '-'}`);
+      if (d.summary) lines.push(`- 当日总结：${String(d.summary).trim()}`);
+      const activities = Array.isArray(d.activities) ? d.activities : [];
+      if (activities.length) {
+        activities.forEach((a: any, idx: number) => {
+          const subject = a?.subjectDisplayName || a?.subjectName || a?.subject || `科目${idx + 1}`;
+          const taskSummary = String(a?.taskSummary || a?.practiceProgress || a?.description || '').trim();
+          const strengths = String(a?.strengths || '').trim();
+          const improvements = String(a?.improvements || '').trim();
+          lines.push(`- ${subject}`);
+          if (taskSummary) lines.push(`  - 学生具体做了什么：${taskSummary}`);
+          if (strengths) lines.push(`  - 做得好的地方：${strengths}`);
+          if (improvements) lines.push(`  - 需要改进的地方：${improvements}`);
+        });
+      }
+      lines.push('');
+    });
+  }
+
+  lines.push('## 每周反馈');
+  if (!params.weekly.length) {
+    lines.push('- 暂无每周反馈');
+  } else {
+    params.weekly.forEach((w) => {
+      lines.push(`- ${toDateString(w.weekStarting)} ~ ${toDateString(w.weekEnding)}：${String(w.summary || '').trim() || '无'}`);
+    });
+  }
+  lines.push('');
+
+  lines.push('## 试卷 / 测验记录');
+  if (!params.papers.length) {
+    lines.push('- 暂无试卷记录');
+  } else {
+    params.papers.forEach((p) => {
+      lines.push(`- ${toDateString(p.date)}｜${p.subjectName || '未指定科目'}｜${p.typeName || '未分类类型'}｜${p.schoolName || '未指定学校'}｜${p.score ?? '-'} / ${p.total ?? '-'}`);
+      if (p.description) lines.push(`  - 描述：${String(p.description).trim()}`);
+      if (p.strengths) lines.push(`  - 做得好的地方：${String(p.strengths).trim()}`);
+      if (p.improvements) lines.push(`  - 需要改进的地方：${String(p.improvements).trim()}`);
+    });
+  }
+  lines.push('');
+
+  lines.push('## 考试成绩');
+  if (!params.exams.length) {
+    lines.push('- 暂无考试成绩');
+  } else {
+    params.exams.forEach((e) => {
+      lines.push(`- ${e.name}（${toDateString(e.examDate)}）`);
+      const subjects = Array.isArray(e.subjects) ? e.subjects : [];
+      if (!subjects.length) {
+        lines.push('  - 暂无科目成绩');
+      } else {
+        subjects.forEach((s: any) => {
+          lines.push(`  - ${s.name}：${s.score || '未录入'}${s.scope ? `；范围：${s.scope}` : ''}`);
+        });
+      }
+    });
+  }
+  lines.push('');
+  return lines.join('\n');
 };
 
 // ========== TEACHER ROUTES ==========
@@ -1435,6 +1564,160 @@ app.get(
   },
 );
 
+// ====== REPORT EXPORT ======
+// Generate a student summary report within a custom date range.
+// Currently supports markdown export for Mini Program preview/copy/share flows.
+app.get('/api/students/:studentId/report-export', authenticate, verifyParentStudentAccess, async (req, res) => {
+  const { studentId } = req.params;
+  const startDate = parseDateString(req.query?.startDate);
+  const endDate = parseDateString(req.query?.endDate);
+  const formatType = String(req.query?.format || 'markdown').toLowerCase();
+
+  if (!startDate || !endDate) {
+    return res.status(400).json({ error: 'startDate and endDate are required (YYYY-MM-DD)' });
+  }
+  if (startDate > endDate) {
+    return res.status(400).json({ error: 'startDate must be <= endDate' });
+  }
+  if (formatType !== 'markdown') {
+    return res.status(400).json({ error: 'Only markdown export is currently supported' });
+  }
+
+  try {
+    const studentRows = await db
+      .select()
+      .from(studentsTable)
+      .where(eq(studentsTable.id, studentId))
+      .limit(1);
+    if (!studentRows.length) {
+      return res.status(404).json({ error: 'Student not found' });
+    }
+    const student = studentRows[0];
+
+    const [subjectProgress, dailyRows, weeklyRows, paperRows, examRows] = await Promise.all([
+      getSubjectProgressSummary(studentId),
+      db
+        .select()
+        .from(dailyProgress)
+        .where(
+          and(
+            eq(dailyProgress.studentId, studentId),
+            gte(dailyProgress.date, startDate),
+            lte(dailyProgress.date, endDate),
+          )
+        )
+        .orderBy(dailyProgress.date),
+      db
+        .select()
+        .from(weeklyFeedback)
+        .where(
+          and(
+            eq(weeklyFeedback.studentId, studentId),
+            gte(weeklyFeedback.weekStarting, startDate),
+            lte(weeklyFeedback.weekStarting, endDate),
+          )
+        )
+        .orderBy(weeklyFeedback.weekStarting),
+      db
+        .select({
+          id: studentPapersTable.id,
+          date: studentPapersTable.date,
+          subjectName: studentPapersTable.subjectName,
+          typeName: paperTypesTable.name,
+          schoolName: paperSchoolsTable.name,
+          description: studentPapersTable.description,
+          score: studentPapersTable.score,
+          total: studentPapersTable.total,
+          strengths: studentPapersTable.strengths,
+          improvements: studentPapersTable.improvements,
+        })
+        .from(studentPapersTable)
+        .leftJoin(paperTypesTable, eq(studentPapersTable.typeId, paperTypesTable.id))
+        .leftJoin(paperSchoolsTable, eq(studentPapersTable.schoolId, paperSchoolsTable.id))
+        .where(
+          and(
+            eq(studentPapersTable.studentId, studentId),
+            gte(studentPapersTable.date, startDate),
+            lte(studentPapersTable.date, endDate),
+          )
+        )
+        .orderBy(studentPapersTable.date),
+      db
+        .select()
+        .from(examsTable)
+        .where(
+          and(
+            eq(examsTable.studentId, studentId),
+            gte(examsTable.examDate, startDate),
+            lte(examsTable.examDate, endDate),
+          )
+        )
+        .orderBy(examsTable.examDate),
+    ]);
+
+    const examIds = examRows.map((e) => e.id);
+    const scoreRows = examIds.length
+      ? await db.select().from(examScoresTable).where(inArray(examScoresTable.examId, examIds))
+      : [];
+    const scoreMap = new Map<string, Array<{ name: string; score: string; scope: string | null }>>();
+    scoreRows.forEach((row) => {
+      const list = scoreMap.get(row.examId) || [];
+      list.push({ name: row.name, score: row.score, scope: row.scope ?? null });
+      scoreMap.set(row.examId, list);
+    });
+    const exams = examRows.map((exam) => ({
+      ...exam,
+      subjects: scoreMap.get(exam.id) || [],
+    }));
+
+    const normalizedDaily = dailyRows.map(withV2Activities);
+    const hasData =
+      normalizedDaily.length > 0 ||
+      weeklyRows.length > 0 ||
+      paperRows.length > 0 ||
+      exams.length > 0;
+
+    if (!hasData) {
+      return res.json({
+        format: 'markdown',
+        hasData: false,
+        message: '所选日期范围内暂无可导出的学习数据',
+      });
+    }
+
+    const content = buildMarkdownReport({
+      studentName: student.name,
+      grade: student.grade,
+      startDate,
+      endDate,
+      subjectProgress,
+      daily: normalizedDaily,
+      weekly: weeklyRows,
+      papers: paperRows,
+      exams,
+    });
+
+    const safeStudentName = String(student.name || 'student').replace(/[\\/:*?"<>|\s]+/g, '_');
+    const fileName = `${safeStudentName}_${startDate}_${endDate}_summary.md`;
+
+    res.json({
+      format: 'markdown',
+      hasData: true,
+      fileName,
+      content,
+      stats: {
+        dailyCount: normalizedDaily.length,
+        weeklyCount: weeklyRows.length,
+        paperCount: paperRows.length,
+        examCount: exams.length,
+      },
+    });
+  } catch (err) {
+    console.error('Error exporting report:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
 // ====== SUBJECT & TOPIC ROUTES ======
 // List all subjects
 app.get('/api/subjects', async (_, res) => {
@@ -1915,6 +2198,8 @@ app.get('/api/students/:studentId/papers', authenticate, verifyParentStudentAcce
         schoolId: studentPapersTable.schoolId,
         schoolName: paperSchoolsTable.name,
         description: studentPapersTable.description,
+        strengths: studentPapersTable.strengths,
+        improvements: studentPapersTable.improvements,
         updatedAt: studentPapersTable.updatedAt,
         updatedByName: studentPapersTable.updatedByName,
         date: studentPapersTable.date,
@@ -1934,6 +2219,8 @@ app.get('/api/students/:studentId/papers', authenticate, verifyParentStudentAcce
       typeName: r.typeName || undefined,
       schoolName: r.schoolName || undefined,
       description: r.description || undefined,
+      strengths: r.strengths || undefined,
+      improvements: r.improvements || undefined,
       updatedAt: r.updatedAt || undefined,
       updatedByName: r.updatedByName || undefined,
     }));
@@ -1949,6 +2236,17 @@ app.put('/api/students/:studentId/papers/batch', authenticate, requireTeacher, a
   const { date, papers, expectedUpdatedAt } = req.body || {};
   if (!date || !Array.isArray(papers)) {
     return res.status(400).json({ error: 'Missing date or papers' });
+  }
+  const missingRequired = papers.some((p: any) => !p?.typeId || !p?.schoolId);
+  if (missingRequired) {
+    return res.status(400).json({ error: 'Missing required paper fields' });
+  }
+  const paperEvaluationValidation = requirePaperEvaluations(papers);
+  if (!paperEvaluationValidation.ok) {
+    return res.status(400).json({
+      error: 'PAPER_EVALUATION_REQUIRED',
+      details: paperEvaluationValidation.details,
+    });
   }
   try {
     const clientUpdatedAt = parseTimestamp(expectedUpdatedAt);
@@ -1986,6 +2284,8 @@ app.put('/api/students/:studentId/papers/batch', authenticate, requireTeacher, a
       typeId: p.typeId,
       schoolId: p.schoolId,
       description: p.description || null,
+      strengths: String(p.strengths || '').trim(),
+      improvements: String(p.improvements || '').trim(),
       date,
       score: parseOptionalInt(p.score),
       total: parseOptionalInt(p.total),
@@ -2002,9 +2302,12 @@ app.put('/api/students/:studentId/papers/batch', authenticate, requireTeacher, a
 // Create single paper
 app.post('/api/students/:studentId/papers', authenticate, requireTeacher, async (req, res) => {
   const { studentId } = req.params;
-  const { subjectId, subjectName, typeId, schoolId, description, date, score, total } = req.body || {};
+  const { subjectId, subjectName, typeId, schoolId, description, strengths, improvements, date, score, total } = req.body || {};
   if (!typeId || !schoolId || !date) {
     return res.status(400).json({ error: 'Missing required fields' });
+  }
+  if (!String(strengths || '').trim() || !String(improvements || '').trim()) {
+    return res.status(400).json({ error: 'PAPER_EVALUATION_REQUIRED' });
   }
   try {
     const created = await db
@@ -2016,6 +2319,8 @@ app.post('/api/students/:studentId/papers', authenticate, requireTeacher, async 
         typeId,
         schoolId,
         description: description || null,
+        strengths: String(strengths || '').trim(),
+        improvements: String(improvements || '').trim(),
         date,
         score: parseOptionalInt(score),
         total: parseOptionalInt(total),
@@ -2032,9 +2337,12 @@ app.post('/api/students/:studentId/papers', authenticate, requireTeacher, async 
 // Update single paper
 app.put('/api/students/:studentId/papers/:paperId', authenticate, requireTeacher, async (req, res) => {
   const { studentId, paperId } = req.params;
-  const { subjectId, subjectName, typeId, schoolId, description, date, score, total, updatedAt } = req.body || {};
+  const { subjectId, subjectName, typeId, schoolId, description, strengths, improvements, date, score, total, updatedAt } = req.body || {};
   if (!typeId || !schoolId || !date) {
     return res.status(400).json({ error: 'Missing required fields' });
+  }
+  if (!String(strengths || '').trim() || !String(improvements || '').trim()) {
+    return res.status(400).json({ error: 'PAPER_EVALUATION_REQUIRED' });
   }
   const clientUpdatedAt = parseTimestamp(updatedAt);
   if (!clientUpdatedAt) {
@@ -2062,6 +2370,8 @@ app.put('/api/students/:studentId/papers/:paperId', authenticate, requireTeacher
         typeId,
         schoolId,
         description: description || null,
+        strengths: String(strengths || '').trim(),
+        improvements: String(improvements || '').trim(),
         date,
         score: parseOptionalInt(score),
         total: parseOptionalInt(total),
@@ -2705,6 +3015,14 @@ app.post('/api/progress', authenticate, requireTeacher, async (req, res) => {
     }
     const { studentId, date, attendance, attendanceStart, attendanceEnd, summary, activities } = parsed.data;
 
+    const narrativeValidation = validateActivityNarratives(activities);
+    if (!narrativeValidation.ok) {
+      return res.status(400).json({
+        error: 'ACTIVITY_NARRATIVE_REQUIRED',
+        details: narrativeValidation.errors,
+      });
+    }
+
     // Check if progress already exists for this student and date
     const existingProgress = await db
       .select()
@@ -2775,6 +3093,14 @@ app.put('/api/progress/:id', authenticate, requireTeacher, async (req, res) => {
     }
     const { studentId, date, attendance, attendanceStart, attendanceEnd, summary, activities } = parsed.data;
     const { updatedAt } = req.body;
+
+    const narrativeValidation = validateActivityNarratives(activities);
+    if (!narrativeValidation.ok) {
+      return res.status(400).json({
+        error: 'ACTIVITY_NARRATIVE_REQUIRED',
+        details: narrativeValidation.errors,
+      });
+    }
 
     // Prevent duplicates on update
     const dup = await db
@@ -3015,13 +3341,17 @@ app.put('/api/feedback/:id', authenticate, requireTeacher, async (req, res) => {
 // ====== AI SUMMARY ROUTES ======
 app.post('/api/ai/weekly-summary', authenticate, requireTeacher, async (req, res) => {
   const { studentId, weekStarting, weekEnding } = req.body || {};
-  if (!studentId || !weekStarting || !weekEnding) {
-    return res.status(400).json({ error: 'Missing required fields' });
+  if (!studentId || !weekStarting) {
+    return res.status(400).json({ error: 'Missing required fields: studentId, weekStarting' });
   }
   try {
     const contextWeekEnding = addDaysToDate(String(weekStarting), 6);
+    const recordWeekEnding = weekEnding || contextWeekEnding;
     const studentRows = await db.select().from(studentsTable).where(eq(studentsTable.id, studentId));
     const student = studentRows[0];
+    if (!student) {
+      return res.status(404).json({ error: 'Student not found' });
+    }
     const progress = await db
       .select()
       .from(dailyProgress)
@@ -3071,7 +3401,7 @@ app.post('/api/ai/weekly-summary', authenticate, requireTeacher, async (req, res
       student,
       weekStarting,
       weekEnding: contextWeekEnding,
-      recordWeekEnding: weekEnding,
+      recordWeekEnding,
       attendance: attendanceRollup,
       englishStats,
       lossPoints: lossPointBreakdown,

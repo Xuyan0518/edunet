@@ -22,6 +22,7 @@ Page({
     lastUpdatedAt: "",
     lastUpdatedBy: "",
     lastUpdatedAtText: "",
+    exportLoading: false,
   },
 
   onLoad(query) {
@@ -130,6 +131,10 @@ Page({
       wx.showToast({ title: "请选择学期日期范围", icon: "none" });
       return;
     }
+    if (this.data.rangeStart > this.data.rangeEnd) {
+      wx.showToast({ title: "开始日期不能晚于结束日期", icon: "none" });
+      return;
+    }
     const payload = {
       year: this.data.year,
       quarter: this.data.selectedQuarter,
@@ -181,6 +186,10 @@ Page({
       wx.showToast({ title: "请选择学期日期范围", icon: "none" });
       return;
     }
+    if (this.data.rangeStart > this.data.rangeEnd) {
+      wx.showToast({ title: "开始日期不能晚于结束日期", icon: "none" });
+      return;
+    }
     this.setData({ aiLoading: true });
     request({
       url: "/ai/quarterly-summary",
@@ -202,7 +211,45 @@ Page({
       .finally(() => this.setData({ aiLoading: false }));
   },
 
-  openSummaryView() {
+  exportRangeReport() {
+    if (!this.data.isTeacher) return;
+    if (!this.data.rangeStart || !this.data.rangeEnd) {
+      wx.showToast({ title: "请选择导出日期范围", icon: "none" });
+      return;
+    }
+    if (this.data.rangeStart > this.data.rangeEnd) {
+      wx.showToast({ title: "开始日期不能晚于结束日期", icon: "none" });
+      return;
+    }
+    this.setData({ exportLoading: true });
+    request({
+      url: `/students/${this.studentId}/report-export?startDate=${encodeURIComponent(this.data.rangeStart)}&endDate=${encodeURIComponent(this.data.rangeEnd)}&format=markdown`,
+    })
+      .then((data) => {
+        if (!data?.hasData) {
+          wx.showModal({
+            title: "暂无可导出数据",
+            content: data?.message || "所选日期范围内暂无学习记录",
+            showCancel: false,
+          });
+          return;
+        }
+        wx.setStorageSync("report_view_payload", {
+          title: "学生总结报告",
+          subtitle: `${this.data.student?.name || ""} · ${this.data.rangeStart} - ${this.data.rangeEnd}`,
+          content: data?.content || "",
+          fileName: data?.fileName || "",
+          exportReady: true,
+        });
+        wx.navigateTo({ url: "/pages/report-view/index?mode=export" });
+      })
+      .catch(() => {
+        wx.showToast({ title: "导出失败", icon: "none" });
+      })
+      .finally(() => this.setData({ exportLoading: false }));
+  },
+
+  openSummaryView(e) {
     const dataset = e?.currentTarget?.dataset || {};
     const quarter = Number(dataset.quarter || this.data.selectedQuarter);
     const quarterLabel =
@@ -220,6 +267,7 @@ Page({
       title: "学期总结",
       subtitle: `${this.data.student?.name || ""} · ${this.data.year} · ${quarterLabel}${rangeText ? " · " + rangeText : ""}`,
       content: summary || "",
+      exportReady: false,
     });
     wx.navigateTo({ url: "/pages/report-view/index" });
   },

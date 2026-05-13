@@ -9,6 +9,42 @@ const attendanceMap = [
   { value: "absent", label: "缺席" },
 ];
 
+const topicStatusLabel = {
+  not_started: "未开始",
+  in_progress: "进行中",
+  completed: "已完成",
+};
+
+const topicStatusClass = {
+  not_started: "chip-muted",
+  in_progress: "chip-warning",
+  completed: "chip-success",
+};
+
+const deriveTopicStatus = (definitionRecited, chapterExerciseCompleted) => {
+  if (definitionRecited && chapterExerciseCompleted) return "completed";
+  if (definitionRecited || chapterExerciseCompleted) return "in_progress";
+  return "not_started";
+};
+
+const decorateTopic = (topic) => {
+  const definitionRecited = !!topic.definitionRecited;
+  const chapterExerciseCompleted = !!topic.chapterExerciseCompleted;
+  const status = deriveTopicStatus(definitionRecited, chapterExerciseCompleted);
+  return {
+    id: topic.id,
+    code: topic.code || "",
+    title: topic.title || "",
+    displayTitle: topic.displayTitle || topic.title || "",
+    definitionRecited,
+    chapterExerciseCompleted,
+    status,
+    statusLabel: topicStatusLabel[status] || status,
+    statusClass: topicStatusClass[status] || "chip-muted",
+    children: (topic.children || []).map(decorateTopic),
+  };
+};
+
 // V2 English fields. Each scored sub-skill (editing/reading/grammar) carries
 // score/totalScore/count + lossPointIds/lossPointLabelsSnapshot/otherLossPointText.
 // Vocab carries a sentence-count, recitation is text-only, essay carries
@@ -224,6 +260,9 @@ const buildEnglishActivity = (input = {}) => ({
   subjectDisplayName: formatSubjectName(input.subjectName || "英文"),
   type: "english",
   english: buildEnglishFields(input),
+  taskSummary: input.taskSummary || input.practiceProgress || input.description || "",
+  strengths: input.strengths || "",
+  improvements: input.improvements || "",
   comment: input.comment || "",
   papers: input.papers || [],
   locked: true,
@@ -246,6 +285,9 @@ const normalizeActivity = (activity = {}) => {
       subjectDisplayName: formatSubjectName(subjectName || "英文"),
       type: "english",
       english: buildEnglishFields({ ...english, ...activity }),
+      taskSummary: activity.taskSummary || activity.practiceProgress || activity.description || "",
+      strengths: activity.strengths || "",
+      improvements: activity.improvements || "",
       comment: activity.comment || "",
       papers: activity.papers || [],
       locked: true,
@@ -256,8 +298,11 @@ const normalizeActivity = (activity = {}) => {
     subjectName,
     subjectDisplayName: formatSubjectName(subjectName),
     type: "generic",
+    taskSummary: activity.taskSummary || activity.practiceProgress || activity.description || "",
     practiceProgress: activity.practiceProgress || activity.description || "",
     definitionRecitation: activity.definitionRecitation || activity.notes || "",
+    strengths: activity.strengths || "",
+    improvements: activity.improvements || "",
     comment: activity.comment || "",
     papers: activity.papers || [],
   };
@@ -268,6 +313,8 @@ const buildPaperEntry = (input = {}) => ({
   typeId: input.typeId || "",
   schoolId: input.schoolId || "",
   description: input.description || "",
+  strengths: input.strengths || "",
+  improvements: input.improvements || "",
   score: input.score ?? "",
   total: input.total ?? "",
   typeIndex: input.typeIndex ?? 0,
@@ -292,8 +339,11 @@ const buildActivityForSubject = (subject) => {
     subjectName,
     subjectDisplayName: formatSubjectName(subjectName),
     type: "generic",
+    taskSummary: "",
     practiceProgress: "",
     definitionRecitation: "",
+    strengths: "",
+    improvements: "",
     comment: "",
     papers: [],
   };
@@ -329,16 +379,14 @@ Page({
     papersUpdatedBy: "",
     papersUpdatedAtText: "",
     lossPointCatalog: { editing: [], reading: [], grammar: [], essay: [] },
+    topicProgressSubjects: [],
+    topicProgressExpandedSubjects: {},
+    topicProgressExpandedTopics: {},
   },
 
   onLoad(query) {
     const user = wx.getStorageSync("user");
     const isTeacher = user?.role === "teacher";
-    if (user?.role === "parent") {
-      wx.showToast({ title: "家长仅查看每周汇报", icon: "none" });
-      wx.navigateBack();
-      return;
-    }
     this.studentId = query.studentId;
     const date = query.date || this.today();
 
@@ -360,6 +408,7 @@ Page({
     this.fetchPaperTypes();
     this.fetchPaperSchools();
     this.fetchLossPointCatalog();
+    this.fetchTopicProgress();
     this.fetchProgress();
   },
 
@@ -475,6 +524,66 @@ Page({
       .catch(() => {
         this.setData({ subjects: [], subjectOptions: [] });
       });
+  },
+
+  fetchTopicProgress() {
+    if (!this.studentId) return;
+    request({ url: `/students/${this.studentId}/subjects/full` })
+      .then((data) => {
+        const subjects = (data || []).map((entry) => ({
+          subject: entry?.subject
+            ? { ...entry.subject, displayName: formatSubjectName(entry.subject.name) }
+            : entry.subject,
+          topics: (entry?.topics || []).map(decorateTopic),
+        }));
+        const expandedSubjects = { ...this.data.topicProgressExpandedSubjects };
+        const expandedTopics = { ...this.data.topicProgressExpandedTopics };
+        subjects.forEach((s) => {
+          const sid = s?.subject?.id;
+          if (sid && expandedSubjects[sid] === undefined) expandedSubjects[sid] = false;
+          (s.topics || []).forEach((t) => {
+            if (expandedTopics[t.id] === undefined) expandedTopics[t.id] = false;
+          });
+        });
+        this.setData({
+          topicProgressSubjects: subjects,
+          topicProgressExpandedSubjects: expandedSubjects,
+          topicProgressExpandedTopics: expandedTopics,
+        });
+      })
+      .catch(() => {
+        this.setData({ topicProgressSubjects: [] });
+      });
+  },
+
+  toggleTopicProgressSubject(e) {
+    const id = e.currentTarget.dataset.id;
+    const expanded = { ...this.data.topicProgressExpandedSubjects };
+    expanded[id] = !expanded[id];
+    this.setData({ topicProgressExpandedSubjects: expanded });
+  },
+
+  toggleTopicProgressTopic(e) {
+    const id = e.currentTarget.dataset.id;
+    const expanded = { ...this.data.topicProgressExpandedTopics };
+    expanded[id] = !expanded[id];
+    this.setData({ topicProgressExpandedTopics: expanded });
+  },
+
+  updateTopicCondition(e) {
+    if (!this.data.isEditable) return;
+    const topicId = e.currentTarget.dataset.topic;
+    const condition = e.currentTarget.dataset.condition;
+    const currentValue = e.currentTarget.dataset.value;
+    const isActive = currentValue === true || currentValue === "true";
+    const payload = { [condition]: !isActive };
+    request({
+      url: `/students/${this.studentId}/topics/${topicId}/progress`,
+      method: "PUT",
+      data: payload,
+    })
+      .then(() => this.fetchTopicProgress())
+      .catch(() => wx.showToast({ title: "章节进度更新失败", icon: "none" }));
   },
 
   fetchPaperTypes() {
@@ -741,9 +850,9 @@ Page({
   },
 
   onActivityChange(e) {
-    // Used for non-V2 fields: generic activity practiceProgress / definitionRecitation,
-    // english.comment. V2 english scored sub-fields go through dedicated handlers
-    // below (so we never accidentally overwrite an object with a string).
+    // Used for shared narrative fields (taskSummary/strengths/improvements),
+    // generic-only fields (definitionRecitation), and optional comments.
+    // V2 english scored sub-fields go through dedicated handlers below.
     if (!this.data.isEditable) return;
     const index = e.currentTarget.dataset.index;
     const field = e.currentTarget.dataset.field;
@@ -1107,6 +1216,63 @@ Page({
       return;
     }
 
+    const missingNarrative = (this.data.activities || []).find((a) => {
+      if (a?.type === "english") return false;
+      const taskSummary = String(a?.taskSummary || "").trim();
+      const strengths = String(a?.strengths || "").trim();
+      const improvements = String(a?.improvements || "").trim();
+      return !taskSummary || !strengths || !improvements;
+    });
+    if (missingNarrative) {
+      wx.showModal({
+        title: "请完善学情描述",
+        content: `${missingNarrative.subjectDisplayName || missingNarrative.subjectName || "该科目"}：请填写“学生具体做了什么、做得好的地方、需要进步的地方”`,
+        showCancel: false,
+      });
+      return;
+    }
+
+    const findInvalidPaper = () => {
+      for (let aIdx = 0; aIdx < (this.data.activities || []).length; aIdx += 1) {
+        const activity = this.data.activities[aIdx] || {};
+        const subjectName = activity.subjectDisplayName || activity.subjectName || `科目${aIdx + 1}`;
+        const papers = Array.isArray(activity.papers) ? activity.papers : [];
+        for (let pIdx = 0; pIdx < papers.length; pIdx += 1) {
+          const p = papers[pIdx] || {};
+          const touched = Boolean(
+            p.typeId ||
+            p.schoolId ||
+            String(p.description || "").trim() ||
+            String(p.score ?? "").trim() ||
+            String(p.total ?? "").trim() ||
+            String(p.strengths || "").trim() ||
+            String(p.improvements || "").trim()
+          );
+          if (!touched) continue;
+          if (!p.typeId || !p.schoolId) {
+            return { subjectName, paperIndex: pIdx + 1, reason: "请选择试卷类型和学校" };
+          }
+          if (!String(p.strengths || "").trim()) {
+            return { subjectName, paperIndex: pIdx + 1, reason: "请填写“做得好的地方”" };
+          }
+          if (!String(p.improvements || "").trim()) {
+            return { subjectName, paperIndex: pIdx + 1, reason: "请填写“需要改进的地方”" };
+          }
+        }
+      }
+      return null;
+    };
+
+    const invalidPaper = findInvalidPaper();
+    if (invalidPaper) {
+      wx.showModal({
+        title: "请完善试卷评价",
+        content: `${invalidPaper.subjectName} 第${invalidPaper.paperIndex}份试卷：${invalidPaper.reason}`,
+        showCancel: false,
+      });
+      return;
+    }
+
     // Strip the locally-derived helper fields (chips, hasAnyScore, per-exercise
     // showProblems/isScored) from each english sub-block before saving. They
     // are precomputed for WXML rendering only — the server doesn't store them.
@@ -1115,11 +1281,9 @@ Page({
       Object.keys(eng || {}).forEach((k) => {
         const v = eng[k];
         if (v && typeof v === "object" && !Array.isArray(v)) {
-          // eslint-disable-next-line no-unused-vars
           const { chips, hasAnyScore, anyImperfect, uiSummary, uiHasData, uiExpanded, ...rest } = v;
           if (Array.isArray(rest.exercises)) {
             rest.exercises = rest.exercises.map((ex) => {
-              // eslint-disable-next-line no-unused-vars
               const { showProblems, isScored, ...exRest } = ex || {};
               return exRest;
             });
@@ -1139,7 +1303,11 @@ Page({
         subjectId: a.subjectId || "",
         subjectName: a.subjectName || "",
         type,
-        practiceProgress: a.practiceProgress || "",
+        taskSummary: a.taskSummary || "",
+        strengths: a.strengths || "",
+        improvements: a.improvements || "",
+        // Keep legacy field for backward compatibility in downstream reads.
+        practiceProgress: a.taskSummary || a.practiceProgress || "",
         definitionRecitation: a.definitionRecitation || "",
         comment: a.comment || "",
       };
@@ -1176,6 +1344,8 @@ Page({
               typeId: p.typeId,
               schoolId: p.schoolId,
               description: p.description || "",
+              strengths: p.strengths || "",
+              improvements: p.improvements || "",
               score: p.score,
               total: p.total,
             });
@@ -1218,6 +1388,22 @@ Page({
           wx.showModal({
             title: "请选择失分点",
             content: `${fields ? fields + " " : ""}已填写分数，需选择至少一个失分点或填写其他失分点说明`,
+            showCancel: false,
+          });
+          return;
+        }
+        if (err?.error === "ACTIVITY_NARRATIVE_REQUIRED") {
+          wx.showModal({
+            title: "请完善学情描述",
+            content: "除英文外的科目都必须填写：学生具体做了什么、做得好的地方、需要进步的地方",
+            showCancel: false,
+          });
+          return;
+        }
+        if (err?.error === "PAPER_EVALUATION_REQUIRED") {
+          wx.showModal({
+            title: "请完善试卷评价",
+            content: "每份试卷都必须填写：做得好的地方、需要改进的地方",
             showCancel: false,
           });
           return;

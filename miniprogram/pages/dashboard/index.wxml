@@ -4,6 +4,29 @@
     <view class="subtitle">欢迎回来，{{userName}}</view>
   </view>
 
+  <view wx:if="{{isParent}}" class="card parent-focus-card">
+    <view class="tile-title">孩子学习档案</view>
+    <view class="muted" style="margin-top: 6rpx;">登录后将直接进入已绑定学生档案</view>
+    <view wx:if="{{parentStudentsLoading}}" class="muted" style="margin-top: 14rpx;">加载中...</view>
+    <view wx:elif="{{parentStudentsError}}" class="muted" style="margin-top: 14rpx;">{{parentStudentsError}}</view>
+    <view wx:elif="{{parentStudents.length === 0}}" class="empty-state" style="margin-top: 14rpx;">
+      <view class="empty-title">暂未绑定学生</view>
+      <view class="muted">请联系老师完成家长与学生绑定后再查看学习档案。</view>
+    </view>
+    <view wx:else>
+      <view class="muted" style="margin-top: 14rpx;">请选择要查看的学生</view>
+      <block wx:for="{{parentStudents}}" wx:key="id">
+        <view class="parent-student-row" data-id="{{item.id}}" bindtap="openParentStudent">
+          <view>
+            <view>{{item.name}}</view>
+            <view class="muted">年级 {{item.grade}}</view>
+          </view>
+          <view class="chip">进入档案</view>
+        </view>
+      </block>
+    </view>
+  </view>
+
   <view wx:if="{{isTeacher}}" class="card missing-card">
     <view class="row-between" bindtap="toggleMissing">
       <view class="tile-title">今日未记录学生</view>
@@ -102,7 +125,7 @@
     </block>
   </view>
 
-  <view class="dashboard-grid">
+  <view wx:if="{{!isParent}}" class="dashboard-grid">
     <view wx:if="{{isTeacher}}" class="row-two">
       <view class="card tile" bindtap="goDaily">
         <view class="tile-title">每日进度</view>

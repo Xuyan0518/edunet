@@ -9,6 +9,15 @@
     <view wx:if="{{isTeacher && lastUpdatedAtText}}" class="muted" style="margin-top: 6rpx;">
       最后修改：{{lastUpdatedAtText}} · {{lastUpdatedBy || "未知老师"}}
     </view>
+    <view wx:if="{{isTeacher}}" class="field-label" style="margin-top: 12rpx;">导出日期范围</view>
+    <view wx:if="{{isTeacher}}" class="row-between">
+      <picker mode="date" value="{{rangeStart}}" bindchange="onRangeStartChange">
+        <view class="chip">{{rangeStart || "开始日期"}}</view>
+      </picker>
+      <picker mode="date" value="{{rangeEnd}}" bindchange="onRangeEndChange">
+        <view class="chip">{{rangeEnd || "结束日期"}}</view>
+      </picker>
+    </view>
     <block wx:if="{{loading}}">
       <view class="muted">加载中...</view>
     </block>
@@ -16,6 +25,9 @@
     <view class="row" style="margin-top: 12rpx;">
       <button wx:if="{{isTeacher}}" class="btn-outline" size="mini" bindtap="generateSummary" disabled="{{aiLoading}}">
         {{aiLoading ? "生成中..." : "自动生成"}}
+      </button>
+      <button wx:if="{{isTeacher}}" class="btn-outline" size="mini" bindtap="exportRangeReport" disabled="{{exportLoading}}">
+        {{exportLoading ? "导出中..." : "导出范围报告"}}
       </button>
       <button class="btn-outline" size="mini" bindtap="openSummaryView" disabled="{{!summary}}">
         查看全文

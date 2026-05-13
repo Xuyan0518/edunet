@@ -1,7 +1,7 @@
 <view class="container">
   <view class="hero">
     <view class="title">每日进度</view>
-    <view class="subtitle">选择学生查看或新增记录</view>
+    <view class="subtitle">{{isTeacher ? "选择学生查看或新增记录" : "选择学生查看学习进度"}}</view>
     <view class="row">
       <button wx:if="{{isTeacher}}" class="btn-primary" size="mini" bindtap="createEntry">新增记录</button>
     </view>

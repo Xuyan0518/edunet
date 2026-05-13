@@ -49,6 +49,8 @@ Page({
     score: "",
     total: "",
     description: "",
+    strengths: "",
+    improvements: "",
     editingId: "",
     editingUpdatedAt: "",
     editingUpdatedBy: "",
@@ -157,6 +159,14 @@ Page({
     this.setData({ description: e.detail.value });
   },
 
+  onStrengthsInput(e) {
+    this.setData({ strengths: e.detail.value });
+  },
+
+  onImprovementsInput(e) {
+    this.setData({ improvements: e.detail.value });
+  },
+
   addPaperType() {
     if (!this.data.isTeacher) return;
     wx.showModal({
@@ -207,6 +217,8 @@ Page({
       score: paper.score ?? "",
       total: paper.total ?? "",
       description: paper.description || "",
+      strengths: paper.strengths || "",
+      improvements: paper.improvements || "",
       editingUpdatedAt: paper.updatedAt || "",
       editingUpdatedBy: paper.updatedByName || "",
       editingUpdatedAtText: paper.updatedAt ? formatChinaDateTime(new Date(paper.updatedAt)) : "",
@@ -223,6 +235,8 @@ Page({
       score: "",
       total: "",
       description: "",
+      strengths: "",
+      improvements: "",
       editingUpdatedAt: "",
       editingUpdatedBy: "",
       editingUpdatedAtText: "",
@@ -242,12 +256,22 @@ Page({
       wx.showToast({ title: "请选择类型/学校/日期", icon: "none" });
       return;
     }
+    if (!String(this.data.strengths || "").trim()) {
+      wx.showToast({ title: "请填写做得好的地方", icon: "none" });
+      return;
+    }
+    if (!String(this.data.improvements || "").trim()) {
+      wx.showToast({ title: "请填写需要改进的地方", icon: "none" });
+      return;
+    }
     const payload = {
       subjectId: subject ? subject.id : "",
       subjectName: subject ? subject.name : "",
       typeId: type.id,
       schoolId: school.id,
       description: this.data.description || "",
+      strengths: this.data.strengths || "",
+      improvements: this.data.improvements || "",
       date: this.data.date,
       score: this.data.score,
       total: this.data.total,
@@ -268,6 +292,10 @@ Page({
       })
       .catch((err) => {
         if (showConflictModal(err, () => this.fetchPapers())) return;
+        if (err?.error === "PAPER_EVALUATION_REQUIRED") {
+          wx.showToast({ title: "请填写两项试卷评价", icon: "none" });
+          return;
+        }
         wx.showToast({ title: "保存失败", icon: "error" });
       });
   },

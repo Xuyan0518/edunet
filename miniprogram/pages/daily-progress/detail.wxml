@@ -255,8 +255,6 @@
             </block>
           </view>
 
-          <view class="field-label">评论</view>
-          <textarea class="input textarea-scroll" placeholder="可选评论..." value="{{item.comment}}" data-index="{{index}}" bindinput="onActivityChange" data-field="comment" disabled="{{!isEditable}}" maxlength="-1"></textarea>
           <view class="field-label">试卷练习</view>
           <block wx:if="{{item.papers.length === 0}}">
             <view class="muted">暂无试卷</view>
@@ -286,6 +284,12 @@
 
               <view class="field-label" style="margin-top: 8rpx;">试卷描述</view>
               <input class="input" placeholder="例如：试卷一" value="{{paper.description}}" data-index="{{index}}" data-paper="{{paperIndex}}" bindinput="onPaperChange" data-field="description" disabled="{{!isEditable}}" />
+
+              <view class="field-label" style="margin-top: 8rpx;">做得好的地方 *</view>
+              <textarea class="input textarea-scroll" style="height: 130rpx;" placeholder="例如：审题更仔细，计算更稳定" value="{{paper.strengths}}" data-index="{{index}}" data-paper="{{paperIndex}}" bindinput="onPaperChange" data-field="strengths" disabled="{{!isEditable}}" maxlength="-1"></textarea>
+
+              <view class="field-label" style="margin-top: 8rpx;">需要改进的地方 *</view>
+              <textarea class="input textarea-scroll" style="height: 130rpx;" placeholder="例如：步骤书写不完整，时间分配需优化" value="{{paper.improvements}}" data-index="{{index}}" data-paper="{{paperIndex}}" bindinput="onPaperChange" data-field="improvements" disabled="{{!isEditable}}" maxlength="-1"></textarea>
 
               <view class="field-label" style="margin-top: 8rpx;">分数</view>
               <view class="row paper-score">
@@ -298,12 +302,12 @@
           <button wx:if="{{isEditable}}" class="btn-outline" size="mini" data-index="{{index}}" bindtap="addPaper">添加试卷</button>
         </block>
         <block wx:else>
-          <view class="field-label">练习进度</view>
-          <input class="input" placeholder="练习进度" value="{{item.practiceProgress}}" data-index="{{index}}" bindinput="onActivityChange" data-field="practiceProgress" disabled="{{!isEditable}}" />
-          <view class="field-label">定义背诵</view>
-          <input class="input" placeholder="定义背诵" value="{{item.definitionRecitation}}" data-index="{{index}}" bindinput="onActivityChange" data-field="definitionRecitation" disabled="{{!isEditable}}" />
-          <view class="field-label">评论</view>
-          <textarea class="input textarea-scroll" placeholder="可选评论..." value="{{item.comment}}" data-index="{{index}}" bindinput="onActivityChange" data-field="comment" disabled="{{!isEditable}}" maxlength="-1"></textarea>
+          <view class="field-label">学生具体做了什么 *</view>
+          <textarea class="input textarea-scroll" placeholder="例如：完成章节练习、错题订正、口头复述知识点" value="{{item.taskSummary}}" data-index="{{index}}" bindinput="onActivityChange" data-field="taskSummary" disabled="{{!isEditable}}" maxlength="-1"></textarea>
+          <view class="field-label">做得好的地方 *</view>
+          <textarea class="input textarea-scroll" placeholder="例如：概念理解扎实，题目完成效率高" value="{{item.strengths}}" data-index="{{index}}" bindinput="onActivityChange" data-field="strengths" disabled="{{!isEditable}}" maxlength="-1"></textarea>
+          <view class="field-label">需要进步的地方 *</view>
+          <textarea class="input textarea-scroll" placeholder="例如：审题细节和术语表达还需加强" value="{{item.improvements}}" data-index="{{index}}" bindinput="onActivityChange" data-field="improvements" disabled="{{!isEditable}}" maxlength="-1"></textarea>
           <view class="field-label">试卷练习</view>
           <block wx:if="{{item.papers.length === 0}}">
             <view class="muted">暂无试卷</view>
@@ -333,6 +337,12 @@
 
               <view class="field-label" style="margin-top: 8rpx;">试卷描述</view>
               <input class="input" placeholder="例如：试卷一" value="{{paper.description}}" data-index="{{index}}" data-paper="{{paperIndex}}" bindinput="onPaperChange" data-field="description" disabled="{{!isEditable}}" />
+
+              <view class="field-label" style="margin-top: 8rpx;">做得好的地方 *</view>
+              <textarea class="input textarea-scroll" style="height: 130rpx;" placeholder="例如：审题更仔细，计算更稳定" value="{{paper.strengths}}" data-index="{{index}}" data-paper="{{paperIndex}}" bindinput="onPaperChange" data-field="strengths" disabled="{{!isEditable}}" maxlength="-1"></textarea>
+
+              <view class="field-label" style="margin-top: 8rpx;">需要改进的地方 *</view>
+              <textarea class="input textarea-scroll" style="height: 130rpx;" placeholder="例如：步骤书写不完整，时间分配需优化" value="{{paper.improvements}}" data-index="{{index}}" data-paper="{{paperIndex}}" bindinput="onPaperChange" data-field="improvements" disabled="{{!isEditable}}" maxlength="-1"></textarea>
 
               <view class="field-label" style="margin-top: 8rpx;">分数</view>
               <view class="row paper-score">
@@ -352,6 +362,97 @@
         <button class="btn-outline" size="mini">添加科目</button>
       </picker>
     </view>
+  </view>
+
+  <view class="section card">
+    <view class="row-between">
+      <view class="section-title">章节进度</view>
+      <view class="chip">{{topicProgressSubjects.length}} 科目</view>
+    </view>
+    <view class="muted" style="margin-bottom: 10rpx;">在填写每日进度时可直接更新章节完成情况，学生档案会同步显示。</view>
+    <block wx:if="{{topicProgressSubjects.length === 0}}">
+      <view class="muted">暂无章节数据，请先在学生档案中同步科目与主题</view>
+    </block>
+    <block wx:for="{{topicProgressSubjects}}" wx:key="subject.id">
+      <view class="topic-subject-card">
+        <view class="row-between subject-header" bindtap="toggleTopicProgressSubject" data-id="{{item.subject.id}}">
+          <view class="subject-text">
+            <view class="subject-title">{{item.subject.displayName || item.subject.name}}</view>
+            <view class="muted subject-code">{{item.subject.code}}</view>
+          </view>
+          <view class="row">
+            <view class="chip">{{item.topics.length}} 主题</view>
+            <view class="muted">{{topicProgressExpandedSubjects[item.subject.id] ? '收起' : '展开'}}</view>
+          </view>
+        </view>
+        <block wx:if="{{topicProgressExpandedSubjects[item.subject.id]}}">
+          <view class="divider"></view>
+          <block wx:for="{{item.topics}}" wx:key="id">
+            <view class="topic-row">
+              <view class="row-between topic-header">
+                <view class="topic-title">{{item.code}} {{item.displayTitle || item.title}}</view>
+                <view class="row topic-meta">
+                  <view class="chip {{item.statusClass}}">{{item.statusLabel}}</view>
+                  <view wx:if="{{item.children.length}}" class="muted" bindtap="toggleTopicProgressTopic" data-id="{{item.id}}">
+                    {{topicProgressExpandedTopics[item.id] ? '收起' : '展开'}}
+                  </view>
+                </view>
+              </view>
+              <view class="pill-group">
+                <button
+                  size="mini"
+                  class="pill-btn {{item.definitionRecited ? 'pill-active' : ''}}"
+                  data-topic="{{item.id}}"
+                  data-condition="definitionRecited"
+                  data-value="{{item.definitionRecited}}"
+                  bindtap="updateTopicCondition"
+                  disabled="{{!isEditable}}"
+                >定义背诵</button>
+                <button
+                  size="mini"
+                  class="pill-btn {{item.chapterExerciseCompleted ? 'pill-active' : ''}}"
+                  data-topic="{{item.id}}"
+                  data-condition="chapterExerciseCompleted"
+                  data-value="{{item.chapterExerciseCompleted}}"
+                  bindtap="updateTopicCondition"
+                  disabled="{{!isEditable}}"
+                >章节练习</button>
+              </view>
+              <block wx:if="{{topicProgressExpandedTopics[item.id]}}">
+                <block wx:for="{{item.children}}" wx:key="id">
+                  <view class="topic-row subtopic">
+                    <view class="row-between topic-header">
+                      <view class="topic-title">{{item.code}} {{item.displayTitle || item.title}}</view>
+                      <view class="chip {{item.statusClass}}">{{item.statusLabel}}</view>
+                    </view>
+                    <view class="pill-group">
+                      <button
+                        size="mini"
+                        class="pill-btn {{item.definitionRecited ? 'pill-active' : ''}}"
+                        data-topic="{{item.id}}"
+                        data-condition="definitionRecited"
+                        data-value="{{item.definitionRecited}}"
+                        bindtap="updateTopicCondition"
+                        disabled="{{!isEditable}}"
+                      >定义背诵</button>
+                      <button
+                        size="mini"
+                        class="pill-btn {{item.chapterExerciseCompleted ? 'pill-active' : ''}}"
+                        data-topic="{{item.id}}"
+                        data-condition="chapterExerciseCompleted"
+                        data-value="{{item.chapterExerciseCompleted}}"
+                        bindtap="updateTopicCondition"
+                        disabled="{{!isEditable}}"
+                      >章节练习</button>
+                    </view>
+                  </view>
+                </block>
+              </block>
+            </view>
+          </block>
+        </block>
+      </view>
+    </block>
   </view>
 
   <view class="section card">

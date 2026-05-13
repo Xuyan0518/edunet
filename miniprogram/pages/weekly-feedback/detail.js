@@ -11,46 +11,142 @@ const attendanceLabels = {
 
 const isEnglishSubject = (name = "") => {
   const lower = String(name || "").toLowerCase();
-  return lower.includes("english") || String(name || "").includes("英文");
+  return lower.includes("english") || String(name || "").includes("英文") || String(name || "").includes("英语");
 };
 
-const buildEnglishFields = (input = {}) => ({
-  editing: input.editing || "",
-  vocab: input.vocab || input.vocabulary || "",
-  reading: input.reading || "",
-  recitation: input.recitation || input.memory || "",
-  essay: input.essay || "",
-});
+const asText = (value) => {
+  if (value == null) return "";
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number") return String(value);
+  if (typeof value === "object") {
+    if (typeof value.text === "string" && value.text.trim()) return value.text.trim();
+    if (typeof value.title === "string" && value.title.trim()) return value.title.trim();
+  }
+  return "";
+};
+
+const summarizeExercises = (block = {}, label = "练习") => {
+  const list = Array.isArray(block.exercises) ? block.exercises : [];
+  const scored = list.filter((ex) => ex && ex.score !== null && ex.score !== undefined && ex.score !== "");
+  if (!list.length && !scored.length) return "";
+  const avg =
+    scored.length > 0
+      ? Math.round(
+          scored.reduce((sum, ex) => sum + Number(ex.score || 0), 0) / scored.length
+        )
+      : null;
+  if (avg === null) return `${label}${list.length || scored.length}次`;
+  return `${label}${list.length || scored.length}次，平均${avg}%`;
+};
+
+const buildEnglishFields = (input = {}) => {
+  const editing = input.editing || {};
+  const reading = input.reading || {};
+  const grammar = input.grammar || {};
+  const vocab = input.vocab || input.vocabulary || {};
+  const recitation = input.recitation || input.memory || {};
+  const essay = input.essay || {};
+
+  const details = [];
+  const editingSummary = summarizeExercises(editing, "改错");
+  if (editingSummary) details.push({ label: "改错", value: editingSummary });
+  if (asText(editing)) details.push({ label: "改错补充", value: asText(editing) });
+
+  const readingSummary = summarizeExercises(reading, "阅读");
+  if (readingSummary) details.push({ label: "阅读理解", value: readingSummary });
+  if (asText(reading)) details.push({ label: "阅读补充", value: asText(reading) });
+
+  const grammarSummary = summarizeExercises(grammar, "语法");
+  if (grammarSummary) details.push({ label: "语法", value: grammarSummary });
+  if (asText(grammar)) details.push({ label: "语法补充", value: asText(grammar) });
+
+  const vocabWordCount = Number(vocab.vocabularyWordCount || 0);
+  const vocabSentenceCount = Number(vocab.vocabularySentenceCount || 0);
+  if (vocabWordCount || vocabSentenceCount) {
+    details.push({ label: "词汇", value: `单词${vocabWordCount}个，句子${vocabSentenceCount}个` });
+  } else if (asText(vocab)) {
+    details.push({ label: "词汇", value: asText(vocab) });
+  }
+
+  if (asText(recitation)) details.push({ label: "单词句子背诵", value: asText(recitation) });
+
+  const essayTitle = asText(essay.title || "");
+  const essayText = asText(essay.text || essay);
+  const essayScore = essay && essay.score !== null && essay.score !== undefined && essay.score !== ""
+    ? `（${essay.score}${essay.totalScore ? `/${essay.totalScore}` : ""}）`
+    : "";
+  if (essayTitle || essayText || essayScore) {
+    const essayContent = [essayTitle ? `题目：${essayTitle}` : "", essayText].filter(Boolean).join("；");
+    details.push({ label: `作文${essayScore}`, value: essayContent || "已记录" });
+  }
+
+  const summary = details.slice(0, 3).map((d) => d.value).join("；") || "已记录英文学习";
+  return { summary, details };
+};
+
+const normalizePaper = (paper = {}) => {
+  const score = paper.score !== null && paper.score !== undefined && paper.score !== "" ? paper.score : "-";
+  const total = paper.total !== null && paper.total !== undefined && paper.total !== "" ? paper.total : "-";
+  return {
+    title: `${paper.description || "试卷"} · ${score}/${total}`,
+    typeName: paper.typeName || "",
+    schoolName: paper.schoolName || "",
+    strengths: paper.strengths || "",
+    improvements: paper.improvements || "",
+  };
+};
 
 const normalizeActivity = (activity = {}) => {
   const subjectName = activity.subjectName || activity.subject || "";
   const subjectId = activity.subjectId || "";
   const english = activity.english || activity.englishFields || {};
   const isEnglish = activity.type === "english" || isEnglishSubject(subjectName) || Object.keys(english).length > 0;
+  const papers = (activity.papers || []).map((p) => normalizePaper(p));
   if (isEnglish) {
+    const englishView = buildEnglishFields({ ...english, ...activity });
     return {
       subjectId,
       subjectName,
       subjectDisplayName: formatSubjectName(subjectName || "英文"),
       type: "english",
-      english: buildEnglishFields({ ...english, ...activity }),
+      summaryLine: englishView.summary,
+      detailLines: englishView.details,
+      papers,
     };
+  }
+  const taskSummary = activity.taskSummary || activity.practiceProgress || activity.description || "";
+  const strengths = activity.strengths || "";
+  const improvements = activity.improvements || "";
+  const detailLines = [];
+  if (taskSummary) detailLines.push({ label: "学生具体做了什么", value: taskSummary });
+  if (strengths) detailLines.push({ label: "做得好的地方", value: strengths });
+  if (improvements) detailLines.push({ label: "需要进步的地方", value: improvements });
+  if (!detailLines.length && activity.practiceProgress) {
+    detailLines.push({ label: "练习进度", value: activity.practiceProgress });
   }
   return {
     subjectId,
     subjectName,
     subjectDisplayName: formatSubjectName(subjectName),
     type: "generic",
-    practiceProgress: activity.practiceProgress || activity.description || "",
-    definitionRecitation: activity.definitionRecitation || activity.notes || "",
+    summaryLine: taskSummary || strengths || improvements || "已记录",
+    detailLines,
+    papers,
   };
 };
 
-const formatProgressEntry = (entry = {}) => ({
-  ...entry,
-  attendanceLabel: attendanceLabels[entry.attendance] || entry.attendance || "",
-  activities: (entry.activities || []).map((a) => normalizeActivity(a)),
-});
+const formatProgressEntry = (entry = {}) => {
+  const activities = (entry.activities || []).map((a) => normalizeActivity(a));
+  const subjectNames = activities.map((a) => a.subjectDisplayName || a.subjectName).filter(Boolean);
+  const preview = subjectNames.slice(0, 3).join("、");
+  return {
+    ...entry,
+    attendanceLabel: attendanceLabels[entry.attendance] || entry.attendance || "",
+    activities,
+    activityCount: activities.length,
+    previewText: preview || "已记录学习内容",
+  };
+};
 
 Page({
   data: {
@@ -65,6 +161,7 @@ Page({
     sundayOptions: [],
     sundayIndex: 0,
     progressEntries: [],
+    expandedProgressMap: {},
     progressLoading: false,
     aiLoading: false,
     backup: null,
@@ -295,10 +392,25 @@ Page({
           })
           .map((entry) => formatProgressEntry(entry))
           .sort((a, b) => (a.date > b.date ? 1 : -1));
-        this.setData({ progressEntries: entries });
+        const currentMap = { ...(this.data.expandedProgressMap || {}) };
+        const nextMap = {};
+        entries.forEach((entry, idx) => {
+          const key = entry.id || entry.date;
+          if (currentMap[key] !== undefined) nextMap[key] = currentMap[key];
+          else nextMap[key] = idx === entries.length - 1; // default expand latest day
+        });
+        this.setData({ progressEntries: entries, expandedProgressMap: nextMap });
       })
       .catch(() => this.setData({ progressEntries: [] }))
       .finally(() => this.setData({ progressLoading: false }));
+  },
+
+  toggleProgressEntry(e) {
+    const key = e?.currentTarget?.dataset?.key;
+    if (!key) return;
+    const map = { ...(this.data.expandedProgressMap || {}) };
+    map[key] = !map[key];
+    this.setData({ expandedProgressMap: map });
   },
 
   deleteEntry() {
@@ -408,10 +520,11 @@ Page({
 
   generateSummary() {
     if (!this.data.isEditable) return;
-    if (!this.studentId || !this.data.weekStarting || !this.data.weekEnding) {
+    if (!this.studentId || !this.data.weekStarting) {
       wx.showToast({ title: "缺少周次信息", icon: "none" });
       return;
     }
+    const weekEnding = this.data.weekEnding || this.addDays(this.data.weekStarting, 6);
     this.setData({ aiLoading: true });
     request({
       url: "/ai/weekly-summary",
@@ -419,7 +532,7 @@ Page({
       data: {
         studentId: this.studentId,
         weekStarting: this.data.weekStarting,
-        weekEnding: this.data.weekEnding,
+        weekEnding,
       },
     })
       .then((data) => {
@@ -427,7 +540,9 @@ Page({
         wx.showToast({ title: "已生成", icon: "success" });
       })
       .catch((err) => {
-        const msg = err?.error === "AI_NOT_CONFIGURED" ? "AI未配置" : "生成失败";
+        const msg = err?.error === "AI_NOT_CONFIGURED"
+          ? "AI未配置"
+          : err?.error || "生成失败";
         wx.showToast({ title: msg, icon: "none" });
       })
       .finally(() => this.setData({ aiLoading: false }));

@@ -16,15 +16,24 @@
 }
 
 .daily-card {
-  background: #f8fafc;
+  background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
   border-radius: 16rpx;
   padding: 20rpx;
   margin-top: 16rpx;
-  border: 1rpx solid #e2e8f0;
+  border: 1rpx solid #dbeafe;
 }
 
 .title-small {
   font-weight: 600;
+}
+
+.daily-head {
+  align-items: flex-start;
+}
+
+.daily-preview {
+  margin-top: 6rpx;
+  font-size: 24rpx;
 }
 
 .activity-card {
@@ -32,5 +41,33 @@
   padding: 12rpx;
   border-radius: 12rpx;
   background: #ffffff;
-  border: 1rpx dashed #e2e8f0;
+  border: 1rpx dashed #bfdbfe;
+}
+
+.activity-summary {
+  color: #1e3a8a;
+  font-weight: 600;
+  margin-bottom: 8rpx;
+}
+
+.paper-title {
+  margin-top: 10rpx;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.paper-item {
+  margin-top: 8rpx;
+  padding: 10rpx;
+  border-radius: 10rpx;
+  background: #f8fafc;
+  border: 1rpx solid #e2e8f0;
+}
+
+.daily-summary {
+  margin-top: 12rpx;
+  padding: 12rpx;
+  border-radius: 12rpx;
+  background: #fefce8;
+  border: 1rpx solid #fde68a;
 }

@@ -2320,6 +2320,53 @@ app.get('/api/daily-progress/missing', authenticate, requireTeacher, async (req,
   }
 });
 
+// Weekly feedback missing-record reminder. Mirrors daily missing behavior but
+// checks the active study cycle's weekStarting as the expected weekly feedback
+// key, so teachers can quickly see who still lacks a weekly report.
+app.get('/api/feedback/missing', authenticate, requireTeacher, async (req, res) => {
+  try {
+    const requestedDate = req.query?.date;
+    const date = requestedDate
+      ? parseDateString(requestedDate)
+      : chinaTodayDateString();
+    if (!date) {
+      return res.status(400).json({ error: 'Invalid date; expected YYYY-MM-DD' });
+    }
+
+    const cycle = await resolveCycleForDate(date);
+    const missing = await db
+      .select({
+        id: studentsTable.id,
+        name: studentsTable.name,
+        grade: studentsTable.grade,
+      })
+      .from(studentsTable)
+      .leftJoin(
+        weeklyFeedback,
+        and(
+          eq(weeklyFeedback.studentId, studentsTable.id),
+          eq(weeklyFeedback.weekStarting, cycle.startDate),
+        ),
+      )
+      .where(isNull(weeklyFeedback.id))
+      .orderBy(studentsTable.name);
+
+    res.json({
+      date,
+      cycle: {
+        id: cycle.id || null,
+        startDate: cycle.startDate,
+        endDate: cycle.endDate,
+        notes: cycle.notes || null,
+      },
+      missing,
+    });
+  } catch (err) {
+    console.error('Error fetching missing weekly-feedback records:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
 // ========== LOSS-POINT CATALOG (Part 4) ==========
 
 // Returns categories with their active loss points nested. Used by the

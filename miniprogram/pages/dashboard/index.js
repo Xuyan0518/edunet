@@ -11,6 +11,12 @@ Page({
     missingLoading: false,
     missingError: "",
     missingExpanded: false,
+    weeklyMissingCycleStart: "",
+    weeklyMissingCycleEnd: "",
+    weeklyMissingStudents: [],
+    weeklyMissingLoading: false,
+    weeklyMissingError: "",
+    weeklyMissingExpanded: false,
     incompleteCycleStart: "",
     incompleteCycleEnd: "",
     incompleteStudents: [],
@@ -36,6 +42,7 @@ Page({
     });
     if (isTeacher) {
       this.loadMissing();
+      this.loadWeeklyMissing();
       this.loadIncomplete();
       this.loadUpcomingExams();
     }
@@ -114,12 +121,74 @@ Page({
       });
   },
 
+  loadWeeklyMissing() {
+    this.setData({ weeklyMissingLoading: true, weeklyMissingError: "" });
+    request({ url: "/feedback/missing" })
+      .then((data) => {
+        this.setData({
+          weeklyMissingCycleStart: data?.cycle?.startDate || "",
+          weeklyMissingCycleEnd: data?.cycle?.endDate || "",
+          weeklyMissingStudents: Array.isArray(data?.missing) ? data.missing : [],
+          weeklyMissingLoading: false,
+        });
+      })
+      .catch(() => this.loadWeeklyMissingFallback());
+  },
+
+  loadWeeklyMissingFallback() {
+    Promise.all([
+      request({ url: "/students" }),
+      request({ url: "/weekly-tasks/incomplete" }),
+      request({ url: "/feedback" }),
+    ])
+      .then(([studentsData, cycleData, feedbackData]) => {
+        const students = Array.isArray(studentsData) ? studentsData : [];
+        const cycleStart = cycleData?.cycle?.startDate || "";
+        const cycleEnd = cycleData?.cycle?.endDate || "";
+        const feedbackList = Array.isArray(feedbackData) ? feedbackData : [];
+
+        const submittedIds = new Set(
+          feedbackList
+            .filter((f) => f?.weekStarting === cycleStart)
+            .map((f) => f?.studentId)
+            .filter(Boolean),
+        );
+
+        const missing = students
+          .filter((s) => s?.id && !submittedIds.has(s.id))
+          .map((s) => ({ id: s.id, name: s.name || "", grade: s.grade || "" }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+
+        this.setData({
+          weeklyMissingCycleStart: cycleStart,
+          weeklyMissingCycleEnd: cycleEnd,
+          weeklyMissingStudents: missing,
+          weeklyMissingLoading: false,
+        });
+      })
+      .catch(() => {
+        this.setData({
+          weeklyMissingLoading: false,
+          weeklyMissingError: "加载失败",
+        });
+      });
+  },
+
   goRecordMissing(e) {
     const id = e?.currentTarget?.dataset?.id;
     const date = this.data.missingDate;
     if (!id) return;
     wx.navigateTo({
       url: `/pages/daily-progress/detail?studentId=${encodeURIComponent(id)}&date=${encodeURIComponent(date)}`,
+    });
+  },
+
+  goRecordWeeklyMissing(e) {
+    const id = e?.currentTarget?.dataset?.id;
+    const weekStarting = this.data.weeklyMissingCycleStart;
+    if (!id || !weekStarting) return;
+    wx.navigateTo({
+      url: `/pages/weekly-feedback/detail?studentId=${encodeURIComponent(id)}&weekStarting=${encodeURIComponent(weekStarting)}`,
     });
   },
 
@@ -154,6 +223,10 @@ Page({
 
   toggleMissing() {
     this.setData({ missingExpanded: !this.data.missingExpanded });
+  },
+
+  toggleWeeklyMissing() {
+    this.setData({ weeklyMissingExpanded: !this.data.weeklyMissingExpanded });
   },
 
   toggleIncomplete() {

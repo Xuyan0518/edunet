@@ -3307,9 +3307,9 @@ app.post('/api/feedback', authenticate, requireTeacher, async (req, res) => {
         templateId: weeklyTemplateId,
         page: `/pages/student-detail/index?id=${parsedData.studentId}`,
         data: {
-          // Weekly template in production expects `thing6` + `time2`.
+          // Weekly template in production expects `thing6` + `time1`.
           thing6: { value: `每周反馈已发布` },
-          time2: { value: format(parsedData.weekStarting, 'yyyy-MM-dd') },
+          time1: { value: format(parsedData.weekStarting, 'yyyy-MM-dd') },
         },
       });
     }

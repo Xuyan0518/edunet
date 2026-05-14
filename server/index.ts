@@ -281,14 +281,45 @@ const notifyParent = async (payload: {
   page: string;
   data: Record<string, { value: string }>;
 }) => {
-  if (!payload.parentId || !payload.templateId) return;
+  if (!payload.parentId || !payload.templateId) {
+    console.warn('[wechat-notify] skipped: missing parentId/templateId', {
+      studentId: payload.studentId,
+      hasParentId: Boolean(payload.parentId),
+      hasTemplateId: Boolean(payload.templateId),
+    });
+    return;
+  }
   const parents = await db.select().from(parentsTable).where(eq(parentsTable.id, payload.parentId));
-  if (!parents.length || !parents[0].wechatOpenId) return;
-  await sendWeChatSubscribeMessage({
+  if (!parents.length || !parents[0].wechatOpenId) {
+    console.warn('[wechat-notify] skipped: parent/openid missing', {
+      studentId: payload.studentId,
+      parentId: payload.parentId,
+      parentFound: parents.length > 0,
+      hasWechatOpenId: Boolean(parents[0]?.wechatOpenId),
+    });
+    return;
+  }
+  const sendResult = await sendWeChatSubscribeMessage({
     toUser: parents[0].wechatOpenId,
     templateId: payload.templateId,
     page: payload.page,
     data: payload.data,
+  });
+  if (!sendResult.ok) {
+    console.warn('[wechat-notify] send failed', {
+      studentId: payload.studentId,
+      parentId: payload.parentId,
+      templateId: payload.templateId,
+      error: sendResult.error,
+      errcode: sendResult.errcode ?? null,
+      errmsg: sendResult.errmsg ?? null,
+    });
+    return;
+  }
+  console.info('[wechat-notify] send ok', {
+    studentId: payload.studentId,
+    parentId: payload.parentId,
+    templateId: payload.templateId,
   });
 };
 

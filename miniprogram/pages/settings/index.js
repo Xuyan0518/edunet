@@ -63,24 +63,37 @@ Page({
   },
 
   subscribe() {
-    const ids = [
-      subscribeTemplates.weekly,
-      subscribeTemplates.exam,
-      subscribeTemplates.semester,
-      subscribeTemplates.yearly,
-    ].filter(Boolean);
-    if (!ids.length) {
+    const weeklyTemplateId = (subscribeTemplates.weekly || "").trim();
+    if (!weeklyTemplateId) {
       wx.showModal({
         title: "未配置模板",
-        content: "请先在 miniprogram/utils/config.js 填入模板ID。",
+        content: "请先在 miniprogram/utils/config.js 填入 weekly 模板ID。",
         showCancel: false,
       });
       return;
     }
     wx.requestSubscribeMessage({
-      tmplIds: ids,
-      success: () => wx.showToast({ title: "订阅成功", icon: "success" }),
-      fail: () => wx.showToast({ title: "订阅失败", icon: "error" }),
+      tmplIds: [weeklyTemplateId],
+      success: (res = {}) => {
+        const status = res[weeklyTemplateId];
+        if (status === "accept") {
+          wx.showToast({ title: "周报订阅成功", icon: "success" });
+          return;
+        }
+        if (status === "reject") {
+          wx.showToast({ title: "你拒绝了订阅", icon: "none" });
+          return;
+        }
+        if (status === "ban" || status === "filter") {
+          wx.showToast({ title: `订阅状态：${status}`, icon: "none" });
+          return;
+        }
+        wx.showToast({ title: "未完成订阅", icon: "none" });
+      },
+      fail: (err) => {
+        const code = err && typeof err.errCode !== "undefined" ? String(err.errCode) : "";
+        wx.showToast({ title: code ? `订阅失败(${code})` : "订阅失败", icon: "none" });
+      },
     });
   },
 

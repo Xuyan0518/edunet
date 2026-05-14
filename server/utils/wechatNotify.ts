@@ -44,7 +44,7 @@ export const sendWeChatSubscribeMessage = async (payload: {
   data: Record<string, { value: string }>;
 }) => {
   const token = await getAccessToken();
-  if (!token) return { ok: false, error: 'Missing access token' };
+  if (!token) return { ok: false as const, error: 'Missing access token', errcode: null, errmsg: null };
 
   const res = await fetch(
     `https://api.weixin.qq.com/cgi-bin/message/subscribe/send?access_token=${encodeURIComponent(token)}`,
@@ -62,7 +62,12 @@ export const sendWeChatSubscribeMessage = async (payload: {
 
   const data = (await res.json()) as WeChatSendResponse;
   if (data.errcode && data.errcode !== 0) {
-    return { ok: false, error: data.errmsg || 'WeChat send failed' };
+    return {
+      ok: false as const,
+      error: data.errmsg || 'WeChat send failed',
+      errcode: data.errcode ?? null,
+      errmsg: data.errmsg ?? null,
+    };
   }
-  return { ok: true };
+  return { ok: true as const };
 };

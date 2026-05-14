@@ -186,7 +186,12 @@ describe('student report APIs', () => {
   it('teacher can update report visibility endpoint', async () => {
     const token = generateToken({ id: 'teacher-1', role: 'teacher', name: 'Teacher A' });
     mockDb.queueSelect([{ id: 'teacher-1', status: 'approved' }]); // auth
-    mockDb.queueSelect([{ id: 'report-5' }]); // existence
+    mockDb.queueSelect([
+      {
+        ...makeReportRow({ id: 'report-5', visibleToParent: false }),
+        studentParentId: 'parent-1',
+      },
+    ]); // existing report
     mockDb.queueUpdate([
       makeReportRow({ id: 'report-5', visibleToParent: true }),
     ]);

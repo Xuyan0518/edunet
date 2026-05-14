@@ -343,6 +343,30 @@ const notifyParent = async (payload: {
   });
 };
 
+const notifyParentStudentReportPublished = async (report: {
+  id: string;
+  studentId: string;
+  studentParentId?: string | null;
+  reportType?: string | null;
+  endDate?: string | Date | null;
+}) => {
+  const isYearly = String(report.reportType || '').toLowerCase() === 'yearly';
+  const templateId = isYearly ? yearlyTemplateId : semesterTemplateId;
+  const title = isYearly ? '年度学习报告已发布' : '学期学习报告已发布';
+  const timeValue = toDateString(report.endDate) || format(new Date(), 'yyyy-MM-dd');
+
+  await notifyParent({
+    studentId: report.studentId,
+    parentId: report.studentParentId ?? null,
+    templateId,
+    page: `/pages/reports/index?studentId=${report.studentId}`,
+    data: {
+      thing6: { value: title },
+      time1: { value: timeValue },
+    },
+  });
+};
+
 const callDeepSeek = async (
   prompt: string,
   context: any,
@@ -1626,6 +1650,15 @@ app.patch('/api/reports/:reportId', authenticate, requireRole('teacher', 'admin'
       .where(eq(studentReportsTable.id, req.params.reportId))
       .returning();
     if (!saved.length) return res.status(404).json({ error: 'Report not found' });
+    if (visible === true && !report.visibleToParent) {
+      await notifyParentStudentReportPublished({
+        id: report.id,
+        studentId: report.studentId,
+        studentParentId: report.studentParentId,
+        reportType: report.reportType,
+        endDate: report.endDate,
+      });
+    }
     return res.json(hydrateStudentReport(saved[0], user.role, { includeHeavyFields: true }));
   } catch (err) {
     console.error('Error updating report:', err);
@@ -1640,12 +1673,8 @@ app.patch('/api/reports/:reportId/visibility', authenticate, requireRole('teache
   if (visible == null) return res.status(400).json({ error: 'visibleToParent must be boolean' });
 
   try {
-    const existing = await db
-      .select({ id: studentReportsTable.id })
-      .from(studentReportsTable)
-      .where(eq(studentReportsTable.id, req.params.reportId))
-      .limit(1);
-    if (!existing.length) return res.status(404).json({ error: 'Report not found' });
+    const existing = await getReportWithStudent(req.params.reportId);
+    if (!existing) return res.status(404).json({ error: 'Report not found' });
 
     const saved = await db
       .update(studentReportsTable)
@@ -1657,6 +1686,15 @@ app.patch('/api/reports/:reportId/visibility', authenticate, requireRole('teache
       })
       .where(eq(studentReportsTable.id, req.params.reportId))
       .returning();
+    if (visible && !existing.visibleToParent) {
+      await notifyParentStudentReportPublished({
+        id: existing.id,
+        studentId: existing.studentId,
+        studentParentId: existing.studentParentId,
+        reportType: existing.reportType,
+        endDate: existing.endDate,
+      });
+    }
     return res.json(hydrateStudentReport(saved[0], user.role, { includeHeavyFields: false }));
   } catch (err) {
     console.error('Error updating report visibility:', err);

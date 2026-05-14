@@ -292,9 +292,29 @@ const notifyParent = async (payload: {
   });
 };
 
-const callDeepSeek = async (prompt: string, context: any) => {
+const callDeepSeek = async (
+  prompt: string,
+  context: any,
+  options?: {
+    temperature?: number;
+    responseFormat?: 'text' | 'json_object';
+  }
+) => {
   if (!deepseekApiKey || !deepseekApiUrl || !prompt) {
     throw new Error('AI_NOT_CONFIGURED');
+  }
+  const bodyPayload: Record<string, unknown> = {
+    model: deepseekModel,
+    messages: [
+      { role: 'system', content: prompt },
+      { role: 'user', content: JSON.stringify(context) },
+    ],
+  };
+  if (typeof options?.temperature === 'number') {
+    bodyPayload.temperature = options.temperature;
+  }
+  if (options?.responseFormat === 'json_object') {
+    bodyPayload.response_format = { type: 'json_object' };
   }
   const resp = await fetch(deepseekApiUrl, {
     method: 'POST',
@@ -302,13 +322,7 @@ const callDeepSeek = async (prompt: string, context: any) => {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${deepseekApiKey}`,
     },
-    body: JSON.stringify({
-      model: deepseekModel,
-      messages: [
-        { role: 'system', content: prompt },
-        { role: 'user', content: JSON.stringify(context) },
-      ],
-    }),
+    body: JSON.stringify(bodyPayload),
   });
   if (!resp.ok) {
     const text = await resp.text();
@@ -3410,10 +3424,21 @@ app.post('/api/ai/weekly-summary', authenticate, requireTeacher, async (req, res
       subjectProgress,
     };
     // Operator-supplied prompt wins; otherwise use the Part 5 enhanced prompt.
-    const promptToUse = weeklySummaryPrompt && weeklySummaryPrompt.trim()
+    const hasCustomWeeklyPrompt = Boolean(weeklySummaryPrompt && weeklySummaryPrompt.trim());
+    const promptToUse = hasCustomWeeklyPrompt
       ? weeklySummaryPrompt
       : ENHANCED_WEEKLY_PROMPT;
-    const raw = await callDeepSeek(promptToUse, context);
+    const raw = await callDeepSeek(promptToUse, context, hasCustomWeeklyPrompt
+      ? { temperature: 0.2, responseFormat: 'text' }
+      : { temperature: 0.2, responseFormat: 'json_object' });
+
+    // If custom env prompt is configured, respect it as plain-text output.
+    // This avoids forcing the response back into the default structured schema.
+    if (hasCustomWeeklyPrompt) {
+      res.json({ summary: typeof raw === 'string' ? raw.trim() : '' });
+      return;
+    }
+
     const structured = parseStructuredSummary(raw);
     res.json(structured);
   } catch (err) {

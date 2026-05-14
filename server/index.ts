@@ -951,8 +951,8 @@ app.post('/api/students/:studentId/exams', authenticate, requireTeacher, async (
         templateId: examTemplateId,
         page: `/pages/grades/index?studentId=${studentId}`,
         data: {
-          thing1: { value: `成绩记录已发布` },
-          time2: { value: examDate },
+          thing6: { value: `成绩记录已发布` },
+          time1: { value: examDate },
         },
       });
     }
@@ -1258,8 +1258,8 @@ app.put('/api/students/:studentId/quarterly-summary', authenticate, requireTeach
           templateId: semesterTemplateId,
           page: `/pages/quarterly-summary/index?studentId=${studentId}`,
           data: {
-            thing1: { value: `学期总结已发布 ${label}` },
-            time2: { value: timeValue },
+            thing6: { value: `学期总结已发布 ${label}` },
+            time1: { value: timeValue },
           },
         });
       }
@@ -1350,8 +1350,8 @@ app.put('/api/students/:studentId/yearly-summary', authenticate, requireTeacher,
           templateId: yearlyTemplateId,
           page: `/pages/yearly-summary/index?studentId=${studentId}`,
           data: {
-            thing1: { value: `年度总结已发布` },
-            time2: { value: `${year}-12-31` },
+            thing6: { value: `年度总结已发布` },
+            time1: { value: `${year}-12-31` },
           },
         });
       }

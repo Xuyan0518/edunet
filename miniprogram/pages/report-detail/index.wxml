@@ -1,0 +1,266 @@
+<view class="container">
+  <view class="hero" wx:if="{{report}}">
+    <view class="title">{{report.title || (reportType === 'yearly' ? '学生年度学习报告' : '学生学期学习报告')}}</view>
+    <view class="subtitle">
+      {{report.reportType === 'yearly' ? '年度报告' : '学期报告'}} · {{report.startDate || '--'}} - {{report.endDate || '--'}}
+    </view>
+    <view class="row" style="gap: 10rpx; flex-wrap: wrap;">
+      <view class="chip {{report.status === 'final' ? 'chip-success' : 'chip-warning'}}">{{report.status === 'final' ? '最终版' : '草稿'}}</view>
+      <view class="chip {{report.visibleToParent ? 'chip-success' : 'chip-muted'}}">{{report.visibleToParent ? '已发布给家长' : '未发布'}}</view>
+      <view class="chip" wx:if="{{report.year}}">{{report.year}} 年</view>
+    </view>
+    <view class="muted" style="margin-top: 10rpx;" wx:if="{{report.updatedAt}}">最后更新：{{report.updatedAt}} {{report.updatedByName ? '· ' + report.updatedByName : ''}}</view>
+  </view>
+
+  <view class="section card" wx:if="{{loading}}">
+    <view class="muted">加载中...</view>
+  </view>
+
+  <block wx:if="{{!loading && report}}">
+    <view class="section card" wx:if="{{isManager}}">
+      <view class="row" style="gap: 12rpx; flex-wrap: wrap;">
+        <button class="btn-outline" size="mini" bindtap="copyMarkdown">复制 Markdown</button>
+        <button wx:if="{{!editMode}}" class="btn-outline" size="mini" bindtap="enterEditMode">编辑</button>
+        <button wx:if="{{editMode}}" class="btn-primary" size="mini" bindtap="saveEdits" loading="{{saving}}">保存</button>
+        <button wx:if="{{editMode}}" class="btn-outline" size="mini" bindtap="cancelEdit">取消</button>
+        <button wx:if="{{!previewMode}}" class="btn-outline" size="mini" bindtap="toggleVisibility" loading="{{publishing}}">
+          {{report.visibleToParent ? '取消发布' : '发布给家长'}}
+        </button>
+        <button wx:if="{{previewMode}}" class="btn-primary" size="mini" bindtap="savePreviewAsDraft" loading="{{saving}}">保存草稿</button>
+      </view>
+      <view class="muted" wx:if="{{previewMode}}" style="margin-top: 10rpx;">当前是预览模式。保存草稿后即可正式发布给家长。</view>
+    </view>
+
+    <view class="section card">
+      <view class="section-title">学生画像与总体总结</view>
+      <block wx:if="{{displayReport}}">
+        <block wx:if="{{reportType === 'quarterly'}}">
+          <view class="profile-label" wx:if="{{displayReport.studentProfile && displayReport.studentProfile.label}}">{{displayReport.studentProfile.label}}</view>
+          <view class="muted" wx:if="{{displayReport.studentProfile && displayReport.studentProfile.description}}">{{displayReport.studentProfile.description}}</view>
+          <view class="summary-text" wx:if="{{!editMode}}">{{displayReport.executiveSummary || summaryText}}</view>
+          <textarea wx:if="{{editMode}}" class="input textarea-scroll" value="{{editForm.executiveSummary}}" data-field="executiveSummary" bindinput="onEditFieldInput" maxlength="-1"></textarea>
+        </block>
+        <block wx:if="{{reportType === 'yearly'}}">
+          <view class="profile-label" wx:if="{{displayReport.annualStudentProfile && displayReport.annualStudentProfile.label}}">{{displayReport.annualStudentProfile.label}}</view>
+          <view class="muted" wx:if="{{displayReport.annualStudentProfile && displayReport.annualStudentProfile.description}}">{{displayReport.annualStudentProfile.description}}</view>
+          <view class="summary-text" wx:if="{{!editMode}}">{{displayReport.annualExecutiveSummary || summaryText}}</view>
+          <textarea wx:if="{{editMode}}" class="input textarea-scroll" value="{{editForm.annualExecutiveSummary}}" data-field="annualExecutiveSummary" bindinput="onEditFieldInput" maxlength="-1"></textarea>
+        </block>
+      </block>
+      <block wx:else>
+        <view class="summary-text">{{summaryText}}</view>
+      </block>
+    </view>
+
+    <view class="section card" wx:if="{{analytics}}">
+      <view class="section-title">核心数据 Dashboard</view>
+      <view class="dashboard-grid">
+        <block wx:for="{{overviewCards}}" wx:key="label">
+          <view class="metric-card">
+            <view class="metric-value">{{item.value}}</view>
+            <view class="metric-label">{{item.label}}</view>
+          </view>
+        </block>
+      </view>
+      <view class="muted" style="margin-top: 12rpx;">优势科目：{{strongestSubjectsText}}</view>
+      <view class="muted" style="margin-top: 6rpx;">进步科目：{{improvingSubjectsText}}</view>
+      <view class="muted" style="margin-top: 6rpx;">需关注科目：{{attentionSubjectsText}}</view>
+    </view>
+    <view class="section card" wx:else>
+      <view class="section-title">核心数据 Dashboard</view>
+      <view class="muted">暂无足够数据生成核心指标。</view>
+    </view>
+
+    <view class="section card">
+      <view class="section-title">学习活跃度</view>
+      <block wx:if="{{dailyActivityRows.length === 0}}">
+        <view class="muted">暂无学习活跃度数据。</view>
+      </block>
+      <block wx:else>
+        <block wx:for="{{dailyActivityRows}}" wx:key="date">
+          <view class="activity-row">
+            <view class="activity-meta">{{item.date}} · {{item.activityCount}} 次 · {{item.subjectCount}} 科</view>
+            <view class="bar-track">
+              <view class="bar-fill {{item.intensityClass}}" style="{{item.widthStyle}}"></view>
+            </view>
+            <view class="muted" wx:if="{{item.subjectsText}}">{{item.subjectsText}}</view>
+          </view>
+        </block>
+      </block>
+      <view class="divider"></view>
+      <view class="section-title" style="font-size: 26rpx;">周活跃度</view>
+      <block wx:if="{{weeklyActivityRows.length === 0}}">
+        <view class="muted">暂无周活跃度数据。</view>
+      </block>
+      <block wx:else>
+        <block wx:for="{{weeklyActivityRows}}" wx:key="weekText">
+          <view class="list-item">
+            <view>{{item.weekText}}</view>
+            <view class="muted">活跃 {{item.activeDays}} 天 · 活动 {{item.activityCount}} 次 · 科目 {{item.subjectCount}} 个</view>
+          </view>
+        </block>
+      </block>
+    </view>
+
+    <view class="section card">
+      <view class="section-title">科目学习分布</view>
+      <block wx:if="{{subjectDistributionRows.length === 0}}">
+        <view class="muted">暂无科目学习分布数据。</view>
+      </block>
+      <block wx:else>
+        <block wx:for="{{subjectDistributionRows}}" wx:key="subjectName">
+          <view class="distribution-row">
+            <view class="row-between">
+              <view>{{item.subjectName}}</view>
+              <view class="muted">{{item.percentageOfTotalActivity}}</view>
+            </view>
+            <view class="bar-track">
+              <view class="bar-fill bar-medium" style="{{item.widthStyle}}"></view>
+            </view>
+            <view class="muted">活动 {{item.activityCount}} 次 · 活跃 {{item.activeDays}} 天</view>
+          </view>
+        </block>
+      </block>
+    </view>
+
+    <view class="section card">
+      <view class="section-title">成绩趋势</view>
+      <block wx:if="{{scoreTrendSubjects.length === 0}}">
+        <view class="muted">当前成绩数据有限，暂不判断趋势。</view>
+      </block>
+      <block wx:else>
+        <picker mode="selector" range="{{scoreTrendSubjects}}" range-key="subjectName" value="{{selectedTrendIndex}}" bindchange="onTrendSubjectChange">
+          <view class="chip">{{scoreTrendSubjects[selectedTrendIndex].subjectName}}</view>
+        </picker>
+        <block wx:if="{{currentTrendPoints.length < 2}}">
+          <view class="muted" style="margin-top: 10rpx;">当前成绩数据有限，暂不判断趋势。</view>
+        </block>
+        <block wx:for="{{currentTrendPoints}}" wx:key="date">
+          <view class="trend-row">
+            <view>{{item.date}} · {{item.percentage}}</view>
+            <view class="muted">{{item.source}} · {{item.title}} · {{item.score}}/{{item.maxScore}}</view>
+          </view>
+        </block>
+      </block>
+    </view>
+
+    <view class="section card" wx:if="{{displayReport}}">
+      <view class="section-title">各科报告</view>
+      <block wx:if="{{subjectReports.length === 0}}">
+        <view class="muted">暂无科目报告数据。</view>
+      </block>
+      <block wx:else>
+        <block wx:for="{{subjectReports}}" wx:key="subjectName">
+          <view class="subject-card">
+            <view class="subject-title">{{item.subjectName}}</view>
+            <view wx:if="{{reportType === 'quarterly' && !editMode}}" class="summary-text">{{item.summary || '暂无总结'}}</view>
+            <view wx:if="{{reportType === 'yearly' && !editMode}}" class="summary-text">{{item.annualSummary || '暂无总结'}}</view>
+            <textarea
+              wx:if="{{reportType === 'quarterly' && editMode}}"
+              class="input textarea-compact"
+              value="{{editForm.subjectReports[index].summary}}"
+              data-index="{{index}}"
+              data-field="summary"
+              bindinput="onSubjectSummaryInput"
+              maxlength="-1"
+            ></textarea>
+            <textarea
+              wx:if="{{reportType === 'yearly' && editMode}}"
+              class="input textarea-compact"
+              value="{{editForm.subjectReports[index].annualSummary}}"
+              data-index="{{index}}"
+              data-field="annualSummary"
+              bindinput="onSubjectSummaryInput"
+              maxlength="-1"
+            ></textarea>
+
+            <view class="tag-row" wx:if="{{reportType === 'quarterly'}}">
+              <block wx:for="{{item.strengths}}" wx:key="*this"><view class="tag">优：{{item}}</view></block>
+            </view>
+            <view class="tag-row" wx:if="{{reportType === 'quarterly'}}">
+              <block wx:for="{{item.areasToImprove}}" wx:key="*this"><view class="tag warning-tag">改：{{item}}</view></block>
+            </view>
+            <view class="tag-row" wx:if="{{reportType === 'yearly'}}">
+              <block wx:for="{{item.growth}}" wx:key="*this"><view class="tag">长：{{item}}</view></block>
+            </view>
+            <view class="tag-row" wx:if="{{reportType === 'yearly'}}">
+              <block wx:for="{{item.challenges}}" wx:key="*this"><view class="tag warning-tag">难：{{item}}</view></block>
+            </view>
+          </view>
+        </block>
+      </block>
+    </view>
+
+    <view class="section card" wx:if="{{displayReport}}">
+      <view class="section-title">学习习惯与成绩分析</view>
+      <block wx:if="{{reportType === 'quarterly'}}">
+        <view class="summary-text" wx:if="{{displayReport.learningHabitAnalysis && displayReport.learningHabitAnalysis.summary}}">{{displayReport.learningHabitAnalysis.summary}}</view>
+        <view class="muted" wx:if="{{displayReport.scoreTrendAnalysis && displayReport.scoreTrendAnalysis.summary}}">{{displayReport.scoreTrendAnalysis.summary}}</view>
+      </block>
+      <block wx:if="{{reportType === 'yearly'}}">
+        <view class="summary-text" wx:if="{{displayReport.learningHabitAnalysis && displayReport.learningHabitAnalysis.summary}}">{{displayReport.learningHabitAnalysis.summary}}</view>
+        <view class="muted" wx:if="{{displayReport.scoreTrendAnalysis && displayReport.scoreTrendAnalysis.summary}}">{{displayReport.scoreTrendAnalysis.summary}}</view>
+        <view class="muted" wx:if="{{displayReport.quarterlyComparison && displayReport.quarterlyComparison.summary}}">{{displayReport.quarterlyComparison.summary}}</view>
+      </block>
+    </view>
+
+    <view class="section card" wx:if="{{displayReport}}">
+      <view class="section-title">建议与老师评语</view>
+
+      <block wx:if="{{reportType === 'quarterly'}}">
+        <view class="field-label">学习亮点（每行一条）</view>
+        <view wx:if="{{!editMode}}" class="summary-text"><block wx:for="{{displayReport.keyHighlights}}" wx:key="*this">• {{item}}\n</block></view>
+        <textarea wx:if="{{editMode}}" class="input textarea-compact" value="{{editForm.keyHighlightsText}}" data-field="keyHighlightsText" bindinput="onEditFieldInput" maxlength="-1"></textarea>
+
+        <view class="field-label">需要关注（每行一条）</view>
+        <view wx:if="{{!editMode}}" class="summary-text"><block wx:for="{{displayReport.keyConcerns}}" wx:key="*this">• {{item}}\n</block></view>
+        <textarea wx:if="{{editMode}}" class="input textarea-compact" value="{{editForm.keyConcernsText}}" data-field="keyConcernsText" bindinput="onEditFieldInput" maxlength="-1"></textarea>
+
+        <view class="field-label">下一阶段建议（每行：领域|建议|优先级）</view>
+        <view wx:if="{{!editMode}}">
+          <block wx:for="{{displayReport.nextStageRecommendations}}" wx:key="index">
+            <view class="list-item">{{item.area || '建议'}}（{{item.priority === 'high' ? '重点' : (item.priority === 'low' ? '一般' : '中等')}}）：{{item.recommendation || ''}}</view>
+          </block>
+        </view>
+        <textarea wx:if="{{editMode}}" class="input textarea-compact" value="{{editForm.nextStageRecommendationsText}}" data-field="nextStageRecommendationsText" bindinput="onEditFieldInput" maxlength="-1"></textarea>
+
+        <view class="field-label">老师评语</view>
+        <view wx:if="{{!editMode}}" class="summary-text">{{displayReport.teacherComment || '暂无老师评语'}}</view>
+        <textarea wx:if="{{editMode}}" class="input textarea-compact" value="{{editForm.teacherComment}}" data-field="teacherComment" bindinput="onEditFieldInput" maxlength="-1"></textarea>
+      </block>
+
+      <block wx:if="{{reportType === 'yearly'}}">
+        <view class="field-label">年度亮点（每行一条）</view>
+        <view wx:if="{{!editMode}}" class="summary-text"><block wx:for="{{displayReport.annualGrowthHighlights}}" wx:key="*this">• {{item}}\n</block></view>
+        <textarea wx:if="{{editMode}}" class="input textarea-compact" value="{{editForm.annualGrowthHighlightsText}}" data-field="annualGrowthHighlightsText" bindinput="onEditFieldInput" maxlength="-1"></textarea>
+
+        <view class="field-label">长期关注（每行一条）</view>
+        <view wx:if="{{!editMode}}" class="summary-text"><block wx:for="{{displayReport.longTermConcerns}}" wx:key="*this">• {{item}}\n</block></view>
+        <textarea wx:if="{{editMode}}" class="input textarea-compact" value="{{editForm.longTermConcernsText}}" data-field="longTermConcernsText" bindinput="onEditFieldInput" maxlength="-1"></textarea>
+
+        <view class="field-label">下一年度建议（每行：领域|建议|优先级）</view>
+        <view wx:if="{{!editMode}}">
+          <block wx:for="{{displayReport.nextYearRecommendations}}" wx:key="index">
+            <view class="list-item">{{item.area || '建议'}}（{{item.priority === 'high' ? '重点' : (item.priority === 'low' ? '一般' : '中等')}}）：{{item.recommendation || ''}}</view>
+          </block>
+        </view>
+        <textarea wx:if="{{editMode}}" class="input textarea-compact" value="{{editForm.nextYearRecommendationsText}}" data-field="nextYearRecommendationsText" bindinput="onEditFieldInput" maxlength="-1"></textarea>
+
+        <view class="field-label">老师年度评语</view>
+        <view wx:if="{{!editMode}}" class="summary-text">{{displayReport.teacherAnnualComment || '暂无老师评语'}}</view>
+        <textarea wx:if="{{editMode}}" class="input textarea-compact" value="{{editForm.teacherAnnualComment}}" data-field="teacherAnnualComment" bindinput="onEditFieldInput" maxlength="-1"></textarea>
+      </block>
+    </view>
+
+    <view class="section card" wx:if="{{isManager && displayReport}}">
+      <view class="section-title">数据质量提示</view>
+      <block wx:if="{{displayReport.dataQualityNotesForTeacher && displayReport.dataQualityNotesForTeacher.length}}">
+        <block wx:for="{{displayReport.dataQualityNotesForTeacher}}" wx:key="*this">
+          <view class="list-item muted">{{item}}</view>
+        </block>
+      </block>
+      <view class="muted" wx:elif="{{!report.parseError}}">暂无数据质量提示</view>
+      <view class="muted" wx:if="{{report.parseError}}" style="margin-top: 10rpx;">解析提醒：{{report.parseError}}</view>
+    </view>
+  </block>
+</view>

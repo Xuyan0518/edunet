@@ -1,0 +1,119 @@
+.summary-text {
+  margin-top: 10rpx;
+  font-size: 26rpx;
+  color: #0f172a;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.profile-label {
+  display: inline-block;
+  background: linear-gradient(135deg, #dbeafe, #e0f2fe);
+  color: #1d4ed8;
+  border-radius: 999rpx;
+  padding: 8rpx 18rpx;
+  font-weight: 700;
+  margin-bottom: 8rpx;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12rpx;
+}
+
+.metric-card {
+  background: linear-gradient(135deg, #eff6ff, #f0f9ff);
+  border: 1rpx solid #bfdbfe;
+  border-radius: 14rpx;
+  padding: 14rpx;
+}
+
+.metric-value {
+  font-size: 34rpx;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.metric-label {
+  font-size: 22rpx;
+  color: #475569;
+  margin-top: 4rpx;
+}
+
+.activity-row,
+.distribution-row,
+.trend-row,
+.subject-card {
+  border: 1rpx solid #e2e8f0;
+  border-radius: 14rpx;
+  padding: 14rpx;
+  margin-bottom: 12rpx;
+  background: #ffffff;
+}
+
+.activity-meta {
+  font-size: 24rpx;
+  color: #334155;
+  margin-bottom: 8rpx;
+}
+
+.bar-track {
+  height: 12rpx;
+  background: #e2e8f0;
+  border-radius: 999rpx;
+  overflow: hidden;
+  margin-bottom: 8rpx;
+}
+
+.bar-fill {
+  height: 100%;
+  border-radius: 999rpx;
+}
+
+.bar-none {
+  background: #cbd5e1;
+}
+
+.bar-low {
+  background: #60a5fa;
+}
+
+.bar-medium {
+  background: #2563eb;
+}
+
+.bar-high {
+  background: #0ea5e9;
+}
+
+.subject-title {
+  font-size: 28rpx;
+  font-weight: 700;
+  margin-bottom: 8rpx;
+}
+
+.tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8rpx;
+  margin-top: 8rpx;
+}
+
+.warning-tag {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.field-label {
+  margin-top: 12rpx;
+  margin-bottom: 6rpx;
+  font-size: 24rpx;
+  color: #475569;
+}
+
+.textarea-compact {
+  min-height: 130rpx;
+  margin-top: 6rpx;
+  line-height: 1.5;
+}

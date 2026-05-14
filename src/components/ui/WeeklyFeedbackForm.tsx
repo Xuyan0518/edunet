@@ -422,7 +422,7 @@ const WeeklyFeedbackForm: React.FC = () => {
                     <CalendarIcon className="mr-2 h-4 w-4" />
                     {weekStarting ? (
                       <>
-                        {formatDisplayDate(weekStarting)} &nbsp;->&nbsp;{' '}
+                        {formatDisplayDate(weekStarting)} {'->'}{' '}
                         {weekEnding ? formatDisplayDate(weekEnding) : t('weeklyFeedbackForm.week.endPlaceholder')}
                       </>
                     ) : (

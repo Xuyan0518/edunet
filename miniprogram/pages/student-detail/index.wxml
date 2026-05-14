@@ -170,12 +170,16 @@
       <view>试卷/测验</view>
       <view class="chip">查看</view>
     </view>
+    <view class="list-item row-between" bindtap="openReports">
+      <view>学习报告</view>
+      <view class="chip">查看</view>
+    </view>
     <view class="list-item row-between" bindtap="openQuarterlySummary">
-      <view>学期总结</view>
+      <view>学期总结（旧版）</view>
       <view class="chip">查看</view>
     </view>
     <view class="list-item row-between" bindtap="openYearlySummary">
-      <view>年度总结</view>
+      <view>年度总结（旧版）</view>
       <view class="chip">查看</view>
     </view>
   </view>

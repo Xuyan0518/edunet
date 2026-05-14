@@ -1,0 +1,48 @@
+.field-label {
+  font-size: 24rpx;
+  color: #475569;
+  margin-bottom: 8rpx;
+}
+
+.empty-card {
+  border: 2rpx dashed #bfdbfe;
+  border-radius: 16rpx;
+  padding: 22rpx;
+  background: #f8fbff;
+}
+
+.empty-title {
+  font-size: 30rpx;
+  font-weight: 700;
+  margin-bottom: 8rpx;
+}
+
+.report-row {
+  border: 1rpx solid #e2e8f0;
+  border-radius: 16rpx;
+  padding: 18rpx;
+  background: #fff;
+  margin-bottom: 14rpx;
+}
+
+.report-title {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.report-meta {
+  margin-top: 6rpx;
+  font-size: 22rpx;
+}
+
+.report-preview {
+  margin-top: 10rpx;
+  color: #334155;
+  font-size: 24rpx;
+  line-height: 1.6;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}

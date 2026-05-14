@@ -12,6 +12,8 @@
     "pages/papers/index",
     "pages/quarterly-summary/index",
     "pages/yearly-summary/index",
+    "pages/reports/index",
+    "pages/report-detail/index",
     "pages/report-view/index",
     "pages/student-add/index",
     "pages/students-manage/index",

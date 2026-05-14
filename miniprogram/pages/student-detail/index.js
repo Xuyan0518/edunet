@@ -270,6 +270,10 @@ Page({
     wx.navigateTo({ url: `/pages/papers/index?studentId=${this.studentId}` });
   },
 
+  openReports() {
+    wx.navigateTo({ url: `/pages/reports/index?studentId=${this.studentId}` });
+  },
+
   openQuarterlySummary() {
     wx.navigateTo({ url: `/pages/quarterly-summary/index?studentId=${this.studentId}` });
   },

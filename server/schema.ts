@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { pgTable, uuid, varchar, integer, timestamp, jsonb, text, date, uniqueIndex, boolean } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, integer, timestamp, jsonb, text, date, uniqueIndex, boolean, index } from 'drizzle-orm/pg-core';
 import { v4 as uuidv4 } from 'uuid';
 // Fix uuid import for ESM compatibility
 import { randomUUID } from 'node:crypto';
@@ -229,6 +229,30 @@ export const YearlySummarySchema = z.object({
   summary: z.string(),
 });
 
+export const STUDENT_REPORT_TYPES = ['quarterly', 'yearly'] as const;
+export type StudentReportType = (typeof STUDENT_REPORT_TYPES)[number];
+
+export const STUDENT_REPORT_STATUS = ['draft', 'final'] as const;
+export type StudentReportStatus = (typeof STUDENT_REPORT_STATUS)[number];
+
+export const StudentReportSchema = z.object({
+  id: z.string().uuid().optional(),
+  studentId: z.string().uuid(),
+  reportType: z.enum(STUDENT_REPORT_TYPES),
+  title: z.string().max(200).optional().nullable(),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  year: z.number().int().optional().nullable(),
+  summaryText: z.string(),
+  analyticsJson: z.unknown().optional().nullable(),
+  structuredReportJson: z.unknown().optional().nullable(),
+  finalReportJson: z.unknown().optional().nullable(),
+  rawAiResponse: z.string().optional().nullable(),
+  parseError: z.string().optional().nullable(),
+  status: z.enum(STUDENT_REPORT_STATUS).optional().default('draft'),
+  visibleToParent: z.boolean().optional().default(false),
+});
+
 // ====== New enums and types for subjects and topics ======
 // Status of a student's progress on a topic
 export const TOPIC_STATUS = ['not_started', 'in_progress', 'completed'] as const;
@@ -433,6 +457,32 @@ export const yearlySummaryTable = pgTable('yearly_summary', {
   updatedByName: varchar('updated_by_name', { length: 100 }),
 }, (table) => ({
   uqStudentYear: uniqueIndex('uq_yearly_summary_student_year').on(table.studentId, table.year),
+}));
+
+export const studentReportsTable = pgTable('student_reports', {
+  id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
+  studentId: uuid('student_id').references(() => studentsTable.id).notNull(),
+  reportType: varchar('report_type', { length: 20 }).notNull(),
+  title: text('title'),
+  startDate: date('start_date').notNull(),
+  endDate: date('end_date').notNull(),
+  year: integer('year'),
+  summaryText: text('summary_text').notNull(),
+  analyticsJson: jsonb('analytics_json'),
+  structuredReportJson: jsonb('structured_report_json'),
+  finalReportJson: jsonb('final_report_json'),
+  rawAiResponse: text('raw_ai_response'),
+  parseError: text('parse_error'),
+  status: varchar('status', { length: 20 }).notNull().default('draft'),
+  visibleToParent: boolean('visible_to_parent').notNull().default(false),
+  createdBy: varchar('created_by', { length: 64 }),
+  updatedBy: varchar('updated_by', { length: 64 }),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+  updatedByName: varchar('updated_by_name', { length: 100 }),
+}, (table) => ({
+  idxStudentReportsStudent: index('idx_student_reports_student_created')
+    .on(table.studentId, table.createdAt, table.id),
 }));
 
 // ====== New tables for subjects and topics ======

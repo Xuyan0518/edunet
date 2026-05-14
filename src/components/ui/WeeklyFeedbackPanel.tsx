@@ -114,7 +114,7 @@ const WeeklyFeedbackPanel: React.FC<WeeklyFeedbackPanelProps> = ({ studentId, we
           >
             <CardHeader>
               <CardTitle className="text-lg">
-                {formatDisplayDate(start)} -> {formatDisplayDate(end)}
+                {formatDisplayDate(start)} {'->'} {formatDisplayDate(end)}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">

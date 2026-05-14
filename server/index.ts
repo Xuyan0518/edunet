@@ -13,6 +13,7 @@ import {
   examScoresTable,
   quarterlySummaryTable,
   yearlySummaryTable,
+  studentReportsTable,
   teachersTable,
   parentsTable,
   StudentSchema,
@@ -25,6 +26,7 @@ import {
   EXAM_TYPES,
   QuarterlySummarySchema,
   YearlySummarySchema,
+  StudentReportSchema,
   type Student,
   adminsTable
 } from './schema';
@@ -61,6 +63,24 @@ import {
   previousPeriod,
 } from './utils/studentAnalytics';
 import { pickCurrentTerm } from './utils/academicTerms';
+import { buildStudentReportAnalytics } from './services/reportAnalytics';
+import {
+  DEEPSEEK_QUARTERLY_PROMPT,
+  DEEPSEEK_YEARLY_PROMPT,
+  buildCompactReportContext,
+  parseAiStructuredReportResponse,
+} from './utils/aiStructuredReport';
+import {
+  canUserAccessReport,
+  canUserListStudentReports,
+  hydrateStudentReport,
+  isManagerRole,
+  normalizeReportPayload,
+  normalizeReportStatus,
+  normalizeReportType,
+  parseBooleanLike,
+} from './services/studentReports';
+import { serializeReportJson } from './utils/reportJson';
 
 // Apply V2 English normalization to a daily_progress row's activities. Used at
 // every read/write boundary so legacy rows look V2 to consumers and new writes
@@ -130,7 +150,7 @@ import {
 } from './schema';
 
 import { generateToken } from './utils/auth';
-import { authenticate, requireTeacher, requireParent, requireAdmin } from './middleware/auth';
+import { authenticate, requireTeacher, requireParent, requireAdmin, requireRole } from './middleware/auth';
 import { verifyParentStudentAccess } from './middleware/parentStudent';
 import { syncCatalogForStudentSubjects } from './utils/catalogSync';
 import { sendWeChatSubscribeMessage } from './utils/wechatNotify';
@@ -409,6 +429,47 @@ const toDateString = (value: string | Date | null | undefined) => {
   if (!value) return '';
   if (typeof value === 'string') return value.slice(0, 10);
   return format(value, 'yyyy-MM-dd');
+};
+
+const getStudentById = async (studentId: string) => {
+  const rows = await db
+    .select()
+    .from(studentsTable)
+    .where(eq(studentsTable.id, studentId))
+    .limit(1);
+  return rows[0] || null;
+};
+
+const getReportWithStudent = async (reportId: string) => {
+  const rows = await db
+    .select({
+      id: studentReportsTable.id,
+      studentId: studentReportsTable.studentId,
+      reportType: studentReportsTable.reportType,
+      title: studentReportsTable.title,
+      startDate: studentReportsTable.startDate,
+      endDate: studentReportsTable.endDate,
+      year: studentReportsTable.year,
+      summaryText: studentReportsTable.summaryText,
+      analyticsJson: studentReportsTable.analyticsJson,
+      structuredReportJson: studentReportsTable.structuredReportJson,
+      finalReportJson: studentReportsTable.finalReportJson,
+      rawAiResponse: studentReportsTable.rawAiResponse,
+      parseError: studentReportsTable.parseError,
+      status: studentReportsTable.status,
+      visibleToParent: studentReportsTable.visibleToParent,
+      createdBy: studentReportsTable.createdBy,
+      updatedBy: studentReportsTable.updatedBy,
+      createdAt: studentReportsTable.createdAt,
+      updatedAt: studentReportsTable.updatedAt,
+      updatedByName: studentReportsTable.updatedByName,
+      studentParentId: studentsTable.parentId,
+    })
+    .from(studentReportsTable)
+    .leftJoin(studentsTable, eq(studentReportsTable.studentId, studentsTable.id))
+    .where(eq(studentReportsTable.id, reportId))
+    .limit(1);
+  return rows[0] || null;
 };
 
 const buildMarkdownReport = (params: {
@@ -833,6 +894,7 @@ app.delete('/api/students/:id', authenticate, requireTeacher, async (req, res) =
     await db.delete(examsTable).where(eq(examsTable.studentId, id));
     await db.delete(quarterlySummaryTable).where(eq(quarterlySummaryTable.studentId, id));
     await db.delete(yearlySummaryTable).where(eq(yearlySummaryTable.studentId, id));
+    await db.delete(studentReportsTable).where(eq(studentReportsTable.studentId, id));
 
     await db.delete(studentsTable).where(eq(studentsTable.id, id));
     res.json({ message: 'Student deleted successfully' });
@@ -1360,6 +1422,245 @@ app.put('/api/students/:studentId/yearly-summary', authenticate, requireTeacher,
   } catch (err) {
     console.error('Error saving yearly summary:', err);
     res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// ====== STUDENT REPORTS ROUTES ======
+app.post('/api/reports', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
+  const reportType = normalizeReportType(req.body?.reportType);
+  if (!reportType) return res.status(400).json({ error: 'Invalid reportType' });
+
+  const studentId = String(req.body?.studentId || '');
+  const startDate = String(req.body?.startDate || '');
+  const endDate = String(req.body?.endDate || '');
+  const summary = String(req.body?.summary || '');
+  const title = req.body?.title != null ? String(req.body.title) : null;
+  const year = req.body?.year == null || req.body?.year === '' ? null : Number(req.body.year);
+  if (!studentId || !startDate || !endDate) return res.status(400).json({ error: 'Missing required fields' });
+  if (year != null && !Number.isFinite(year)) return res.status(400).json({ error: 'Invalid year' });
+
+  const parsed = StudentReportSchema.safeParse({
+    studentId,
+    reportType,
+    title,
+    startDate,
+    endDate,
+    year,
+    summaryText: summary,
+    analyticsJson: req.body?.analytics,
+    structuredReportJson: req.body?.structuredReport,
+    finalReportJson: req.body?.finalReport ?? req.body?.structuredReport,
+    rawAiResponse: req.body?.rawAiResponse ?? null,
+    parseError: req.body?.parseError ?? null,
+    status: normalizeReportStatus(req.body?.status),
+    visibleToParent: parseBooleanLike(req.body?.visibleToParent) ?? false,
+  });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  try {
+    const student = await getStudentById(studentId);
+    if (!student) return res.status(404).json({ error: 'Student not found' });
+
+    const normalizedPayload = normalizeReportPayload({
+      reportType,
+      structuredReport: parsed.data.structuredReportJson,
+      finalReport: parsed.data.finalReportJson,
+      analytics: parsed.data.analyticsJson,
+    });
+
+    const created = await db
+      .insert(studentReportsTable)
+      .values({
+        studentId,
+        reportType,
+        title: parsed.data.title || null,
+        startDate,
+        endDate,
+        year: year == null ? null : Math.trunc(year),
+        summaryText: parsed.data.summaryText,
+        analyticsJson: serializeReportJson(parsed.data.analyticsJson),
+        structuredReportJson: normalizedPayload.structuredReportJson,
+        finalReportJson: normalizedPayload.finalReportJson,
+        rawAiResponse: parsed.data.rawAiResponse || null,
+        parseError: parsed.data.parseError || null,
+        status: parsed.data.status,
+        visibleToParent: parsed.data.visibleToParent,
+        createdBy: req.user?.id || null,
+        updatedBy: req.user?.id || null,
+        updatedAt: new Date(),
+        updatedByName: req.user?.name || null,
+      })
+      .returning();
+
+    return res
+      .status(201)
+      .json(hydrateStudentReport(created[0], req.user?.role || 'teacher', { includeHeavyFields: true }));
+  } catch (err) {
+    console.error('Error saving report:', err);
+    return res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.get('/api/students/:studentId/reports', authenticate, verifyParentStudentAccess, async (req, res) => {
+  const { studentId } = req.params;
+  const user = req.user;
+  if (!user) return res.status(401).json({ error: 'Authentication required' });
+
+  try {
+    const student = await getStudentById(studentId);
+    if (!student) return res.status(404).json({ error: 'Student not found' });
+    if (!canUserListStudentReports({ user, studentParentId: student.parentId ?? null })) {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+
+    const whereExpr = [eq(studentReportsTable.studentId, studentId)];
+    const reportType = normalizeReportType(req.query?.reportType);
+    if (reportType) whereExpr.push(eq(studentReportsTable.reportType, reportType));
+    if (req.query?.year != null && req.query?.year !== '') {
+      const year = Number(req.query.year);
+      if (!Number.isFinite(year)) return res.status(400).json({ error: 'Invalid year' });
+      whereExpr.push(eq(studentReportsTable.year, Math.trunc(year)));
+    }
+
+    const visibleQuery = parseBooleanLike(req.query?.visibleToParent);
+    if (isManagerRole(user.role)) {
+      if (visibleQuery != null) whereExpr.push(eq(studentReportsTable.visibleToParent, visibleQuery));
+    } else {
+      whereExpr.push(eq(studentReportsTable.visibleToParent, true));
+    }
+
+    const whereClause = whereExpr.length > 1 ? and(...whereExpr) : whereExpr[0];
+    const rows = await db
+      .select({
+        id: studentReportsTable.id,
+        studentId: studentReportsTable.studentId,
+        reportType: studentReportsTable.reportType,
+        title: studentReportsTable.title,
+        startDate: studentReportsTable.startDate,
+        endDate: studentReportsTable.endDate,
+        year: studentReportsTable.year,
+        summaryText: studentReportsTable.summaryText,
+        analyticsJson: studentReportsTable.analyticsJson,
+        structuredReportJson: studentReportsTable.structuredReportJson,
+        finalReportJson: studentReportsTable.finalReportJson,
+        rawAiResponse: studentReportsTable.rawAiResponse,
+        parseError: studentReportsTable.parseError,
+        status: studentReportsTable.status,
+        visibleToParent: studentReportsTable.visibleToParent,
+        createdBy: studentReportsTable.createdBy,
+        updatedBy: studentReportsTable.updatedBy,
+        createdAt: studentReportsTable.createdAt,
+        updatedAt: studentReportsTable.updatedAt,
+        updatedByName: studentReportsTable.updatedByName,
+      })
+      .from(studentReportsTable)
+      .where(whereClause)
+      .orderBy(desc(studentReportsTable.updatedAt), desc(studentReportsTable.createdAt));
+
+    return res.json(rows.map((row) => hydrateStudentReport(row, user.role, { includeHeavyFields: false })));
+  } catch (err) {
+    console.error('Error listing reports:', err);
+    return res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.get('/api/reports/:reportId', authenticate, async (req, res) => {
+  const user = req.user;
+  if (!user) return res.status(401).json({ error: 'Authentication required' });
+  try {
+    const report = await getReportWithStudent(req.params.reportId);
+    if (!report) return res.status(404).json({ error: 'Report not found' });
+
+    const allowed = canUserAccessReport({
+      user,
+      studentParentId: report.studentParentId ?? null,
+      reportVisibleToParent: report.visibleToParent,
+      studentId: report.studentId,
+    });
+    if (!allowed) return res.status(403).json({ error: 'Insufficient permissions' });
+
+    return res.json(hydrateStudentReport(report, user.role, { includeHeavyFields: true }));
+  } catch (err) {
+    console.error('Error fetching report:', err);
+    return res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.patch('/api/reports/:reportId', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
+  const user = req.user;
+  if (!user) return res.status(401).json({ error: 'Authentication required' });
+  try {
+    const report = await getReportWithStudent(req.params.reportId);
+    if (!report) return res.status(404).json({ error: 'Report not found' });
+
+    const updates: Record<string, unknown> = {
+      updatedAt: new Date(),
+      updatedBy: user.id,
+      updatedByName: user.name || null,
+    };
+
+    if (req.body?.title !== undefined) updates.title = req.body?.title == null ? null : String(req.body.title);
+    if (req.body?.summary !== undefined) updates.summaryText = String(req.body.summary || '');
+    if (req.body?.status !== undefined) updates.status = normalizeReportStatus(req.body.status);
+    const visible = parseBooleanLike(req.body?.visibleToParent);
+    if (visible != null) updates.visibleToParent = visible;
+
+    const reportType = normalizeReportType(report.reportType);
+    if (reportType && req.body?.finalReport !== undefined) {
+      const normalizedPayload = normalizeReportPayload({
+        reportType,
+        structuredReport: report.structuredReportJson,
+        finalReport: req.body?.finalReport,
+        analytics: report.analyticsJson,
+      });
+      updates.finalReportJson = normalizedPayload.finalReportJson;
+    }
+
+    if (Object.keys(updates).length <= 3) {
+      return res.status(400).json({ error: 'No valid fields to update' });
+    }
+
+    const saved = await db
+      .update(studentReportsTable)
+      .set(updates)
+      .where(eq(studentReportsTable.id, req.params.reportId))
+      .returning();
+    if (!saved.length) return res.status(404).json({ error: 'Report not found' });
+    return res.json(hydrateStudentReport(saved[0], user.role, { includeHeavyFields: true }));
+  } catch (err) {
+    console.error('Error updating report:', err);
+    return res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.patch('/api/reports/:reportId/visibility', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
+  const user = req.user;
+  if (!user) return res.status(401).json({ error: 'Authentication required' });
+  const visible = parseBooleanLike(req.body?.visibleToParent);
+  if (visible == null) return res.status(400).json({ error: 'visibleToParent must be boolean' });
+
+  try {
+    const existing = await db
+      .select({ id: studentReportsTable.id })
+      .from(studentReportsTable)
+      .where(eq(studentReportsTable.id, req.params.reportId))
+      .limit(1);
+    if (!existing.length) return res.status(404).json({ error: 'Report not found' });
+
+    const saved = await db
+      .update(studentReportsTable)
+      .set({
+        visibleToParent: visible,
+        updatedAt: new Date(),
+        updatedBy: user.id,
+        updatedByName: user.name || null,
+      })
+      .where(eq(studentReportsTable.id, req.params.reportId))
+      .returning();
+    return res.json(hydrateStudentReport(saved[0], user.role, { includeHeavyFields: false }));
+  } catch (err) {
+    console.error('Error updating report visibility:', err);
+    return res.status(500).json({ error: 'Database error' });
   }
 });
 
@@ -3483,14 +3784,16 @@ app.post('/api/ai/weekly-summary', authenticate, requireTeacher, async (req, res
   }
 });
 
-app.post('/api/ai/quarterly-summary', authenticate, requireTeacher, async (req, res) => {
+app.post('/api/ai/quarterly-summary', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
   const { studentId, startDate, endDate } = req.body || {};
+  const saveReport = parseBooleanLike(req.body?.saveReport) === true;
   if (!studentId || !startDate || !endDate) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
   try {
     const studentRows = await db.select().from(studentsTable).where(eq(studentsTable.id, studentId));
     const student = studentRows[0];
+    if (!student) return res.status(404).json({ error: 'Student not found' });
     const daily = await db
       .select()
       .from(dailyProgress)
@@ -3576,18 +3879,84 @@ app.post('/api/ai/quarterly-summary', authenticate, requireTeacher, async (req, 
       )
       .orderBy(desc(quarterlySummaryTable.endDate))
       .limit(1);
-    const context = {
+    const normalizedDaily = daily.map(withV2Activities);
+    const analytics = buildStudentReportAnalytics({
       student,
       startDate,
       endDate,
-      dailyProgress: daily.map(withV2Activities),
+      dailyProgress: normalizedDaily,
       weeklyReports: weekly,
       papers,
       exams: examPayload,
       previousQuarterSummary: prevQuarter[0] || null,
+      quarterlySummaries: [],
+      reportType: 'quarterly',
+    });
+    const context = buildCompactReportContext({
+      student,
+      startDate,
+      endDate,
+      dailyProgress: normalizedDaily,
+      weeklyReports: weekly,
+      papers,
+      exams: examPayload,
+      previousQuarterSummary: prevQuarter[0] || null,
+      analytics,
+      reportType: 'quarterly',
+    });
+    const hasCustomQuarterlyPrompt = Boolean(quarterlySummaryPrompt && quarterlySummaryPrompt.trim());
+    const promptToUse = hasCustomQuarterlyPrompt
+      ? quarterlySummaryPrompt
+      : DEEPSEEK_QUARTERLY_PROMPT;
+    const raw = await callDeepSeek(promptToUse, context, hasCustomQuarterlyPrompt
+      ? { temperature: 0.2, responseFormat: 'text' }
+      : { temperature: 0.2, responseFormat: 'json_object' });
+    const parsed = parseAiStructuredReportResponse(raw, 'quarterly');
+    const baseResponse: Record<string, unknown> = {
+      summary: parsed.summaryText,
+      structuredReport: parsed.structuredReport,
+      analytics,
+      rawAiResponse: parsed.rawAiResponse,
+      parseError: parsed.parseError,
     };
-    const summary = await callDeepSeek(quarterlySummaryPrompt, context);
-    res.json({ summary });
+
+    if (!saveReport) return res.json(baseResponse);
+
+    const normalizedPayload = normalizeReportPayload({
+      reportType: 'quarterly',
+      structuredReport: parsed.structuredReport,
+      finalReport: parsed.structuredReport,
+      analytics,
+    });
+    const saved = await db
+      .insert(studentReportsTable)
+      .values({
+        studentId,
+        reportType: 'quarterly',
+        title: `${student.name || '学生'}学期学习报告（${startDate}~${endDate}）`,
+        startDate,
+        endDate,
+        year: Number(String(startDate).slice(0, 4)),
+        summaryText: parsed.summaryText,
+        analyticsJson: serializeReportJson(analytics),
+        structuredReportJson: normalizedPayload.structuredReportJson,
+        finalReportJson: normalizedPayload.finalReportJson,
+        rawAiResponse: parsed.rawAiResponse || null,
+        parseError: parsed.parseError || null,
+        status: 'draft',
+        visibleToParent: false,
+        createdBy: req.user?.id || null,
+        updatedBy: req.user?.id || null,
+        updatedAt: new Date(),
+        updatedByName: req.user?.name || null,
+      })
+      .returning();
+
+    return res.json({
+      ...baseResponse,
+      savedReport: hydrateStudentReport(saved[0], req.user?.role || 'teacher', { includeHeavyFields: true }),
+      reportId: saved[0].id,
+    });
   } catch (err) {
     const message = getErrorMessage(err);
     if (message.includes('AI_NOT_CONFIGURED')) {
@@ -3598,8 +3967,9 @@ app.post('/api/ai/quarterly-summary', authenticate, requireTeacher, async (req, 
   }
 });
 
-app.post('/api/ai/yearly-summary', authenticate, requireTeacher, async (req, res) => {
+app.post('/api/ai/yearly-summary', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
   const { studentId, year } = req.body || {};
+  const saveReport = parseBooleanLike(req.body?.saveReport) === true;
   const yearNum = Number(year);
   if (!studentId || !Number.isFinite(yearNum)) {
     return res.status(400).json({ error: 'Missing required fields' });
@@ -3609,6 +3979,7 @@ app.post('/api/ai/yearly-summary', authenticate, requireTeacher, async (req, res
   try {
     const studentRows = await db.select().from(studentsTable).where(eq(studentsTable.id, studentId));
     const student = studentRows[0];
+    if (!student) return res.status(404).json({ error: 'Student not found' });
     const daily = await db
       .select()
       .from(dailyProgress)
@@ -3688,19 +4059,85 @@ app.post('/api/ai/yearly-summary', authenticate, requireTeacher, async (req, res
       .from(quarterlySummaryTable)
       .where(and(eq(quarterlySummaryTable.studentId, studentId), eq(quarterlySummaryTable.year, yearNum)))
       .orderBy(quarterlySummaryTable.quarter);
-    const context = {
+    const normalizedDaily = daily.map(withV2Activities);
+    const analytics = buildStudentReportAnalytics({
+      student,
+      startDate,
+      endDate,
+      dailyProgress: normalizedDaily,
+      weeklyReports: weekly,
+      papers,
+      exams: examPayload,
+      previousQuarterSummary: null,
+      quarterlySummaries: quarters,
+      reportType: 'yearly',
+    });
+    const context = buildCompactReportContext({
       student,
       year: yearNum,
       startDate,
       endDate,
-      dailyProgress: daily.map(withV2Activities),
+      dailyProgress: normalizedDaily,
       weeklyReports: weekly,
       papers,
       exams: examPayload,
       quarterlySummaries: quarters,
+      analytics,
+      reportType: 'yearly',
+    });
+    const hasCustomYearlyPrompt = Boolean(yearlySummaryPrompt && yearlySummaryPrompt.trim());
+    const promptToUse = hasCustomYearlyPrompt
+      ? yearlySummaryPrompt
+      : DEEPSEEK_YEARLY_PROMPT;
+    const raw = await callDeepSeek(promptToUse, context, hasCustomYearlyPrompt
+      ? { temperature: 0.2, responseFormat: 'text' }
+      : { temperature: 0.2, responseFormat: 'json_object' });
+    const parsed = parseAiStructuredReportResponse(raw, 'yearly');
+    const baseResponse: Record<string, unknown> = {
+      summary: parsed.summaryText,
+      structuredReport: parsed.structuredReport,
+      analytics,
+      rawAiResponse: parsed.rawAiResponse,
+      parseError: parsed.parseError,
     };
-    const summary = await callDeepSeek(yearlySummaryPrompt, context);
-    res.json({ summary });
+
+    if (!saveReport) return res.json(baseResponse);
+
+    const normalizedPayload = normalizeReportPayload({
+      reportType: 'yearly',
+      structuredReport: parsed.structuredReport,
+      finalReport: parsed.structuredReport,
+      analytics,
+    });
+    const saved = await db
+      .insert(studentReportsTable)
+      .values({
+        studentId,
+        reportType: 'yearly',
+        title: `${student.name || '学生'}年度学习报告（${yearNum}）`,
+        startDate,
+        endDate,
+        year: yearNum,
+        summaryText: parsed.summaryText,
+        analyticsJson: serializeReportJson(analytics),
+        structuredReportJson: normalizedPayload.structuredReportJson,
+        finalReportJson: normalizedPayload.finalReportJson,
+        rawAiResponse: parsed.rawAiResponse || null,
+        parseError: parsed.parseError || null,
+        status: 'draft',
+        visibleToParent: false,
+        createdBy: req.user?.id || null,
+        updatedBy: req.user?.id || null,
+        updatedAt: new Date(),
+        updatedByName: req.user?.name || null,
+      })
+      .returning();
+
+    return res.json({
+      ...baseResponse,
+      savedReport: hydrateStudentReport(saved[0], req.user?.role || 'teacher', { includeHeavyFields: true }),
+      reportId: saved[0].id,
+    });
   } catch (err) {
     const message = getErrorMessage(err);
     if (message.includes('AI_NOT_CONFIGURED')) {

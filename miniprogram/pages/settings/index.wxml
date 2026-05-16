@@ -23,6 +23,8 @@
     </view>
   </view>
 
-  <button wx:if="{{isParent}}" class="btn-outline" bindtap="subscribe">订阅通知</button>
+  <button wx:if="{{isParent}}" class="btn-outline" loading="{{subscribing}}" disabled="{{subscribing}}" bindtap="subscribe">
+    订阅通知
+  </button>
   <button class="btn-outline" bindtap="logout">退出登录</button>
 </view>

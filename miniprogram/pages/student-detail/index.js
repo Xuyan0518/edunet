@@ -77,6 +77,11 @@ Page({
     parentName: "",
     dailyUnread: false,
     weeklyUnread: false,
+    gradesUnread: false,
+    reportsUnread: false,
+    weeklyLatestMarker: "",
+    gradesLatestMarker: "",
+    reportsLatestMarker: "",
     parentStudents: [],
   },
 
@@ -103,6 +108,8 @@ Page({
     const tasks = [this.fetchStudent(), this.fetchSubjects()];
     if (!this.data.isTeacher) {
       tasks.push(this.checkWeeklyUnread());
+      tasks.push(this.checkGradesUnread());
+      tasks.push(this.checkReportsUnread());
       tasks.push(this.fetchParentStudents());
     }
     return Promise.all(tasks);
@@ -204,9 +211,46 @@ Page({
         const seenKey = `weekly_seen_${this.studentId}`;
         const seen = wx.getStorageSync(seenKey) || "";
         const weeklyUnread = latest && (!seen || latest > seen);
-        this.setData({ weeklyUnread: !!weeklyUnread });
+        this.setData({
+          weeklyUnread: !!weeklyUnread,
+          weeklyLatestMarker: latest || "",
+        });
       })
       .catch(() => wx.showToast({ title: "获取反馈失败", icon: "error" }));
+  },
+
+  checkGradesUnread() {
+    return request({ url: `/students/${this.studentId}/exams` })
+      .then((data) => {
+        const entries = Array.isArray(data) ? data : [];
+        const first = entries[0] || {};
+        const latest = first.updatedAt || first.examDate || first.createdAt || "";
+        const seenKey = `grades_seen_${this.studentId}`;
+        const seen = wx.getStorageSync(seenKey) || "";
+        const gradesUnread = latest && (!seen || latest > seen);
+        this.setData({
+          gradesUnread: !!gradesUnread,
+          gradesLatestMarker: latest || "",
+        });
+      })
+      .catch(() => wx.showToast({ title: "获取成绩失败", icon: "error" }));
+  },
+
+  checkReportsUnread() {
+    return request({ url: `/students/${this.studentId}/reports` })
+      .then((data) => {
+        const entries = Array.isArray(data) ? data : [];
+        const first = entries[0] || {};
+        const latest = first.updatedAt || first.createdAt || first.endDate || "";
+        const seenKey = `reports_seen_${this.studentId}`;
+        const seen = wx.getStorageSync(seenKey) || "";
+        const reportsUnread = latest && (!seen || latest > seen);
+        this.setData({
+          reportsUnread: !!reportsUnread,
+          reportsLatestMarker: latest || "",
+        });
+      })
+      .catch(() => wx.showToast({ title: "获取报告失败", icon: "error" }));
   },
 
   syncTopics() {
@@ -266,10 +310,18 @@ Page({
   },
 
   openFeedbackList() {
+    if (this.data.isParent && this.data.weeklyLatestMarker) {
+      wx.setStorageSync(`weekly_seen_${this.studentId}`, this.data.weeklyLatestMarker);
+      this.setData({ weeklyUnread: false });
+    }
     wx.navigateTo({ url: `/pages/weekly-feedback/index?studentId=${this.studentId}` });
   },
 
   openGrades() {
+    if (this.data.isParent && this.data.gradesLatestMarker) {
+      wx.setStorageSync(`grades_seen_${this.studentId}`, this.data.gradesLatestMarker);
+      this.setData({ gradesUnread: false });
+    }
     wx.navigateTo({ url: `/pages/grades/index?studentId=${this.studentId}` });
   },
 
@@ -278,6 +330,10 @@ Page({
   },
 
   openReports() {
+    if (this.data.isParent && this.data.reportsLatestMarker) {
+      wx.setStorageSync(`reports_seen_${this.studentId}`, this.data.reportsLatestMarker);
+      this.setData({ reportsUnread: false });
+    }
     wx.navigateTo({ url: `/pages/reports/index?studentId=${this.studentId}` });
   },
 

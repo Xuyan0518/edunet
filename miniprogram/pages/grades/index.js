@@ -95,6 +95,13 @@ Page({
           })),
         }));
         this.setData({ exams });
+        const user = wx.getStorageSync("user");
+        if (user?.role === "parent" && exams.length) {
+          const latest = exams[0]?.updatedAt || exams[0]?.examDate || exams[0]?.createdAt || "";
+          if (latest) {
+            wx.setStorageSync(`grades_seen_${this.studentId}`, latest);
+          }
+        }
       })
       .catch(() => wx.showToast({ title: "获取成绩失败", icon: "error" }))
       .finally(() => this.setData({ loading: false }));

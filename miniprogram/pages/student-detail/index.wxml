@@ -158,13 +158,16 @@
     <view class="list-item row-between" bindtap="openFeedbackList">
       <view>每周汇报记录</view>
       <view class="row">
-        <view wx:if="{{weeklyUnread && !isTeacher}}" class="chip chip-warning">新</view>
+        <view wx:if="{{weeklyUnread && isParent}}" class="chip chip-alert">新</view>
         <view class="chip">查看</view>
       </view>
     </view>
     <view class="list-item row-between" bindtap="openGrades">
       <view>成绩记录</view>
-      <view class="chip">查看</view>
+      <view class="row">
+        <view wx:if="{{gradesUnread && isParent}}" class="chip chip-alert">新</view>
+        <view class="chip">查看</view>
+      </view>
     </view>
     <view class="list-item row-between" bindtap="openPapers">
       <view>试卷/测验</view>
@@ -172,7 +175,10 @@
     </view>
     <view class="list-item row-between" bindtap="openReports">
       <view>学习报告</view>
-      <view class="chip">查看</view>
+      <view class="row">
+        <view wx:if="{{reportsUnread && isParent}}" class="chip chip-alert">新</view>
+        <view class="chip">查看</view>
+      </view>
     </view>
     <view class="list-item row-between" bindtap="openQuarterlySummary">
       <view>学期总结（旧版）</view>

@@ -148,7 +148,16 @@ Page({
 
   fetchReports() {
     return listStudentReports(this.studentId, this.buildFilters())
-      .then((reports) => this.setData({ reports: reports || [] }))
+      .then((reports) => {
+        const list = reports || [];
+        this.setData({ reports: list });
+        if (this.data.isParent && list.length) {
+          const latest = list[0]?.updatedAt || list[0]?.createdAt || list[0]?.endDate || '';
+          if (latest) {
+            wx.setStorageSync(`reports_seen_${this.studentId}`, latest);
+          }
+        }
+      })
       .catch((err) => {
         if (showActionLockToast(err)) return;
         wx.showToast({ title: err?.message || err?.error || '获取报告失败', icon: 'none' });

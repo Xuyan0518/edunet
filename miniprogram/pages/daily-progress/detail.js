@@ -45,6 +45,9 @@ const decorateTopic = (topic) => {
   };
 };
 
+const countTopics = (topics) =>
+  (topics || []).reduce((sum, t) => sum + 1 + countTopics(t.children || []), 0);
+
 // V2 English fields. Each scored sub-skill (editing/reading/grammar) carries
 // score/totalScore/count + lossPointIds/lossPointLabelsSnapshot/otherLossPointText.
 // Vocab carries a sentence-count, recitation is text-only, essay carries
@@ -530,12 +533,16 @@ Page({
     if (!this.studentId) return;
     request({ url: `/students/${this.studentId}/subjects/full` })
       .then((data) => {
-        const subjects = (data || []).map((entry) => ({
-          subject: entry?.subject
-            ? { ...entry.subject, displayName: formatSubjectName(entry.subject.name) }
-            : entry.subject,
-          topics: (entry?.topics || []).map(decorateTopic),
-        }));
+        const subjects = (data || []).map((entry) => {
+          const topics = (entry?.topics || []).map(decorateTopic);
+          return {
+            subject: entry?.subject
+              ? { ...entry.subject, displayName: formatSubjectName(entry.subject.name) }
+              : entry.subject,
+            topics,
+            totalCount: countTopics(topics),
+          };
+        });
         const expandedSubjects = { ...this.data.topicProgressExpandedSubjects };
         const expandedTopics = { ...this.data.topicProgressExpandedTopics };
         subjects.forEach((s) => {

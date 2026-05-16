@@ -73,6 +73,7 @@ import {
 import {
   canUserAccessReport,
   canUserListStudentReports,
+  canUserManageReport,
   hydrateStudentReport,
   isManagerRole,
   normalizeReportPayload,
@@ -1698,6 +1699,32 @@ app.patch('/api/reports/:reportId/visibility', authenticate, requireRole('teache
     return res.json(hydrateStudentReport(saved[0], user.role, { includeHeavyFields: false }));
   } catch (err) {
     console.error('Error updating report visibility:', err);
+    return res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.delete('/api/reports/:reportId', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
+  const user = req.user;
+  if (!user) return res.status(401).json({ error: 'Authentication required' });
+  try {
+    const report = await getReportWithStudent(req.params.reportId);
+    if (!report) return res.status(404).json({ error: 'Report not found' });
+
+    const allowed = canUserManageReport({
+      user,
+      studentParentId: report.studentParentId ?? null,
+      studentId: report.studentId,
+    });
+    if (!allowed) return res.status(403).json({ error: 'Insufficient permissions' });
+
+    const deleted = await db
+      .delete(studentReportsTable)
+      .where(eq(studentReportsTable.id, req.params.reportId))
+      .returning({ id: studentReportsTable.id });
+    if (!deleted.length) return res.status(404).json({ error: 'Report not found' });
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('Error deleting report:', err);
     return res.status(500).json({ error: 'Database error' });
   }
 });

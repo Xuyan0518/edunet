@@ -149,7 +149,7 @@
 
   <view class="section card">
     <view class="section-title">学习记录</view>
-    <view class="list-item row-between" bindtap="openProgressList">
+    <view wx:if="{{!isParent}}" class="list-item row-between" bindtap="openProgressList">
       <view>每日进度记录</view>
       <view class="row">
         <view class="chip">查看</view>

@@ -94,6 +94,22 @@ describe('miniprogram report api helpers', () => {
     );
   });
 
+  it('calls delete report endpoint', async () => {
+    const reportApi = require('../../miniprogram/utils/reportApi.js');
+    (globalThis as any).wx.request.mockImplementation((options: any) => {
+      options.success({ statusCode: 200, data: { success: true } });
+    });
+
+    const data = await reportApi.deleteReport('r-del-1');
+    expect(data).toEqual({ success: true });
+    expect((globalThis as any).wx.request).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: 'https://api.example.com/api/reports/r-del-1',
+        method: 'DELETE',
+      })
+    );
+  });
+
   it('resolves role flags for manager and readonly roles', () => {
     const reportApi = require('../../miniprogram/utils/reportApi.js');
 
@@ -128,6 +144,7 @@ describe('miniprogram report api helpers', () => {
 describe('miniprogram report view helpers', () => {
   const viewModel = require('../../miniprogram/utils/reportViewModel.js');
   const { buildReportMarkdown } = require('../../miniprogram/utils/reportMarkdown.js');
+  const { getSubjectDisplayName } = require('../../miniprogram/utils/subjectDisplayName.js');
 
   it('falls back from finalReport to structuredReport to summary', () => {
     const withFinal = {
@@ -170,7 +187,7 @@ describe('miniprogram report view helpers', () => {
     expect(quarterlySummary).toContain('季度总评');
     expect(quarterlySummary).toContain('数学');
     expect(yearlySummary).toContain('年度总评');
-    expect(yearlySummary).toContain('英语');
+    expect(yearlySummary).toContain('英文');
   });
 
   it('builds finalReport payload for quarterly and yearly edit forms', () => {
@@ -303,8 +320,79 @@ describe('miniprogram report view helpers', () => {
 
     expect(markdown).toContain('# 学生年度学习报告');
     expect(markdown).toContain('2026 年');
-    expect(markdown).toContain('### 英语');
+    expect(markdown).toContain('### 英文');
     expect(markdown).toContain('保持精读');
     expect(markdown).toContain('整体向好');
+  });
+
+  it('formats date text and hides raw ISO in list helpers', async () => {
+    const reportApi = require('../../miniprogram/utils/reportApi.js');
+    (globalThis as any).wx.request.mockImplementation((options: any) => {
+      options.success({
+        statusCode: 200,
+        data: [{
+          id: 'r-date-1',
+          reportType: 'quarterly',
+          summary: 'summary',
+          updatedAt: '2026-05-16T03:36:23.376Z',
+        }],
+      });
+    });
+    const list = await reportApi.listStudentReports('s-1');
+    expect(list[0].updatedAtText).toMatch(/^2026-05-16 \d{2}:\d{2}$/);
+  });
+
+  it('builds weekly activity rows from weeklyActivity first', () => {
+    const rows = viewModel.buildWeeklyActivityRows({
+      learningActivity: {
+        weeklyActivity: [{ weekStart: '2026-05-05', weekEnd: '2026-05-11', activeDays: 3, activityCount: 7, subjectCount: 4 }],
+      },
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].activityCount).toBe(7);
+  });
+
+  it('builds weekly activity rows from dailyActivity fallback safely', () => {
+    const rows = viewModel.buildWeeklyActivityRows({
+      learningActivity: {
+        dailyActivity: [
+          { date: '2026-05-05', activityCount: 2, subjectCount: 2 },
+          { date: '2026-05-06', activityCount: 1, subjectCount: 1 },
+        ],
+      },
+    });
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows[0].activityCount).toBeGreaterThan(0);
+  });
+
+  it('maps subject names to Chinese display names', () => {
+    expect(getSubjectDisplayName('English')).toBe('英文');
+    expect(getSubjectDisplayName('Secondary 3/4 G3 Additional Mathematics')).toBe('高等数学');
+    expect(getSubjectDisplayName('Secondary 3/4 G3 Math')).toBe('数学');
+    expect(getSubjectDisplayName('Secondary 3/4 Pure Chemistry')).toBe('化学');
+    expect(getSubjectDisplayName('Social Studies (Upper Secondary G3)')).toBe('社会研究');
+  });
+
+  it('resolves tag class by tag type', () => {
+    expect(viewModel.getTagClass('strength')).toBe('tag-strength');
+    expect(viewModel.getTagClass('improvement')).toBe('tag-improve');
+    expect(viewModel.getTagClass('next')).toBe('tag-next');
+    expect(viewModel.getTagClass('evidence')).toBe('tag-evidence');
+  });
+
+  it('markdown uses Chinese subject names', () => {
+    const markdown = buildReportMarkdown({
+      title: '学生学期学习报告',
+      reportType: 'quarterly',
+      startDate: '2026-01-01',
+      endDate: '2026-03-31',
+      summary: 'fallback summary',
+      finalReport: {
+        reportType: 'quarterly',
+        executiveSummary: '总评',
+        subjectReports: [{ subjectName: 'Secondary 3/4 G3 Additional Mathematics', summary: '稳定' }],
+      },
+    });
+    expect(markdown).toContain('### 高等数学');
   });
 });

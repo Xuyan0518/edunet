@@ -381,7 +381,7 @@
             <view class="muted subject-code">{{item.subject.code}}</view>
           </view>
           <view class="row">
-            <view class="chip">{{item.topics.length}} 主题</view>
+            <view class="chip">{{item.totalCount}} 主题</view>
             <view class="muted">{{topicProgressExpandedSubjects[item.subject.id] ? '收起' : '展开'}}</view>
           </view>
         </view>

@@ -3,6 +3,7 @@ const PRIORITY_LABEL = {
   medium: '中等',
   low: '一般',
 };
+const { getSubjectDisplayName } = require('./subjectDisplayName');
 
 const ensureArray = (value) => (Array.isArray(value) ? value.filter((item) => item != null && item !== '') : []);
 
@@ -66,7 +67,7 @@ const normalizeSubjectReports = (reportType, displayReport) => {
   if (reportType === 'yearly') {
     return subjectReports.map((item) => ({
       ...(item && typeof item === 'object' ? item : {}),
-      subjectName: toText(item?.subjectName).trim() || '未命名科目',
+      subjectName: getSubjectDisplayName(toText(item?.subjectName).trim() || '未命名科目'),
       annualSummary: toText(item?.annualSummary).trim(),
       growth: ensureArray(item?.growth),
       challenges: ensureArray(item?.challenges),
@@ -77,7 +78,7 @@ const normalizeSubjectReports = (reportType, displayReport) => {
 
   return subjectReports.map((item) => ({
     ...(item && typeof item === 'object' ? item : {}),
-    subjectName: toText(item?.subjectName).trim() || '未命名科目',
+    subjectName: getSubjectDisplayName(toText(item?.subjectName).trim() || '未命名科目'),
     summary: toText(item?.summary).trim(),
     strengths: ensureArray(item?.strengths),
     areasToImprove: ensureArray(item?.areasToImprove),
@@ -130,7 +131,7 @@ const buildFinalReportPayload = (report, form) => {
       longTermConcerns: splitLines(form.longTermConcernsText),
       subjectReports: subjectReports.map((item) => ({
         ...item,
-        subjectName: toText(item.subjectName).trim() || '未命名科目',
+        subjectName: getSubjectDisplayName(toText(item.subjectName).trim() || '未命名科目'),
         annualSummary: toText(item.annualSummary).trim(),
       })),
       nextYearRecommendations: parseRecommendationLines(form.nextYearRecommendationsText),
@@ -146,7 +147,7 @@ const buildFinalReportPayload = (report, form) => {
     keyConcerns: splitLines(form.keyConcernsText),
     subjectReports: subjectReports.map((item) => ({
       ...item,
-      subjectName: toText(item.subjectName).trim() || '未命名科目',
+      subjectName: getSubjectDisplayName(toText(item.subjectName).trim() || '未命名科目'),
       summary: toText(item.summary).trim(),
     })),
     nextStageRecommendations: parseRecommendationLines(form.nextStageRecommendationsText),
@@ -165,7 +166,7 @@ const buildSummaryFromStructured = (reportType, structuredReport, fallbackSummar
       toText(structuredReport.annualExecutiveSummary).trim(),
       ...ensureArray(structuredReport.annualGrowthHighlights).map((item) => `- ${item}`),
       ...ensureArray(structuredReport.longTermConcerns).map((item) => `- 关注：${item}`),
-      ...ensureArray(structuredReport.subjectReports).map((item) => `${item.subjectName || '科目'}：${toText(item.annualSummary).trim()}`),
+      ...ensureArray(structuredReport.subjectReports).map((item) => `${getSubjectDisplayName(item.subjectName || '科目')}：${toText(item.annualSummary).trim()}`),
       ...ensureArray(structuredReport.nextYearRecommendations)
         .map((item) => normalizeRecommendation(item))
         .map((item) => `${item.area || '建议'}（${PRIORITY_LABEL[item.priority]}）：${item.recommendation}`),
@@ -179,7 +180,7 @@ const buildSummaryFromStructured = (reportType, structuredReport, fallbackSummar
     toText(structuredReport.executiveSummary).trim(),
     ...ensureArray(structuredReport.keyHighlights).map((item) => `- ${item}`),
     ...ensureArray(structuredReport.keyConcerns).map((item) => `- 关注：${item}`),
-    ...ensureArray(structuredReport.subjectReports).map((item) => `${item.subjectName || '科目'}：${toText(item.summary).trim()}`),
+    ...ensureArray(structuredReport.subjectReports).map((item) => `${getSubjectDisplayName(item.subjectName || '科目')}：${toText(item.summary).trim()}`),
     ...ensureArray(structuredReport.nextStageRecommendations)
       .map((item) => normalizeRecommendation(item))
       .map((item) => `${item.area || '建议'}（${PRIORITY_LABEL[item.priority]}）：${item.recommendation}`),
@@ -188,6 +189,68 @@ const buildSummaryFromStructured = (reportType, structuredReport, fallbackSummar
 
   return lines.join('\n') || toText(fallbackSummary).trim() || '暂无报告内容';
 };
+
+const startOfWeekMonday = (date) => {
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const day = d.getDay() || 7;
+  d.setDate(d.getDate() - day + 1);
+  return d;
+};
+
+const toYmd = (date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+
+const buildWeeklyActivityRows = (analytics) => {
+  const weekly = ensureArray(analytics?.learningActivity?.weeklyActivity);
+  if (weekly.length) {
+    return weekly.map((row) => ({
+      weekStart: toText(row?.weekStart).trim() || '--',
+      weekEnd: toText(row?.weekEnd).trim() || '--',
+      weekText: `${toText(row?.weekStart).trim() || '--'} ~ ${toText(row?.weekEnd).trim() || '--'}`,
+      activeDays: Number(row?.activeDays || 0),
+      activityCount: Number(row?.activityCount || 0),
+      subjectCount: Number(row?.subjectCount || 0),
+    }));
+  }
+
+  const daily = ensureArray(analytics?.learningActivity?.dailyActivity);
+  const map = new Map();
+  for (const row of daily) {
+    const dateText = toText(row?.date).trim();
+    if (!dateText) continue;
+    const date = new Date(dateText);
+    if (Number.isNaN(date.getTime())) continue;
+    const weekStart = startOfWeekMonday(date);
+    const key = toYmd(weekStart);
+    const current = map.get(key) || {
+      weekStart: key,
+      weekEnd: toYmd(new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + 6)),
+      activeDays: 0,
+      activityCount: 0,
+      subjectCount: 0,
+    };
+    const activityCount = Number(row?.activityCount || 0);
+    current.activityCount += activityCount;
+    current.subjectCount += Number(row?.subjectCount || 0);
+    if (activityCount > 0) current.activeDays += 1;
+    map.set(key, current);
+  }
+  return Array.from(map.values())
+    .sort((a, b) => (a.weekStart > b.weekStart ? 1 : -1))
+    .map((item) => ({
+      ...item,
+      weekText: `${item.weekStart} ~ ${item.weekEnd}`,
+    }));
+};
+
+const TAG_TYPE_CLASS = {
+  strength: 'tag-strength',
+  improvement: 'tag-improve',
+  next: 'tag-next',
+  evidence: 'tag-evidence',
+};
+
+const getTagClass = (tagType) => TAG_TYPE_CLASS[tagType] || 'tag-evidence';
 
 module.exports = {
   PRIORITY_LABEL,
@@ -202,4 +265,6 @@ module.exports = {
   buildFinalReportPayload,
   buildSummaryFromStructured,
   normalizeRecommendation,
+  buildWeeklyActivityRows,
+  getTagClass,
 };

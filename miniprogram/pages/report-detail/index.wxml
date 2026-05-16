@@ -9,7 +9,7 @@
       <view class="chip {{report.visibleToParent ? 'chip-success' : 'chip-muted'}}">{{report.visibleToParent ? '已发布给家长' : '未发布'}}</view>
       <view class="chip" wx:if="{{report.year}}">{{report.year}} 年</view>
     </view>
-    <view class="muted" style="margin-top: 10rpx;" wx:if="{{report.updatedAt}}">最后更新：{{report.updatedAt}} {{report.updatedByName ? '· ' + report.updatedByName : ''}}</view>
+    <view class="muted" style="margin-top: 10rpx;" wx:if="{{report.updatedAtText || report.updatedAt}}">最后更新：{{report.updatedAtText || report.updatedAt}} {{report.updatedByName ? '· ' + report.updatedByName : ''}}</view>
   </view>
 
   <view class="section card" wx:if="{{loading}}">
@@ -26,6 +26,7 @@
         <button wx:if="{{!previewMode}}" class="btn-outline" size="mini" bindtap="toggleVisibility" loading="{{publishing}}">
           {{report.visibleToParent ? '取消发布' : '发布给家长'}}
         </button>
+        <button wx:if="{{!previewMode}}" class="btn-danger-ghost" size="mini" bindtap="deleteCurrentReport">删除报告</button>
         <button wx:if="{{previewMode}}" class="btn-primary" size="mini" bindtap="savePreviewAsDraft" loading="{{saving}}">保存草稿</button>
       </view>
       <view class="muted" wx:if="{{previewMode}}" style="margin-top: 10rpx;">当前是预览模式。保存草稿后即可正式发布给家长。</view>
@@ -73,30 +74,17 @@
 
     <view class="section card">
       <view class="section-title">学习活跃度</view>
-      <block wx:if="{{dailyActivityRows.length === 0}}">
-        <view class="muted">暂无学习活跃度数据。</view>
-      </block>
-      <block wx:else>
-        <block wx:for="{{dailyActivityRows}}" wx:key="date">
-          <view class="activity-row">
-            <view class="activity-meta">{{item.date}} · {{item.activityCount}} 次 · {{item.subjectCount}} 科</view>
-            <view class="bar-track">
-              <view class="bar-fill {{item.intensityClass}}" style="{{item.widthStyle}}"></view>
-            </view>
-            <view class="muted" wx:if="{{item.subjectsText}}">{{item.subjectsText}}</view>
-          </view>
-        </block>
-      </block>
-      <view class="divider"></view>
-      <view class="section-title" style="font-size: 26rpx;">周活跃度</view>
       <block wx:if="{{weeklyActivityRows.length === 0}}">
-        <view class="muted">暂无周活跃度数据。</view>
+        <view class="muted">暂无每周学习活跃度数据。</view>
       </block>
       <block wx:else>
         <block wx:for="{{weeklyActivityRows}}" wx:key="weekText">
-          <view class="list-item">
-            <view>{{item.weekText}}</view>
-            <view class="muted">活跃 {{item.activeDays}} 天 · 活动 {{item.activityCount}} 次 · 科目 {{item.subjectCount}} 个</view>
+          <view class="activity-row">
+            <view class="activity-meta">{{item.weekText}}</view>
+            <view class="bar-track">
+              <view class="bar-fill bar-medium" style="{{item.widthStyle}}"></view>
+            </view>
+            <view class="muted">学习 {{item.activeDays}} 天 · {{item.activityCount}} 次记录 · {{item.subjectCount}} 个科目</view>
           </view>
         </block>
       </block>
@@ -111,7 +99,7 @@
         <block wx:for="{{subjectDistributionRows}}" wx:key="subjectName">
           <view class="distribution-row">
             <view class="row-between">
-              <view>{{item.subjectName}}</view>
+              <view>{{item.subjectDisplayName}}</view>
               <view class="muted">{{item.percentageOfTotalActivity}}</view>
             </view>
             <view class="bar-track">
@@ -129,8 +117,8 @@
         <view class="muted">当前成绩数据有限，暂不判断趋势。</view>
       </block>
       <block wx:else>
-        <picker mode="selector" range="{{scoreTrendSubjects}}" range-key="subjectName" value="{{selectedTrendIndex}}" bindchange="onTrendSubjectChange">
-          <view class="chip">{{scoreTrendSubjects[selectedTrendIndex].subjectName}}</view>
+        <picker mode="selector" range="{{scoreTrendSubjects}}" range-key="subjectDisplayName" value="{{selectedTrendIndex}}" bindchange="onTrendSubjectChange">
+          <view class="chip">{{scoreTrendSubjects[selectedTrendIndex].subjectDisplayName}}</view>
         </picker>
         <block wx:if="{{currentTrendPoints.length < 2}}">
           <view class="muted" style="margin-top: 10rpx;">当前成绩数据有限，暂不判断趋势。</view>
@@ -175,16 +163,28 @@
             ></textarea>
 
             <view class="tag-row" wx:if="{{reportType === 'quarterly'}}">
-              <block wx:for="{{item.strengths}}" wx:key="*this"><view class="tag">优：{{item}}</view></block>
+              <block wx:for="{{item.strengths}}" wx:key="*this"><view class="tag tag-strength">优：{{item}}</view></block>
             </view>
             <view class="tag-row" wx:if="{{reportType === 'quarterly'}}">
-              <block wx:for="{{item.areasToImprove}}" wx:key="*this"><view class="tag warning-tag">改：{{item}}</view></block>
+              <block wx:for="{{item.areasToImprove}}" wx:key="*this"><view class="tag tag-improve">改：{{item}}</view></block>
+            </view>
+            <view class="tag-row" wx:if="{{reportType === 'quarterly'}}">
+              <block wx:for="{{item.nextSteps}}" wx:key="*this"><view class="tag tag-next">建议：{{item}}</view></block>
+            </view>
+            <view class="tag-row" wx:if="{{reportType === 'quarterly'}}">
+              <block wx:for="{{item.evidence}}" wx:key="*this"><view class="tag tag-evidence">依据：{{item}}</view></block>
             </view>
             <view class="tag-row" wx:if="{{reportType === 'yearly'}}">
-              <block wx:for="{{item.growth}}" wx:key="*this"><view class="tag">长：{{item}}</view></block>
+              <block wx:for="{{item.growth}}" wx:key="*this"><view class="tag tag-strength">长：{{item}}</view></block>
             </view>
             <view class="tag-row" wx:if="{{reportType === 'yearly'}}">
-              <block wx:for="{{item.challenges}}" wx:key="*this"><view class="tag warning-tag">难：{{item}}</view></block>
+              <block wx:for="{{item.challenges}}" wx:key="*this"><view class="tag tag-improve">难：{{item}}</view></block>
+            </view>
+            <view class="tag-row" wx:if="{{reportType === 'yearly'}}">
+              <block wx:for="{{item.nextYearFocus}}" wx:key="*this"><view class="tag tag-next">建议：{{item}}</view></block>
+            </view>
+            <view class="tag-row" wx:if="{{reportType === 'yearly'}}">
+              <block wx:for="{{item.evidence}}" wx:key="*this"><view class="tag tag-evidence">依据：{{item}}</view></block>
             </view>
           </view>
         </block>

@@ -4,6 +4,7 @@ import { parseReportJson, serializeReportJson } from '../../server/utils/reportJ
 import {
   canUserAccessReport,
   canUserListStudentReports,
+  canUserManageReport,
   normalizeReportPayload,
 } from '../../server/services/studentReports';
 
@@ -95,6 +96,30 @@ describe('student report permissions', () => {
       canUserListStudentReports({
         user: { id: 'p1', role: 'parent', name: 'P' },
         studentParentId: 'p2',
+      }),
+    ).toBe(false);
+  });
+
+  it('allows only manager roles to manage/delete reports', () => {
+    expect(
+      canUserManageReport({
+        user: { id: 't1', role: 'teacher', name: 'T' },
+        studentParentId: 'p1',
+        studentId: 's1',
+      }),
+    ).toBe(true);
+    expect(
+      canUserManageReport({
+        user: { id: 'a1', role: 'admin', name: 'A' },
+        studentParentId: 'p1',
+        studentId: 's1',
+      }),
+    ).toBe(true);
+    expect(
+      canUserManageReport({
+        user: { id: 'p1', role: 'parent', name: 'P' },
+        studentParentId: 'p1',
+        studentId: 's1',
       }),
     ).toBe(false);
   });

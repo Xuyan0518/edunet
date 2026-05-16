@@ -35,22 +35,16 @@
   </view>
 
   <view class="section card">
-    <view class="row-between" style="margin-bottom: 12rpx;">
-      <view class="section-title" style="margin-bottom: 0;">报告列表</view>
+    <view class="section-title" style="margin-bottom: 8rpx;">报告列表</view>
+    <view class="filter-bar">
       <picker mode="selector" range="{{reportTypeOptions}}" value="{{reportTypeIndex}}" bindchange="onReportTypeChange">
-        <view class="chip">{{reportTypeOptions[reportTypeIndex]}}</view>
+        <view class="chip filter-chip">{{reportTypeOptions[reportTypeIndex]}}</view>
       </picker>
-    </view>
-    <view class="row-between" style="margin-bottom: 12rpx;">
-      <view class="muted">年份筛选</view>
       <picker mode="selector" range="{{yearOptions}}" value="{{yearIndex}}" bindchange="onYearFilterChange">
-        <view class="chip">{{yearOptions[yearIndex]}}</view>
+        <view class="chip filter-chip">{{yearOptions[yearIndex]}}</view>
       </picker>
-    </view>
-    <view class="row-between" wx:if="{{isManager}}" style="margin-bottom: 12rpx;">
-      <view class="muted">可见性筛选</view>
-      <picker mode="selector" range="{{visibleFilterOptions}}" value="{{visibleFilterIndex}}" bindchange="onVisibleFilterChange">
-        <view class="chip">{{visibleFilterOptions[visibleFilterIndex]}}</view>
+      <picker wx:if="{{isManager}}" mode="selector" range="{{visibleFilterOptions}}" value="{{visibleFilterIndex}}" bindchange="onVisibleFilterChange">
+        <view class="chip filter-chip">{{visibleFilterOptions[visibleFilterIndex]}}</view>
       </picker>
     </view>
 
@@ -65,23 +59,23 @@
     </block>
     <block wx:else>
       <block wx:for="{{reports}}" wx:key="id">
-        <view class="report-row">
-          <view class="row-between">
+        <view class="report-card">
+          <view class="row-between report-head">
             <view class="report-title">{{item.title || (item.reportType === 'yearly' ? '年度学习报告' : '学期学习报告')}}</view>
-            <view class="row" style="gap: 8rpx;">
-              <view class="chip {{item.status === 'final' ? 'chip-success' : 'chip-warning'}}">{{item.status === 'final' ? '最终版' : '草稿'}}</view>
-              <view class="chip {{item.visibleToParent ? 'chip-success' : 'chip-muted'}}">{{item.visibleToParent ? '已发布' : '未发布'}}</view>
+            <view class="row report-badges">
+              <view class="state-badge {{item.status === 'final' ? 'state-final' : 'state-draft'}}">{{item.status === 'final' ? '最终版' : '草稿'}}</view>
+              <view class="state-badge {{item.visibleToParent ? 'state-visible' : 'state-hidden'}}">{{item.visibleToParent ? '已发布' : '未发布'}}</view>
             </view>
           </view>
-          <view class="muted report-meta">
-            {{item.reportType === 'yearly' ? '年度' : '学期'}} · {{item.startDate || '--'}} - {{item.endDate || '--'}}
+          <view class="report-meta">
+            {{item.reportType === 'yearly' ? '年度报告' : '学期报告'}} · {{item.startDate || '--'}} - {{item.endDate || '--'}}
           </view>
-          <view class="muted report-meta" wx:if="{{item.year}}">年份：{{item.year}}</view>
+          <view class="report-meta" wx:if="{{item.year}}">年份：{{item.year}}</view>
           <view class="report-preview">{{item.summaryPreview || item.summary || '暂无摘要'}}</view>
-          <view class="row-between" style="margin-top: 10rpx;">
-            <view class="muted">{{item.updatedAt || ''}} {{item.updatedByName ? '· ' + item.updatedByName : ''}}</view>
-            <view class="row" style="gap: 12rpx;">
-              <button class="btn-outline" size="mini" data-id="{{item.id}}" bindtap="openReport">查看</button>
+          <view class="report-foot">
+            <view class="report-updated">{{item.updatedAtText || item.createdAtText || '--'}}{{item.updatedByName ? ' · ' + item.updatedByName : ''}}</view>
+            <view class="report-actions">
+              <button class="btn-primary-light" size="mini" data-id="{{item.id}}" bindtap="openReport">查看</button>
               <button
                 wx:if="{{isManager}}"
                 class="btn-outline"
@@ -90,6 +84,14 @@
                 data-visible="{{item.visibleToParent}}"
                 bindtap="toggleVisibility"
               >{{item.visibleToParent ? '取消发布' : '发布给家长'}}</button>
+              <button
+                wx:if="{{isManager}}"
+                class="btn-danger-ghost"
+                size="mini"
+                data-id="{{item.id}}"
+                bindtap="deleteReportItem"
+                loading="{{deletingId === item.id}}"
+              >删除</button>
             </view>
           </view>
         </view>

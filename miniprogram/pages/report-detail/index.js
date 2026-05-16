@@ -2,10 +2,12 @@ const {
   getReport,
   updateReport,
   updateReportVisibility,
+  deleteReport,
   createReport,
   resolveRoleFlags,
 } = require('../../utils/reportApi');
 const { buildReportMarkdown } = require('../../utils/reportMarkdown');
+const { getSubjectDisplayName } = require('../../utils/subjectDisplayName');
 const {
   ensureArray,
   resolveDisplayReport,
@@ -15,6 +17,7 @@ const {
   buildEditableForm,
   buildFinalReportPayload,
   buildSummaryFromStructured,
+  buildWeeklyActivityRows,
 } = require('../../utils/reportViewModel');
 
 const scoreSourceMap = {
@@ -30,13 +33,6 @@ const percentageText = (value) => {
 const toPercent = (value) => {
   if (value == null || Number.isNaN(Number(value))) return '--';
   return `${Number(value)}%`;
-};
-
-const intensityClass = {
-  none: 'bar-none',
-  low: 'bar-low',
-  medium: 'bar-medium',
-  high: 'bar-high',
 };
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -61,7 +57,6 @@ Page({
     strongestSubjectsText: '--',
     improvingSubjectsText: '--',
     attentionSubjectsText: '--',
-    dailyActivityRows: [],
     weeklyActivityRows: [],
     subjectDistributionRows: [],
     scoreTrendSubjects: [],
@@ -137,33 +132,19 @@ Page({
       { label: '考试数', value: overview.totalExams ?? '--' },
     ];
 
-    const dailyActivity = ensureArray(analytics?.learningActivity?.dailyActivity);
-    const maxDailyActivity = Math.max(
+    const weeklyActivityRowsBase = buildWeeklyActivityRows(analytics);
+    const maxWeeklyActivity = Math.max(
       1,
-      ...dailyActivity.map((item) => Number(item?.activityCount || 0))
+      ...weeklyActivityRowsBase.map((item) => Number(item?.activityCount || 0))
     );
-    const dailyActivityRows = dailyActivity
-      .slice(-21)
-      .map((row) => {
-        const activityCount = Number(row?.activityCount || 0);
-        const width = Math.max(6, Math.round((activityCount / maxDailyActivity) * 100));
-        const intensity = row?.intensity || 'none';
-        return {
-          date: row?.date || '',
-          activityCount,
-          subjectCount: Number(row?.subjectCount || 0),
-          subjectsText: ensureArray(row?.subjects).slice(0, 4).join('、'),
-          widthStyle: `width: ${width}%;`,
-          intensityClass: intensityClass[intensity] || 'bar-none',
-        };
-      });
-
-    const weeklyActivityRows = ensureArray(analytics?.learningActivity?.weeklyActivity).map((row) => ({
-      weekText: `${row?.weekStart || '--'} ~ ${row?.weekEnd || '--'}`,
-      activeDays: Number(row?.activeDays || 0),
-      activityCount: Number(row?.activityCount || 0),
-      subjectCount: Number(row?.subjectCount || 0),
-    }));
+    const weeklyActivityRows = weeklyActivityRowsBase.map((row) => {
+      const activityCount = Number(row?.activityCount || 0);
+      const width = Math.max(8, Math.round((activityCount / maxWeeklyActivity) * 100));
+      return {
+        ...row,
+        widthStyle: `width: ${width}%;`,
+      };
+    });
 
     const subjectDistribution = ensureArray(analytics?.subjectDistribution);
     const maxDistribution = Math.max(
@@ -175,6 +156,7 @@ Page({
       const width = Math.max(6, Math.round((activityCount / maxDistribution) * 100));
       return {
         subjectName: item?.subjectName || '未命名科目',
+        subjectDisplayName: getSubjectDisplayName(item?.subjectName || '未命名科目'),
         activityCount,
         activeDays: Number(item?.activeDays || 0),
         percentageOfTotalActivity:
@@ -187,6 +169,7 @@ Page({
 
     const scoreTrendSubjects = ensureArray(analytics?.scoreTrends).map((item) => ({
       subjectName: item?.subjectName || '未命名科目',
+      subjectDisplayName: getSubjectDisplayName(item?.subjectName || '未命名科目'),
       points: ensureArray(item?.points).map((point) => ({
         date: point?.date || '--',
         percentage: percentageText(point?.percentage),
@@ -210,10 +193,9 @@ Page({
       subjectReports,
       analytics,
       overviewCards,
-      strongestSubjectsText: ensureArray(overview.strongestSubjects).join('、') || '--',
-      improvingSubjectsText: ensureArray(overview.improvingSubjects).join('、') || '--',
-      attentionSubjectsText: ensureArray(overview.subjectsNeedingAttention).join('、') || '--',
-      dailyActivityRows,
+      strongestSubjectsText: ensureArray(overview.strongestSubjects).map(getSubjectDisplayName).join('、') || '--',
+      improvingSubjectsText: ensureArray(overview.improvingSubjects).map(getSubjectDisplayName).join('、') || '--',
+      attentionSubjectsText: ensureArray(overview.subjectsNeedingAttention).map(getSubjectDisplayName).join('、') || '--',
       weeklyActivityRows,
       subjectDistributionRows,
       scoreTrendSubjects,
@@ -341,5 +323,32 @@ Page({
     } finally {
       this.setData({ publishing: false });
     }
+  },
+
+  async deleteCurrentReport() {
+    if (!this.data.isManager || this.data.previewMode || !this.data.report?.id) return;
+    const reportId = this.data.report.id;
+    const studentId = this.data.report.studentId;
+    wx.showModal({
+      title: '确认删除',
+      content: '确认删除这份报告吗？删除后无法恢复。',
+      confirmColor: '#dc2626',
+      success: async (result) => {
+        if (!result.confirm) return;
+        try {
+          wx.showLoading({ title: '删除中...' });
+          await deleteReport(reportId);
+          wx.showToast({ title: '已删除', icon: 'success' });
+          const target = studentId
+            ? `/pages/reports/index?studentId=${encodeURIComponent(studentId)}`
+            : '/pages/students/index';
+          wx.redirectTo({ url: target });
+        } catch (err) {
+          wx.showToast({ title: err?.error || '删除失败', icon: 'none' });
+        } finally {
+          wx.hideLoading();
+        }
+      },
+    });
   },
 });

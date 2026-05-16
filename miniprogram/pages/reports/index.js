@@ -5,6 +5,7 @@ const {
   generateYearlyReport,
   updateReport,
   updateReportVisibility,
+  deleteReport,
   resolveRoleFlags,
 } = require('../../utils/reportApi');
 
@@ -73,6 +74,7 @@ Page({
     quarterlyEndDate: todayString(),
     parseWarning: '',
     hasLoaded: false,
+    deletingId: '',
   },
 
   onLoad(query) {
@@ -305,5 +307,29 @@ Page({
     } finally {
       wx.hideLoading();
     }
+  },
+
+  async deleteReportItem(e) {
+    if (!this.data.isManager) return;
+    const reportId = e?.currentTarget?.dataset?.id;
+    if (!reportId) return;
+    wx.showModal({
+      title: '确认删除',
+      content: '确认删除这份报告吗？删除后无法恢复。',
+      confirmColor: '#dc2626',
+      success: async (result) => {
+        if (!result.confirm) return;
+        this.setData({ deletingId: reportId });
+        try {
+          await deleteReport(reportId);
+          wx.showToast({ title: '已删除', icon: 'success' });
+          await this.fetchReports();
+        } catch (err) {
+          wx.showToast({ title: err?.error || '删除失败', icon: 'none' });
+        } finally {
+          this.setData({ deletingId: '' });
+        }
+      },
+    });
   },
 });

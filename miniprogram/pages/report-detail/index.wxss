@@ -2,7 +2,7 @@
   margin-top: 10rpx;
   font-size: 26rpx;
   color: #0f172a;
-  line-height: 1.7;
+  line-height: 1.8;
   white-space: pre-wrap;
 }
 
@@ -100,9 +100,24 @@
   margin-top: 8rpx;
 }
 
-.warning-tag {
-  background: #fef3c7;
-  color: #92400e;
+.tag-strength {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.tag-improve {
+  background: #ffedd5;
+  color: #9a3412;
+}
+
+.tag-next {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.tag-evidence {
+  background: #e2e8f0;
+  color: #334155;
 }
 
 .field-label {
@@ -116,4 +131,10 @@
   min-height: 130rpx;
   margin-top: 6rpx;
   line-height: 1.5;
+}
+
+.btn-danger-ghost {
+  background: #fff1f2;
+  color: #b91c1c;
+  border: 1rpx solid #fecdd3;
 }

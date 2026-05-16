@@ -188,3 +188,16 @@ export const canUserListStudentReports = (params: {
   if (role === 'student') return true;
   return false;
 };
+
+export const canUserManageReport = (params: {
+  user: AuthUser;
+  studentParentId: string | null;
+  studentId: string;
+}): boolean => {
+  const { user } = params;
+  const role = user.role as string;
+  // Current permission model: teacher/admin are global managers.
+  // Keep this helper so we can tighten per-student ownership in one place later.
+  if (isManagerRole(role)) return true;
+  return false;
+};

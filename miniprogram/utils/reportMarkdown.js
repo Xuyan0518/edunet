@@ -5,6 +5,7 @@ const {
   resolveReportType,
   normalizeRecommendation,
 } = require('./reportViewModel');
+const { getSubjectDisplayName } = require('./subjectDisplayName');
 
 const fmtDateRange = (report = {}) => {
   if (report.reportType === 'yearly' && report.year) {
@@ -22,7 +23,7 @@ const renderSubjectReports = (reportType, subjectReports = []) => {
     return subjectReports
       .map((subject) => {
         const parts = [
-          `### ${subject.subjectName || '未命名科目'}`,
+          `### ${getSubjectDisplayName(subject.subjectName || '未命名科目')}`,
           subject.annualSummary ? subject.annualSummary : '暂无年度总结。',
           ensureArray(subject.growth).length ? `- 成长点：${ensureArray(subject.growth).join('；')}` : '',
           ensureArray(subject.challenges).length ? `- 挑战点：${ensureArray(subject.challenges).join('；')}` : '',
@@ -37,7 +38,7 @@ const renderSubjectReports = (reportType, subjectReports = []) => {
   return subjectReports
     .map((subject) => {
       const parts = [
-        `### ${subject.subjectName || '未命名科目'}`,
+        `### ${getSubjectDisplayName(subject.subjectName || '未命名科目')}`,
         subject.summary ? subject.summary : '暂无学科总结。',
         ensureArray(subject.strengths).length ? `- 优势：${ensureArray(subject.strengths).join('；')}` : '',
         ensureArray(subject.areasToImprove).length ? `- 待提升：${ensureArray(subject.areasToImprove).join('；')}` : '',

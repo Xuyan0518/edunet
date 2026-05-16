@@ -4,6 +4,21 @@
   margin-bottom: 8rpx;
 }
 
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10rpx;
+  margin-bottom: 16rpx;
+  padding: 12rpx;
+  border: 1rpx solid #dbeafe;
+  background: linear-gradient(135deg, #f8fbff, #f0f9ff);
+  border-radius: 14rpx;
+}
+
+.filter-chip {
+  background: #ffffff;
+}
+
 .empty-card {
   border: 2rpx dashed #bfdbfe;
   border-radius: 16rpx;
@@ -17,32 +32,110 @@
   margin-bottom: 8rpx;
 }
 
-.report-row {
+.report-card {
   border: 1rpx solid #e2e8f0;
-  border-radius: 16rpx;
-  padding: 18rpx;
+  border-radius: 18rpx;
+  padding: 20rpx;
   background: #fff;
-  margin-bottom: 14rpx;
+  margin-bottom: 16rpx;
+  box-shadow: 0 6rpx 18rpx rgba(15, 23, 42, 0.04);
+}
+
+.report-head {
+  align-items: flex-start;
 }
 
 .report-title {
-  font-size: 30rpx;
+  font-size: 31rpx;
   font-weight: 700;
   color: #0f172a;
+  line-height: 1.45;
+  max-width: 70%;
+}
+
+.report-badges {
+  gap: 8rpx;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.state-badge {
+  font-size: 20rpx;
+  border-radius: 999rpx;
+  padding: 4rpx 12rpx;
+  border: 1rpx solid transparent;
+}
+
+.state-final {
+  background: #dcfce7;
+  color: #166534;
+  border-color: #86efac;
+}
+
+.state-draft {
+  background: #fef3c7;
+  color: #92400e;
+  border-color: #fcd34d;
+}
+
+.state-visible {
+  background: #dbeafe;
+  color: #1d4ed8;
+  border-color: #93c5fd;
+}
+
+.state-hidden {
+  background: #e2e8f0;
+  color: #334155;
+  border-color: #cbd5e1;
 }
 
 .report-meta {
-  margin-top: 6rpx;
+  margin-top: 8rpx;
   font-size: 22rpx;
+  color: #475569;
 }
 
 .report-preview {
-  margin-top: 10rpx;
+  margin-top: 12rpx;
   color: #334155;
   font-size: 24rpx;
-  line-height: 1.6;
+  line-height: 1.75;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.report-foot {
+  margin-top: 14rpx;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12rpx;
+}
+
+.report-updated {
+  color: #64748b;
+  font-size: 22rpx;
+  flex: 1;
+}
+
+.report-actions {
+  display: flex;
+  gap: 10rpx;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.btn-primary-light {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1rpx solid #bfdbfe;
+}
+
+.btn-danger-ghost {
+  background: #fff1f2;
+  color: #b91c1c;
+  border: 1rpx solid #fecdd3;
 }

@@ -204,6 +204,25 @@ describe('student report APIs', () => {
     expect(res.status).toBe(200);
     expect(res.body.visibleToParent).toBe(true);
   });
+
+  it('teacher can delete report endpoint', async () => {
+    const token = generateToken({ id: 'teacher-1', role: 'teacher', name: 'Teacher A' });
+    mockDb.queueSelect([{ id: 'teacher-1', status: 'approved' }]); // auth
+    mockDb.queueSelect([
+      {
+        ...makeReportRow({ id: 'report-del-1', visibleToParent: false }),
+        studentParentId: 'parent-1',
+      },
+    ]); // report with student
+    mockDb.queueDelete([{ id: 'report-del-1' }]); // delete returning
+
+    const res = await request(app)
+      .delete('/api/reports/report-del-1')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true });
+  });
 });
 
 describe('AI summary saveReport flow', () => {

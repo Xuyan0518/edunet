@@ -1,4 +1,5 @@
 const { request } = require('./api');
+const { formatReportDateTime } = require('./reportDate');
 
 const MANAGER_ROLES = new Set(['teacher', 'admin']);
 
@@ -30,6 +31,8 @@ const normalizeReportListItem = (item = {}) => ({
   updatedBy: item.updatedBy || '',
   createdAt: item.createdAt || '',
   updatedAt: item.updatedAt || '',
+  createdAtText: formatReportDateTime(item.createdAt),
+  updatedAtText: formatReportDateTime(item.updatedAt),
   updatedByName: item.updatedByName || '',
 });
 
@@ -116,6 +119,12 @@ const updateReportVisibility = async (reportId, visibleToParent) =>
     })
   );
 
+const deleteReport = async (reportId) =>
+  request({
+    url: `/reports/${reportId}`,
+    method: 'DELETE',
+  });
+
 const resolveRoleFlags = (role) => ({
   isManager: MANAGER_ROLES.has(role),
   isParent: role === 'parent',
@@ -134,5 +143,6 @@ module.exports = {
   getReport,
   updateReport,
   updateReportVisibility,
+  deleteReport,
   resolveRoleFlags,
 };

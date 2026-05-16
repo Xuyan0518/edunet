@@ -305,6 +305,15 @@ const weeklyTemplateId = process.env.WECHAT_WEEKLY_TEMPLATE_ID || '';
 const examTemplateId = process.env.WECHAT_EXAM_TEMPLATE_ID || '';
 const semesterTemplateId = process.env.WECHAT_SEMESTER_TEMPLATE_ID || '';
 const yearlyTemplateId = process.env.WECHAT_YEARLY_TEMPLATE_ID || '';
+const weeklyTemplateContentKey = process.env.WECHAT_WEEKLY_TEMPLATE_CONTENT_KEY || 'thing6';
+const weeklyTemplateTimeKey = process.env.WECHAT_WEEKLY_TEMPLATE_TIME_KEY || 'time1';
+const examTemplateContentKey = process.env.WECHAT_EXAM_TEMPLATE_CONTENT_KEY || 'thing6';
+const examTemplateTimeKey = process.env.WECHAT_EXAM_TEMPLATE_TIME_KEY || 'time1';
+const semesterTemplateContentKey = process.env.WECHAT_SEMESTER_TEMPLATE_CONTENT_KEY || 'thing6';
+const semesterTemplateTimeKey = process.env.WECHAT_SEMESTER_TEMPLATE_TIME_KEY || 'time1';
+// Some public template variants use thing5/time1 for yearly summary reminder.
+const yearlyTemplateContentKey = process.env.WECHAT_YEARLY_TEMPLATE_CONTENT_KEY || 'thing5';
+const yearlyTemplateTimeKey = process.env.WECHAT_YEARLY_TEMPLATE_TIME_KEY || 'time1';
 const deepseekApiKey = process.env.DEEPSEEK_API_KEY || '';
 const deepseekApiUrl = process.env.DEEPSEEK_API_URL || 'https://api.deepseek.com/v1/chat/completions';
 const deepseekModel = process.env.DEEPSEEK_MODEL || 'deepseek-chat';
@@ -365,6 +374,20 @@ const notifyParent = async (payload: {
   });
 };
 
+const buildTemplateData = (
+  contentKey: string,
+  contentValue: string,
+  timeKey: string,
+  timeValue: string,
+) => {
+  const contentField = String(contentKey || '').trim() || 'thing6';
+  const timeField = String(timeKey || '').trim() || 'time1';
+  return {
+    [contentField]: { value: String(contentValue || '').trim() },
+    [timeField]: { value: String(timeValue || '').trim() },
+  };
+};
+
 const notifyParentStudentReportPublished = async (report: {
   id: string;
   studentId: string;
@@ -382,10 +405,9 @@ const notifyParentStudentReportPublished = async (report: {
     parentId: report.studentParentId ?? null,
     templateId,
     page: `/pages/reports/index?studentId=${report.studentId}`,
-    data: {
-      thing6: { value: title },
-      time1: { value: timeValue },
-    },
+    data: isYearly
+      ? buildTemplateData(yearlyTemplateContentKey, title, yearlyTemplateTimeKey, timeValue)
+      : buildTemplateData(semesterTemplateContentKey, title, semesterTemplateTimeKey, timeValue),
   });
 };
 
@@ -1067,10 +1089,12 @@ app.post('/api/students/:studentId/exams', authenticate, requireTeacher, async (
             parentId: student.parentId ?? null,
             templateId: examTemplateId,
             page: `/pages/grades/index?studentId=${studentId}`,
-            data: {
-              thing6: { value: `成绩记录已发布` },
-              time1: { value: examDate },
-            },
+            data: buildTemplateData(
+              examTemplateContentKey,
+              '成绩记录已发布',
+              examTemplateTimeKey,
+              examDate,
+            ),
           });
         }
         res.status(201).json({ ...exam, subjects: normalized });
@@ -1424,10 +1448,12 @@ app.put('/api/students/:studentId/quarterly-summary', authenticate, requireTeach
               parentId: student.parentId ?? null,
               templateId: semesterTemplateId,
               page: `/pages/quarterly-summary/index?studentId=${studentId}`,
-              data: {
-                thing6: { value: `学期总结已发布 ${label}` },
-                time1: { value: timeValue },
-              },
+              data: buildTemplateData(
+                semesterTemplateContentKey,
+                `学期总结已发布 ${label}`,
+                semesterTemplateTimeKey,
+                timeValue,
+              ),
             });
           }
         }
@@ -1534,10 +1560,12 @@ app.put('/api/students/:studentId/yearly-summary', authenticate, requireTeacher,
               parentId: student.parentId ?? null,
               templateId: yearlyTemplateId,
               page: `/pages/yearly-summary/index?studentId=${studentId}`,
-              data: {
-                thing6: { value: `年度总结已发布` },
-                time1: { value: `${year}-12-31` },
-              },
+              data: buildTemplateData(
+                yearlyTemplateContentKey,
+                '年度总结已发布',
+                yearlyTemplateTimeKey,
+                `${year}-12-31`,
+              ),
             });
           }
           res.status(201).json(result[0]);
@@ -4123,11 +4151,12 @@ app.post('/api/feedback', authenticate, requireTeacher, async (req, res) => {
             parentId: student.parentId ?? null,
             templateId: weeklyTemplateId,
             page: `/pages/student-detail/index?id=${parsedData.studentId}`,
-            data: {
-              // Weekly template in production expects `thing6` + `time1`.
-              thing6: { value: `每周反馈已发布` },
-              time1: { value: format(parsedData.weekStarting, 'yyyy-MM-dd') },
-            },
+            data: buildTemplateData(
+              weeklyTemplateContentKey,
+              '每周反馈已发布',
+              weeklyTemplateTimeKey,
+              format(parsedData.weekStarting, 'yyyy-MM-dd'),
+            ),
           });
         }
         res.status(201).json(result[0]);

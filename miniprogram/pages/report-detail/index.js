@@ -8,6 +8,7 @@ const {
 } = require('../../utils/reportApi');
 const { buildReportMarkdown } = require('../../utils/reportMarkdown');
 const { getSubjectDisplayName } = require('../../utils/subjectDisplayName');
+const { showActionLockToast } = require('../../utils/actionLock');
 const {
   ensureArray,
   resolveDisplayReport,
@@ -18,6 +19,7 @@ const {
   buildFinalReportPayload,
   buildSummaryFromStructured,
   buildWeeklyActivityRows,
+  buildEnglishSpecialSection,
 } = require('../../utils/reportViewModel');
 
 const scoreSourceMap = {
@@ -58,6 +60,7 @@ Page({
     improvingSubjectsText: '--',
     attentionSubjectsText: '--',
     weeklyActivityRows: [],
+    englishSpecialSection: null,
     subjectDistributionRows: [],
     scoreTrendSubjects: [],
     selectedTrendIndex: 0,
@@ -108,7 +111,8 @@ Page({
         this.applyReport(report);
       })
       .catch((err) => {
-        wx.showToast({ title: err?.error || '获取报告失败', icon: 'none' });
+        if (showActionLockToast(err)) return;
+        wx.showToast({ title: err?.message || err?.error || '获取报告失败', icon: 'none' });
       })
       .finally(() => this.setData({ loading: false }));
   },
@@ -122,6 +126,7 @@ Page({
       : resolveDisplaySummary(safeReport);
     const subjectReports = normalizeSubjectReports(reportType, displayReport || {});
     const analytics = safeReport.analytics || null;
+    const englishSpecialSection = buildEnglishSpecialSection(reportType, displayReport || {}, analytics);
     const overview = analytics?.overview || {};
 
     const overviewCards = [
@@ -197,6 +202,7 @@ Page({
       improvingSubjectsText: ensureArray(overview.improvingSubjects).map(getSubjectDisplayName).join('、') || '--',
       attentionSubjectsText: ensureArray(overview.subjectsNeedingAttention).map(getSubjectDisplayName).join('、') || '--',
       weeklyActivityRows,
+      englishSpecialSection,
       subjectDistributionRows,
       scoreTrendSubjects,
       selectedTrendIndex,
@@ -265,7 +271,8 @@ Page({
       this.setData({ editMode: false });
       wx.showToast({ title: '保存成功', icon: 'success' });
     } catch (err) {
-      wx.showToast({ title: err?.error || '保存失败', icon: 'none' });
+      if (showActionLockToast(err)) return;
+      wx.showToast({ title: err?.message || err?.error || '保存失败', icon: 'none' });
     } finally {
       this.setData({ saving: false });
     }
@@ -297,7 +304,8 @@ Page({
       wx.setStorageSync('report_preview_payload', null);
       wx.redirectTo({ url: `/pages/report-detail/index?reportId=${encodeURIComponent(saved.id)}` });
     } catch (err) {
-      wx.showToast({ title: err?.error || '保存草稿失败', icon: 'none' });
+      if (showActionLockToast(err)) return;
+      wx.showToast({ title: err?.message || err?.error || '保存草稿失败', icon: 'none' });
     } finally {
       this.setData({ saving: false });
     }
@@ -319,7 +327,8 @@ Page({
       if (this.data.previewMode) return;
       this.fetchReport();
     } catch (err) {
-      wx.showToast({ title: err?.error || '操作失败', icon: 'none' });
+      if (showActionLockToast(err)) return;
+      wx.showToast({ title: err?.message || err?.error || '操作失败', icon: 'none' });
     } finally {
       this.setData({ publishing: false });
     }
@@ -344,7 +353,8 @@ Page({
             : '/pages/students/index';
           wx.redirectTo({ url: target });
         } catch (err) {
-          wx.showToast({ title: err?.error || '删除失败', icon: 'none' });
+          if (showActionLockToast(err)) return;
+          wx.showToast({ title: err?.message || err?.error || '删除失败', icon: 'none' });
         } finally {
           wx.hideLoading();
         }

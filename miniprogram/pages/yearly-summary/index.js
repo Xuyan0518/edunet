@@ -1,6 +1,7 @@
 const { request } = require("../../utils/api");
 const { formatChinaDateTime } = require("../../utils/chinaDate");
 const { showConflictModal } = require("../../utils/conflict");
+const { showActionLockToast } = require("../../utils/actionLock");
 
 Page({
   data: {
@@ -86,6 +87,7 @@ Page({
         this.fetchSummary();
       })
       .catch((err) => {
+        if (showActionLockToast(err)) return;
         if (showConflictModal(err, () => this.fetchSummary())) return;
         wx.showToast({ title: "保存失败", icon: "error" });
       });
@@ -104,6 +106,7 @@ Page({
         wx.showToast({ title: "已生成", icon: "success" });
       })
       .catch((err) => {
+        if (showActionLockToast(err)) return;
         const msg = err?.error === "AI_NOT_CONFIGURED" ? "AI未配置" : "生成失败";
         wx.showToast({ title: msg, icon: "none" });
       })

@@ -8,6 +8,7 @@ const {
   deleteReport,
   resolveRoleFlags,
 } = require('../../utils/reportApi');
+const { showActionLockToast } = require('../../utils/actionLock');
 
 const buildYearOptions = () => {
   const currentYear = new Date().getFullYear();
@@ -149,7 +150,8 @@ Page({
     return listStudentReports(this.studentId, this.buildFilters())
       .then((reports) => this.setData({ reports: reports || [] }))
       .catch((err) => {
-        wx.showToast({ title: err?.error || '获取报告失败', icon: 'none' });
+        if (showActionLockToast(err)) return;
+        wx.showToast({ title: err?.message || err?.error || '获取报告失败', icon: 'none' });
       });
   },
 
@@ -221,6 +223,7 @@ Page({
       });
       wx.navigateTo({ url: '/pages/report-detail/index?preview=1' });
     } catch (err) {
+      if (showActionLockToast(err)) return;
       const message = err?.error === 'AI_NOT_CONFIGURED' ? 'AI 未配置' : '生成失败';
       wx.showToast({ title: message, icon: 'none' });
     } finally {
@@ -271,6 +274,7 @@ Page({
       });
       wx.navigateTo({ url: '/pages/report-detail/index?preview=1' });
     } catch (err) {
+      if (showActionLockToast(err)) return;
       const message = err?.error === 'AI_NOT_CONFIGURED' ? 'AI 未配置' : '生成失败';
       wx.showToast({ title: message, icon: 'none' });
     } finally {
@@ -303,7 +307,8 @@ Page({
       wx.showToast({ title: visible ? '已取消发布' : '已发布给家长', icon: 'success' });
       this.fetchReports();
     } catch (err) {
-      wx.showToast({ title: err?.error || '操作失败', icon: 'none' });
+      if (showActionLockToast(err)) return;
+      wx.showToast({ title: err?.message || err?.error || '操作失败', icon: 'none' });
     } finally {
       wx.hideLoading();
     }
@@ -325,7 +330,8 @@ Page({
           wx.showToast({ title: '已删除', icon: 'success' });
           await this.fetchReports();
         } catch (err) {
-          wx.showToast({ title: err?.error || '删除失败', icon: 'none' });
+          if (showActionLockToast(err)) return;
+          wx.showToast({ title: err?.message || err?.error || '删除失败', icon: 'none' });
         } finally {
           this.setData({ deletingId: '' });
         }

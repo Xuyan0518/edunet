@@ -3,6 +3,7 @@ const { formatSubjectName } = require("../../utils/displayName");
 const { formatChinaDateTime } = require("../../utils/chinaDate");
 const { showConflictModal } = require("../../utils/conflict");
 const { formatChinaDate } = require("../../utils/chinaDate");
+const { showActionLockToast } = require("../../utils/actionLock");
 
 const buildGroups = (papers = []) => {
   const map = {};
@@ -179,7 +180,10 @@ Page({
         if (!name) return;
         request({ url: "/paper-types", method: "POST", data: { name } })
           .then(() => this.fetchPaperTypes())
-          .catch(() => wx.showToast({ title: "添加失败", icon: "error" }));
+          .catch((err) => {
+            if (showActionLockToast(err)) return;
+            wx.showToast({ title: err?.message || "添加失败", icon: "error" });
+          });
       },
     });
   },
@@ -196,7 +200,10 @@ Page({
         if (!name) return;
         request({ url: "/paper-schools", method: "POST", data: { name } })
           .then(() => this.fetchPaperSchools())
-          .catch(() => wx.showToast({ title: "添加失败", icon: "error" }));
+          .catch((err) => {
+            if (showActionLockToast(err)) return;
+            wx.showToast({ title: err?.message || "添加失败", icon: "error" });
+          });
       },
     });
   },
@@ -291,6 +298,7 @@ Page({
         this.fetchPapers();
       })
       .catch((err) => {
+        if (showActionLockToast(err)) return;
         if (showConflictModal(err, () => this.fetchPapers())) return;
         if (err?.error === "PAPER_EVALUATION_REQUIRED") {
           wx.showToast({ title: "请填写两项试卷评价", icon: "none" });
@@ -317,6 +325,7 @@ Page({
             this.fetchPapers();
           })
           .catch((err) => {
+            if (showActionLockToast(err)) return;
             if (showConflictModal(err, () => this.fetchPapers())) return;
             wx.showToast({ title: "删除失败", icon: "error" });
           });

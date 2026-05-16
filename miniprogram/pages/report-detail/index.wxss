@@ -138,3 +138,37 @@
   color: #b91c1c;
   border: 1rpx solid #fecdd3;
 }
+
+.english-skill-grid {
+  display: grid;
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+  gap: 12rpx;
+  margin-top: 10rpx;
+}
+
+.english-skill-card,
+.english-vocab-card {
+  border: 1rpx solid #dbeafe;
+  border-radius: 14rpx;
+  padding: 14rpx;
+  background: linear-gradient(135deg, #f8fbff, #f0f9ff);
+}
+
+.mini-trend {
+  margin-top: 8rpx;
+  height: 40rpx;
+  display: flex;
+  align-items: flex-end;
+  gap: 6rpx;
+}
+
+.mini-bar {
+  width: 10rpx;
+  border-radius: 6rpx 6rpx 0 0;
+  background: linear-gradient(180deg, #2563eb, #38bdf8);
+  min-height: 10rpx;
+}
+
+.english-ai-list {
+  margin-top: 12rpx;
+}

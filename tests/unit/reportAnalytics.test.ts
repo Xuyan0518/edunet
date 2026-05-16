@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildStudentReportAnalytics } from '../../server/services/reportAnalytics';
+import { buildStudentReportAnalytics, reportAnalyticsTestUtils } from '../../server/services/reportAnalytics';
 
 const baseInput = {
   student: { id: 's1', name: 'Alice', grade: 'G7' },
@@ -150,5 +150,78 @@ describe('buildStudentReportAnalytics', () => {
     });
     const notes = out.aiGuidance.dataQualityNotes.join('\n');
     expect(notes.includes('missing maxScore')).toBe(true);
+  });
+
+  it('recognizes English subject variants and builds englishAnalytics', () => {
+    const out = buildStudentReportAnalytics({
+      ...baseInput,
+      dailyProgress: [
+        {
+          date: '2026-01-02',
+          activities: [
+            { subjectName: 'English', taskSummary: 'editing practice', english: { editing: { score: 70, totalScore: 100, exerciseCount: 2 } } },
+            { subjectName: 'Secondary English', taskSummary: 'reading comprehension', english: { reading: { score: 16, totalScore: 20, articleCount: 1 } } },
+            { subjectName: '英文', taskSummary: 'grammar review', english: { grammar: { score: 18, totalScore: 25, exerciseCount: 1 } } },
+          ],
+        },
+      ],
+    });
+    expect(out.englishAnalytics.hasEnglishData).toBe(true);
+    expect(out.englishAnalytics.subjectNamesMatched).toEqual(expect.arrayContaining(['English', 'Secondary English', '英文']));
+    expect(out.englishAnalytics.skillBreakdown.editing.activityCount).toBeGreaterThan(0);
+    expect(out.englishAnalytics.skillBreakdown.readingComprehension.activityCount).toBeGreaterThan(0);
+    expect(out.englishAnalytics.skillBreakdown.grammar.activityCount).toBeGreaterThan(0);
+  });
+
+  it('classifies english skills by keywords', () => {
+    expect(reportAnalyticsTestUtils.classifyEnglishActivity('editing and proofreading')).toContain('editing');
+    expect(reportAnalyticsTestUtils.classifyEnglishActivity('essay writing composition')).toContain('composition');
+    expect(reportAnalyticsTestUtils.classifyEnglishActivity('reading comprehension passage')).toContain('readingComprehension');
+    expect(reportAnalyticsTestUtils.classifyEnglishActivity('grammar tense practice')).toContain('grammar');
+    expect(reportAnalyticsTestUtils.classifyEnglishActivity('vocabulary words dictation')).toContain('vocabulary');
+    expect(reportAnalyticsTestUtils.classifyEnglishActivity('10 sentences and phrases')).toContain('sentences');
+  });
+
+  it('extracts vocabulary/sentence counts from explicit text and avoids score misread', () => {
+    expect(reportAnalyticsTestUtils.extractVocabularyCount('背了 20 个单词')).toBe(20);
+    expect(reportAnalyticsTestUtils.extractVocabularyCount('vocabulary 25 words')).toBe(25);
+    expect(reportAnalyticsTestUtils.extractSentenceCount('10 sentences')).toBe(10);
+    expect(reportAnalyticsTestUtils.extractVocabularyCount('WA1 100分')).toBeNull();
+  });
+
+  it('does not break other subjects when extra English records are present', () => {
+    const out = buildStudentReportAnalytics({
+      ...baseInput,
+      papers: [
+        { date: '2026-01-02', subjectName: '数学', score: 88, total: 100 },
+        { date: '2026-01-03', subjectName: 'English', description: 'Editing quiz', score: 72, total: 100 },
+      ],
+      dailyProgress: [
+        {
+          date: '2026-01-03',
+          activities: [
+            { subjectName: '数学', taskSummary: 'algebra practice' },
+            { subjectName: 'English', taskSummary: 'vocabulary 25 words', english: { vocab: { vocabularyWordCount: 25 } } },
+          ],
+        },
+      ],
+    });
+    const math = out.subjectStats.find((s) => s.subjectName === '数学');
+    expect(math?.paperCount).toBe(1);
+    expect(out.englishAnalytics.vocabularyStats.vocabularyItemsCount).toBe(25);
+  });
+
+  it('computes english skill trend and handles insufficient score data safely', () => {
+    const out = buildStudentReportAnalytics({
+      ...baseInput,
+      papers: [
+        { date: '2026-01-01', subjectName: 'English', description: 'Editing quiz', score: 60, total: 100 },
+        { date: '2026-01-05', subjectName: 'English', description: 'Editing test', score: 72, total: 100 },
+        { date: '2026-01-06', subjectName: 'English', description: 'Vocabulary practice', score: 15, total: 20 },
+      ],
+    });
+    expect(out.englishAnalytics.skillBreakdown.editing.trend).toBe('improving');
+    expect(out.englishAnalytics.skillBreakdown.composition.trend).toBe('insufficient_data');
+    expect(out.englishAnalytics.overallEnglishScoreTrend.points.length).toBeGreaterThan(0);
   });
 });

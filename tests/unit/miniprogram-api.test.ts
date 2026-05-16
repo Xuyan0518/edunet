@@ -39,7 +39,10 @@ describe('miniprogram/utils/api request', () => {
       options.success({ statusCode: 403, data: { error: 'Forbidden' } });
     });
 
-    await expect(request({ url: '/admin/pending' })).rejects.toEqual({ error: 'Forbidden' });
+    await expect(request({ url: '/admin/pending' })).rejects.toEqual({
+      error: 'Forbidden',
+      statusCode: 403,
+    });
   });
 
   it('uses default base url and no auth header when app/token missing', async () => {

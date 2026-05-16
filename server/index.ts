@@ -81,6 +81,11 @@ import {
   normalizeReportType,
   parseBooleanLike,
 } from './services/studentReports';
+import {
+  buildActionLockConflictPayload,
+  isActionLockConflictError,
+  withActionLock,
+} from './services/actionLocks';
 import { serializeReportJson } from './utils/reportJson';
 
 // Apply V2 English normalization to a daily_progress row's activities. Used at
@@ -176,6 +181,22 @@ app.use(cors({
   },
 }));
 app.use(bodyParser.json());
+
+const ACTION_LOCK_TTL = {
+  studentWriteMs: 60_000,
+  studentAiMs: 240_000,
+  subjectCatalogMs: 90_000,
+} as const;
+
+const studentWriteLockKey = (studentId: string) => `student:${studentId}:write`;
+const studentAiLockKey = (studentId: string) => `student:${studentId}:ai`;
+const studentSubjectProgressLockKey = (studentId: string) => `student:${studentId}:subject-progress`;
+const subjectCatalogWriteLockKey = () => 'subject-catalog:write';
+
+const withLockActor = (req: express.Request) => ({
+  actorUserId: req.user?.id || 'unknown-user',
+  actorName: req.user?.name || null,
+});
 
 type TopicStatusValue = (typeof TOPIC_STATUS)[number];
 
@@ -1005,46 +1026,61 @@ app.post('/api/students/:studentId/exams', authenticate, requireTeacher, async (
   if (!normalized.length) return res.status(400).json({ error: 'Invalid subjects' });
 
   try {
-    const examRows = await db
-      .insert(examsTable)
-      .values({
-        studentId,
-        name,
-        examDate,
-        examType,
-        reminderDate: reminderDateRaw ? reminderDate : null,
-        updatedAt: new Date(),
-        updatedByName: req.user?.name || null,
-      })
-      .returning();
-    const exam = examRows[0];
-    const scoreRows = normalized.map((s: any) => ({
-      examId: exam.id,
-      name: s.name,
-      score: s.score,
-      scope: s.scope || null,
-      examDate: s.examDate,
-    }));
-    await db.insert(examScoresTable).values(scoreRows);
-    const studentRows = await db.select().from(studentsTable).where(eq(studentsTable.id, studentId));
-    const student = studentRows[0];
-    // Only notify parents when this is a RESULT post (at least one score
-    // entered). Pure schedule entries shouldn't ping the parent yet.
-    const hasAnyScore = normalized.some((s: any) => s.score);
-    if (student && hasAnyScore) {
-      await notifyParent({
-        studentId,
-        parentId: student.parentId ?? null,
-        templateId: examTemplateId,
-        page: `/pages/grades/index?studentId=${studentId}`,
-        data: {
-          thing6: { value: `成绩记录已发布` },
-          time1: { value: examDate },
-        },
-      });
-    }
-    res.status(201).json({ ...exam, subjects: normalized });
+    await withActionLock(
+      {
+        lockKey: studentWriteLockKey(studentId),
+        actionType: '新增考试记录',
+        ttlMs: ACTION_LOCK_TTL.studentWriteMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/students/:studentId/exams', examDate },
+      },
+      async () => {
+        const examRows = await db
+          .insert(examsTable)
+          .values({
+            studentId,
+            name,
+            examDate,
+            examType,
+            reminderDate: reminderDateRaw ? reminderDate : null,
+            updatedAt: new Date(),
+            updatedByName: req.user?.name || null,
+          })
+          .returning();
+        const exam = examRows[0];
+        const scoreRows = normalized.map((s: any) => ({
+          examId: exam.id,
+          name: s.name,
+          score: s.score,
+          scope: s.scope || null,
+          examDate: s.examDate,
+        }));
+        await db.insert(examScoresTable).values(scoreRows);
+        const studentRows = await db.select().from(studentsTable).where(eq(studentsTable.id, studentId));
+        const student = studentRows[0];
+        // Only notify parents when this is a RESULT post (at least one score
+        // entered). Pure schedule entries shouldn't ping the parent yet.
+        const hasAnyScore = normalized.some((s: any) => s.score);
+        if (student && hasAnyScore) {
+          await notifyParent({
+            studentId,
+            parentId: student.parentId ?? null,
+            templateId: examTemplateId,
+            page: `/pages/grades/index?studentId=${studentId}`,
+            data: {
+              thing6: { value: `成绩记录已发布` },
+              time1: { value: examDate },
+            },
+          });
+        }
+        res.status(201).json({ ...exam, subjects: normalized });
+      },
+    );
+    return;
   } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
     console.error('Error creating exam:', err);
     res.status(500).json({ error: 'Database error' });
   }
@@ -1087,45 +1123,61 @@ app.put('/api/exams/:id', authenticate, requireTeacher, async (req, res) => {
     if (studentId && existing[0].studentId !== studentId) {
       return res.status(404).json({ error: 'Exam not found' });
     }
-    if (!isSameTimestamp(existing[0].updatedAt, clientUpdatedAt)) {
-      return res.status(409).json({
-        error: 'CONFLICT',
-        updatedAt: existing[0].updatedAt,
-        updatedByName: existing[0].updatedByName,
-      });
-    }
-    const now = new Date();
-    const updatedByName = req.user?.name || null;
-    await db.update(examsTable)
-      .set({
-        name,
-        examDate,
-        examType,
-        reminderDate: reminderDateRaw ? reminderDate : null,
-        updatedAt: now,
-        updatedByName,
-      })
-      .where(eq(examsTable.id, id));
-    await db.delete(examScoresTable).where(eq(examScoresTable.examId, id));
-    const scoreRows = normalized.map((s: any) => ({
-      examId: id,
-      name: s.name,
-      score: s.score,
-      scope: s.scope || null,
-      examDate: s.examDate,
-    }));
-    await db.insert(examScoresTable).values(scoreRows);
-    res.json({
-      ...existing[0],
-      name,
-      examDate,
-      examType,
-      reminderDate: reminderDateRaw ? reminderDate : null,
-      subjects: normalized,
-      updatedAt: now,
-      updatedByName,
-    });
+    await withActionLock(
+      {
+        lockKey: studentWriteLockKey(existing[0].studentId),
+        actionType: '更新考试记录',
+        ttlMs: ACTION_LOCK_TTL.studentWriteMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/exams/:id', examId: id },
+      },
+      async () => {
+        if (!isSameTimestamp(existing[0].updatedAt, clientUpdatedAt)) {
+          res.status(409).json({
+            error: 'CONFLICT',
+            updatedAt: existing[0].updatedAt,
+            updatedByName: existing[0].updatedByName,
+          });
+          return;
+        }
+        const now = new Date();
+        const updatedByName = req.user?.name || null;
+        await db.update(examsTable)
+          .set({
+            name,
+            examDate,
+            examType,
+            reminderDate: reminderDateRaw ? reminderDate : null,
+            updatedAt: now,
+            updatedByName,
+          })
+          .where(eq(examsTable.id, id));
+        await db.delete(examScoresTable).where(eq(examScoresTable.examId, id));
+        const scoreRows = normalized.map((s: any) => ({
+          examId: id,
+          name: s.name,
+          score: s.score,
+          scope: s.scope || null,
+          examDate: s.examDate,
+        }));
+        await db.insert(examScoresTable).values(scoreRows);
+        res.json({
+          ...existing[0],
+          name,
+          examDate,
+          examType,
+          reminderDate: reminderDateRaw ? reminderDate : null,
+          subjects: normalized,
+          updatedAt: now,
+          updatedByName,
+        });
+      },
+    );
+    return;
   } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
     console.error('Error updating exam:', err);
     res.status(500).json({ error: 'Database error' });
   }
@@ -1140,18 +1192,37 @@ app.delete('/api/exams/:id', authenticate, requireTeacher, async (req, res) => {
     }
     const existing = await db.select().from(examsTable).where(eq(examsTable.id, id)).limit(1);
     if (!existing.length) return res.status(404).json({ error: 'Exam not found' });
-    if (!isSameTimestamp(existing[0].updatedAt, clientUpdatedAt)) {
-      return res.status(409).json({
-        error: 'CONFLICT',
-        updatedAt: existing[0].updatedAt,
-        updatedByName: existing[0].updatedByName,
-      });
-    }
-    await db.delete(examScoresTable).where(eq(examScoresTable.examId, id));
-    const result = await db.delete(examsTable).where(eq(examsTable.id, id)).returning();
-    if (!result.length) return res.status(404).json({ error: 'Exam not found' });
-    res.json({ message: 'Exam deleted successfully' });
+    await withActionLock(
+      {
+        lockKey: studentWriteLockKey(existing[0].studentId),
+        actionType: '删除考试记录',
+        ttlMs: ACTION_LOCK_TTL.studentWriteMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/exams/:id', examId: id },
+      },
+      async () => {
+        if (!isSameTimestamp(existing[0].updatedAt, clientUpdatedAt)) {
+          res.status(409).json({
+            error: 'CONFLICT',
+            updatedAt: existing[0].updatedAt,
+            updatedByName: existing[0].updatedByName,
+          });
+          return;
+        }
+        await db.delete(examScoresTable).where(eq(examScoresTable.examId, id));
+        const result = await db.delete(examsTable).where(eq(examsTable.id, id)).returning();
+        if (!result.length) {
+          res.status(404).json({ error: 'Exam not found' });
+          return;
+        }
+        res.json({ message: 'Exam deleted successfully' });
+      },
+    );
+    return;
   } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
     console.error('Error deleting exam:', err);
     res.status(500).json({ error: 'Database error' });
   }
@@ -1270,89 +1341,104 @@ app.put('/api/students/:studentId/quarterly-summary', authenticate, requireTeach
   const clientUpdatedAt = parseTimestamp(req.body?.updatedAt);
   if (!Number.isFinite(year)) return res.status(400).json({ error: 'Invalid year' });
   try {
-    const updatedByName = req.user?.name || null;
-    const insertedQuarters: number[] = [];
-    const upsert = async (quarter: number, summary: string, start?: string | null, end?: string | null) => {
-      if (!Number.isFinite(quarter) || quarter < 1 || quarter > 4) return;
-      const parsed = QuarterlySummarySchema.safeParse({ studentId, year, quarter, summary, startDate: start || undefined, endDate: end || undefined });
-      if (!parsed.success) return;
-      const existing = await db
-        .select()
-        .from(quarterlySummaryTable)
-        .where(and(
-          eq(quarterlySummaryTable.studentId, studentId),
-          eq(quarterlySummaryTable.year, year),
-          eq(quarterlySummaryTable.quarter, quarter)
-        ))
-        .limit(1);
-      if (existing.length) {
-        if (!clientUpdatedAt) {
-          throw Object.assign(new Error('CONFLICT'), {
-            code: 'CONFLICT',
-            updatedAt: existing[0].updatedAt,
-            updatedByName: existing[0].updatedByName,
-          });
-        }
-        if (!isSameTimestamp(existing[0].updatedAt, clientUpdatedAt)) {
-          throw Object.assign(new Error('CONFLICT'), {
-            code: 'CONFLICT',
-            updatedAt: existing[0].updatedAt,
-            updatedByName: existing[0].updatedByName,
-          });
-        }
-        await db.update(quarterlySummaryTable)
-          .set({
-            summary,
-            startDate: start || existing[0].startDate,
-            endDate: end || existing[0].endDate,
-            updatedAt: new Date(),
-            updatedByName,
-          })
-          .where(eq(quarterlySummaryTable.id, existing[0].id));
-      } else {
-        await db.insert(quarterlySummaryTable).values({
-          studentId,
-          year,
-          quarter,
-          summary,
-          startDate: start,
-          endDate: end,
-          updatedAt: new Date(),
-          updatedByName,
-        });
-        insertedQuarters.push(quarter);
-      }
-    };
+    await withActionLock(
+      {
+        lockKey: studentWriteLockKey(studentId),
+        actionType: '保存学期总结',
+        ttlMs: ACTION_LOCK_TTL.studentWriteMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/students/:studentId/quarterly-summary', year },
+      },
+      async () => {
+        const updatedByName = req.user?.name || null;
+        const insertedQuarters: number[] = [];
+        const upsert = async (quarter: number, summary: string, start?: string | null, end?: string | null) => {
+          if (!Number.isFinite(quarter) || quarter < 1 || quarter > 4) return;
+          const parsed = QuarterlySummarySchema.safeParse({ studentId, year, quarter, summary, startDate: start || undefined, endDate: end || undefined });
+          if (!parsed.success) return;
+          const existing = await db
+            .select()
+            .from(quarterlySummaryTable)
+            .where(and(
+              eq(quarterlySummaryTable.studentId, studentId),
+              eq(quarterlySummaryTable.year, year),
+              eq(quarterlySummaryTable.quarter, quarter)
+            ))
+            .limit(1);
+          if (existing.length) {
+            if (!clientUpdatedAt) {
+              throw Object.assign(new Error('CONFLICT'), {
+                code: 'CONFLICT',
+                updatedAt: existing[0].updatedAt,
+                updatedByName: existing[0].updatedByName,
+              });
+            }
+            if (!isSameTimestamp(existing[0].updatedAt, clientUpdatedAt)) {
+              throw Object.assign(new Error('CONFLICT'), {
+                code: 'CONFLICT',
+                updatedAt: existing[0].updatedAt,
+                updatedByName: existing[0].updatedByName,
+              });
+            }
+            await db.update(quarterlySummaryTable)
+              .set({
+                summary,
+                startDate: start || existing[0].startDate,
+                endDate: end || existing[0].endDate,
+                updatedAt: new Date(),
+                updatedByName,
+              })
+              .where(eq(quarterlySummaryTable.id, existing[0].id));
+          } else {
+            await db.insert(quarterlySummaryTable).values({
+              studentId,
+              year,
+              quarter,
+              summary,
+              startDate: start,
+              endDate: end,
+              updatedAt: new Date(),
+              updatedByName,
+            });
+            insertedQuarters.push(quarter);
+          }
+        };
 
-    if (Number.isFinite(singleQuarter) && typeof singleSummary !== 'undefined') {
-      await upsert(singleQuarter, String(singleSummary || ""), startDate, endDate);
-    } else {
-      for (const item of summaries) {
-        const quarter = Number(item.quarter);
-        const summary = String(item.summary || "");
-        await upsert(quarter, summary, item.startDate || null, item.endDate || null);
-      }
-    }
-    if (insertedQuarters.length) {
-      const studentRows = await db.select().from(studentsTable).where(eq(studentsTable.id, studentId));
-      const student = studentRows[0];
-      if (student) {
-        const label = `第 ${insertedQuarters[0]} 学期`;
-        const timeValue = startDate || format(new Date(), 'yyyy-MM-dd');
-        await notifyParent({
-          studentId,
-          parentId: student.parentId ?? null,
-          templateId: semesterTemplateId,
-          page: `/pages/quarterly-summary/index?studentId=${studentId}`,
-          data: {
-            thing6: { value: `学期总结已发布 ${label}` },
-            time1: { value: timeValue },
-          },
-        });
-      }
-    }
-    res.json({ message: 'Quarterly summaries saved' });
+        if (Number.isFinite(singleQuarter) && typeof singleSummary !== 'undefined') {
+          await upsert(singleQuarter, String(singleSummary || ""), startDate, endDate);
+        } else {
+          for (const item of summaries) {
+            const quarter = Number(item.quarter);
+            const summary = String(item.summary || "");
+            await upsert(quarter, summary, item.startDate || null, item.endDate || null);
+          }
+        }
+        if (insertedQuarters.length) {
+          const studentRows = await db.select().from(studentsTable).where(eq(studentsTable.id, studentId));
+          const student = studentRows[0];
+          if (student) {
+            const label = `第 ${insertedQuarters[0]} 学期`;
+            const timeValue = startDate || format(new Date(), 'yyyy-MM-dd');
+            await notifyParent({
+              studentId,
+              parentId: student.parentId ?? null,
+              templateId: semesterTemplateId,
+              page: `/pages/quarterly-summary/index?studentId=${studentId}`,
+              data: {
+                thing6: { value: `学期总结已发布 ${label}` },
+                time1: { value: timeValue },
+              },
+            });
+          }
+        }
+        res.json({ message: 'Quarterly summaries saved' });
+      },
+    );
+    return;
   } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
     if ((err as any)?.code === 'CONFLICT') {
       return res.status(409).json({
         error: 'CONFLICT',
@@ -1389,62 +1475,80 @@ app.put('/api/students/:studentId/yearly-summary', authenticate, requireTeacher,
   const clientUpdatedAt = parseTimestamp(req.body?.updatedAt);
   if (!Number.isFinite(year)) return res.status(400).json({ error: 'Invalid year' });
   try {
-    const parsed = YearlySummarySchema.safeParse({ studentId, year, summary });
-    if (!parsed.success) {
-      return res.status(400).json({ error: parsed.error.flatten() });
-    }
-    const existing = await db
-      .select()
-      .from(yearlySummaryTable)
-      .where(and(eq(yearlySummaryTable.studentId, studentId), eq(yearlySummaryTable.year, year)))
-      .limit(1);
-    if (existing.length) {
-      if (!clientUpdatedAt) {
-        return res.status(409).json({
-          error: 'CONFLICT',
-          updatedAt: existing[0].updatedAt,
-          updatedByName: existing[0].updatedByName,
-        });
-      }
-      if (!isSameTimestamp(existing[0].updatedAt, clientUpdatedAt)) {
-        return res.status(409).json({
-          error: 'CONFLICT',
-          updatedAt: existing[0].updatedAt,
-          updatedByName: existing[0].updatedByName,
-        });
-      }
-      await db.update(yearlySummaryTable)
-        .set({ summary, updatedAt: new Date(), updatedByName: req.user?.name || null })
-        .where(eq(yearlySummaryTable.id, existing[0].id));
-      res.json({ message: 'Yearly summary updated' });
-    } else {
-      const result = await db
-        .insert(yearlySummaryTable)
-        .values({
-          studentId,
-          year,
-          summary,
-          updatedAt: new Date(),
-          updatedByName: req.user?.name || null,
-        })
-        .returning();
-      const studentRows = await db.select().from(studentsTable).where(eq(studentsTable.id, studentId));
-      const student = studentRows[0];
-      if (student) {
-        await notifyParent({
-          studentId,
-          parentId: student.parentId ?? null,
-          templateId: yearlyTemplateId,
-          page: `/pages/yearly-summary/index?studentId=${studentId}`,
-          data: {
-            thing6: { value: `年度总结已发布` },
-            time1: { value: `${year}-12-31` },
-          },
-        });
-      }
-      res.status(201).json(result[0]);
-    }
+    await withActionLock(
+      {
+        lockKey: studentWriteLockKey(studentId),
+        actionType: '保存年度总结',
+        ttlMs: ACTION_LOCK_TTL.studentWriteMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/students/:studentId/yearly-summary', year },
+      },
+      async () => {
+        const parsed = YearlySummarySchema.safeParse({ studentId, year, summary });
+        if (!parsed.success) {
+          res.status(400).json({ error: parsed.error.flatten() });
+          return;
+        }
+        const existing = await db
+          .select()
+          .from(yearlySummaryTable)
+          .where(and(eq(yearlySummaryTable.studentId, studentId), eq(yearlySummaryTable.year, year)))
+          .limit(1);
+        if (existing.length) {
+          if (!clientUpdatedAt) {
+            res.status(409).json({
+              error: 'CONFLICT',
+              updatedAt: existing[0].updatedAt,
+              updatedByName: existing[0].updatedByName,
+            });
+            return;
+          }
+          if (!isSameTimestamp(existing[0].updatedAt, clientUpdatedAt)) {
+            res.status(409).json({
+              error: 'CONFLICT',
+              updatedAt: existing[0].updatedAt,
+              updatedByName: existing[0].updatedByName,
+            });
+            return;
+          }
+          await db.update(yearlySummaryTable)
+            .set({ summary, updatedAt: new Date(), updatedByName: req.user?.name || null })
+            .where(eq(yearlySummaryTable.id, existing[0].id));
+          res.json({ message: 'Yearly summary updated' });
+        } else {
+          const result = await db
+            .insert(yearlySummaryTable)
+            .values({
+              studentId,
+              year,
+              summary,
+              updatedAt: new Date(),
+              updatedByName: req.user?.name || null,
+            })
+            .returning();
+          const studentRows = await db.select().from(studentsTable).where(eq(studentsTable.id, studentId));
+          const student = studentRows[0];
+          if (student) {
+            await notifyParent({
+              studentId,
+              parentId: student.parentId ?? null,
+              templateId: yearlyTemplateId,
+              page: `/pages/yearly-summary/index?studentId=${studentId}`,
+              data: {
+                thing6: { value: `年度总结已发布` },
+                time1: { value: `${year}-12-31` },
+              },
+            });
+          }
+          res.status(201).json(result[0]);
+        }
+      },
+    );
+    return;
   } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
     console.error('Error saving yearly summary:', err);
     res.status(500).json({ error: 'Database error' });
   }
@@ -1485,42 +1589,56 @@ app.post('/api/reports', authenticate, requireRole('teacher', 'admin'), async (r
   try {
     const student = await getStudentById(studentId);
     if (!student) return res.status(404).json({ error: 'Student not found' });
+    await withActionLock(
+      {
+        lockKey: studentWriteLockKey(studentId),
+        actionType: '保存学习报告',
+        ttlMs: ACTION_LOCK_TTL.studentWriteMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/reports', reportType },
+      },
+      async () => {
+        const normalizedPayload = normalizeReportPayload({
+          reportType,
+          structuredReport: parsed.data.structuredReportJson,
+          finalReport: parsed.data.finalReportJson,
+          analytics: parsed.data.analyticsJson,
+        });
 
-    const normalizedPayload = normalizeReportPayload({
-      reportType,
-      structuredReport: parsed.data.structuredReportJson,
-      finalReport: parsed.data.finalReportJson,
-      analytics: parsed.data.analyticsJson,
-    });
+        const created = await db
+          .insert(studentReportsTable)
+          .values({
+            studentId,
+            reportType,
+            title: parsed.data.title || null,
+            startDate,
+            endDate,
+            year: year == null ? null : Math.trunc(year),
+            summaryText: parsed.data.summaryText,
+            analyticsJson: serializeReportJson(parsed.data.analyticsJson),
+            structuredReportJson: normalizedPayload.structuredReportJson,
+            finalReportJson: normalizedPayload.finalReportJson,
+            rawAiResponse: parsed.data.rawAiResponse || null,
+            parseError: parsed.data.parseError || null,
+            status: parsed.data.status,
+            visibleToParent: parsed.data.visibleToParent,
+            createdBy: req.user?.id || null,
+            updatedBy: req.user?.id || null,
+            updatedAt: new Date(),
+            updatedByName: req.user?.name || null,
+          })
+          .returning();
 
-    const created = await db
-      .insert(studentReportsTable)
-      .values({
-        studentId,
-        reportType,
-        title: parsed.data.title || null,
-        startDate,
-        endDate,
-        year: year == null ? null : Math.trunc(year),
-        summaryText: parsed.data.summaryText,
-        analyticsJson: serializeReportJson(parsed.data.analyticsJson),
-        structuredReportJson: normalizedPayload.structuredReportJson,
-        finalReportJson: normalizedPayload.finalReportJson,
-        rawAiResponse: parsed.data.rawAiResponse || null,
-        parseError: parsed.data.parseError || null,
-        status: parsed.data.status,
-        visibleToParent: parsed.data.visibleToParent,
-        createdBy: req.user?.id || null,
-        updatedBy: req.user?.id || null,
-        updatedAt: new Date(),
-        updatedByName: req.user?.name || null,
-      })
-      .returning();
-
-    return res
-      .status(201)
-      .json(hydrateStudentReport(created[0], req.user?.role || 'teacher', { includeHeavyFields: true }));
+        res
+          .status(201)
+          .json(hydrateStudentReport(created[0], req.user?.role || 'teacher', { includeHeavyFields: true }));
+      },
+    );
+    return;
   } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
     console.error('Error saving report:', err);
     return res.status(500).json({ error: 'Database error' });
   }
@@ -1618,50 +1736,69 @@ app.patch('/api/reports/:reportId', authenticate, requireRole('teacher', 'admin'
     const report = await getReportWithStudent(req.params.reportId);
     if (!report) return res.status(404).json({ error: 'Report not found' });
 
-    const updates: Record<string, unknown> = {
-      updatedAt: new Date(),
-      updatedBy: user.id,
-      updatedByName: user.name || null,
-    };
+    await withActionLock(
+      {
+        lockKey: studentWriteLockKey(report.studentId),
+        actionType: '更新学习报告',
+        ttlMs: ACTION_LOCK_TTL.studentWriteMs,
+        ...withLockActor(req),
+        metadata: { route: `/api/reports/${req.params.reportId}` },
+      },
+      async () => {
+        const updates: Record<string, unknown> = {
+          updatedAt: new Date(),
+          updatedBy: user.id,
+          updatedByName: user.name || null,
+        };
 
-    if (req.body?.title !== undefined) updates.title = req.body?.title == null ? null : String(req.body.title);
-    if (req.body?.summary !== undefined) updates.summaryText = String(req.body.summary || '');
-    if (req.body?.status !== undefined) updates.status = normalizeReportStatus(req.body.status);
-    const visible = parseBooleanLike(req.body?.visibleToParent);
-    if (visible != null) updates.visibleToParent = visible;
+        if (req.body?.title !== undefined) updates.title = req.body?.title == null ? null : String(req.body.title);
+        if (req.body?.summary !== undefined) updates.summaryText = String(req.body.summary || '');
+        if (req.body?.status !== undefined) updates.status = normalizeReportStatus(req.body.status);
+        const visible = parseBooleanLike(req.body?.visibleToParent);
+        if (visible != null) updates.visibleToParent = visible;
 
-    const reportType = normalizeReportType(report.reportType);
-    if (reportType && req.body?.finalReport !== undefined) {
-      const normalizedPayload = normalizeReportPayload({
-        reportType,
-        structuredReport: report.structuredReportJson,
-        finalReport: req.body?.finalReport,
-        analytics: report.analyticsJson,
-      });
-      updates.finalReportJson = normalizedPayload.finalReportJson;
-    }
+        const reportType = normalizeReportType(report.reportType);
+        if (reportType && req.body?.finalReport !== undefined) {
+          const normalizedPayload = normalizeReportPayload({
+            reportType,
+            structuredReport: report.structuredReportJson,
+            finalReport: req.body?.finalReport,
+            analytics: report.analyticsJson,
+          });
+          updates.finalReportJson = normalizedPayload.finalReportJson;
+        }
 
-    if (Object.keys(updates).length <= 3) {
-      return res.status(400).json({ error: 'No valid fields to update' });
-    }
+        if (Object.keys(updates).length <= 3) {
+          res.status(400).json({ error: 'No valid fields to update' });
+          return;
+        }
 
-    const saved = await db
-      .update(studentReportsTable)
-      .set(updates)
-      .where(eq(studentReportsTable.id, req.params.reportId))
-      .returning();
-    if (!saved.length) return res.status(404).json({ error: 'Report not found' });
-    if (visible === true && !report.visibleToParent) {
-      await notifyParentStudentReportPublished({
-        id: report.id,
-        studentId: report.studentId,
-        studentParentId: report.studentParentId,
-        reportType: report.reportType,
-        endDate: report.endDate,
-      });
-    }
-    return res.json(hydrateStudentReport(saved[0], user.role, { includeHeavyFields: true }));
+        const saved = await db
+          .update(studentReportsTable)
+          .set(updates)
+          .where(eq(studentReportsTable.id, req.params.reportId))
+          .returning();
+        if (!saved.length) {
+          res.status(404).json({ error: 'Report not found' });
+          return;
+        }
+        if (visible === true && !report.visibleToParent) {
+          await notifyParentStudentReportPublished({
+            id: report.id,
+            studentId: report.studentId,
+            studentParentId: report.studentParentId,
+            reportType: report.reportType,
+            endDate: report.endDate,
+          });
+        }
+        res.json(hydrateStudentReport(saved[0], user.role, { includeHeavyFields: true }));
+      },
+    );
+    return;
   } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
     console.error('Error updating report:', err);
     return res.status(500).json({ error: 'Database error' });
   }
@@ -1677,27 +1814,42 @@ app.patch('/api/reports/:reportId/visibility', authenticate, requireRole('teache
     const existing = await getReportWithStudent(req.params.reportId);
     if (!existing) return res.status(404).json({ error: 'Report not found' });
 
-    const saved = await db
-      .update(studentReportsTable)
-      .set({
-        visibleToParent: visible,
-        updatedAt: new Date(),
-        updatedBy: user.id,
-        updatedByName: user.name || null,
-      })
-      .where(eq(studentReportsTable.id, req.params.reportId))
-      .returning();
-    if (visible && !existing.visibleToParent) {
-      await notifyParentStudentReportPublished({
-        id: existing.id,
-        studentId: existing.studentId,
-        studentParentId: existing.studentParentId,
-        reportType: existing.reportType,
-        endDate: existing.endDate,
-      });
-    }
-    return res.json(hydrateStudentReport(saved[0], user.role, { includeHeavyFields: false }));
+    await withActionLock(
+      {
+        lockKey: studentWriteLockKey(existing.studentId),
+        actionType: '发布学习报告',
+        ttlMs: ACTION_LOCK_TTL.studentWriteMs,
+        ...withLockActor(req),
+        metadata: { route: `/api/reports/${req.params.reportId}/visibility`, visibleToParent: visible },
+      },
+      async () => {
+        const saved = await db
+          .update(studentReportsTable)
+          .set({
+            visibleToParent: visible,
+            updatedAt: new Date(),
+            updatedBy: user.id,
+            updatedByName: user.name || null,
+          })
+          .where(eq(studentReportsTable.id, req.params.reportId))
+          .returning();
+        if (visible && !existing.visibleToParent) {
+          await notifyParentStudentReportPublished({
+            id: existing.id,
+            studentId: existing.studentId,
+            studentParentId: existing.studentParentId,
+            reportType: existing.reportType,
+            endDate: existing.endDate,
+          });
+        }
+        res.json(hydrateStudentReport(saved[0], user.role, { includeHeavyFields: false }));
+      },
+    );
+    return;
   } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
     console.error('Error updating report visibility:', err);
     return res.status(500).json({ error: 'Database error' });
   }
@@ -1717,13 +1869,31 @@ app.delete('/api/reports/:reportId', authenticate, requireRole('teacher', 'admin
     });
     if (!allowed) return res.status(403).json({ error: 'Insufficient permissions' });
 
-    const deleted = await db
-      .delete(studentReportsTable)
-      .where(eq(studentReportsTable.id, req.params.reportId))
-      .returning({ id: studentReportsTable.id });
-    if (!deleted.length) return res.status(404).json({ error: 'Report not found' });
-    return res.json({ success: true });
+    await withActionLock(
+      {
+        lockKey: studentWriteLockKey(report.studentId),
+        actionType: '删除学习报告',
+        ttlMs: ACTION_LOCK_TTL.studentWriteMs,
+        ...withLockActor(req),
+        metadata: { route: `/api/reports/${req.params.reportId}` },
+      },
+      async () => {
+        const deleted = await db
+          .delete(studentReportsTable)
+          .where(eq(studentReportsTable.id, req.params.reportId))
+          .returning({ id: studentReportsTable.id });
+        if (!deleted.length) {
+          res.status(404).json({ error: 'Report not found' });
+          return;
+        }
+        res.json({ success: true });
+      },
+    );
+    return;
   } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
     console.error('Error deleting report:', err);
     return res.status(500).json({ error: 'Database error' });
   }
@@ -2168,70 +2338,86 @@ app.put('/api/students/:studentId/subjects', authenticate, requireTeacher, async
   }
 
   try {
-    const englishRows = await db
-      .select({ id: subjectsTable.id })
-      .from(subjectsTable)
-      .where(eq(subjectsTable.code, 'ENGLISH'))
-      .limit(1);
-    if (!englishRows.length) {
-      return res.status(500).json({ error: 'English subject not found' });
-    }
-    const englishId = englishRows[0].id;
-    const nextIds = Array.from(new Set([englishId, ...subjectIds.filter(Boolean)]));
+    await withActionLock(
+      {
+        lockKey: studentWriteLockKey(studentId),
+        actionType: '更新学生科目',
+        ttlMs: ACTION_LOCK_TTL.studentWriteMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/students/:studentId/subjects' },
+      },
+      async () => {
+        const englishRows = await db
+          .select({ id: subjectsTable.id })
+          .from(subjectsTable)
+          .where(eq(subjectsTable.code, 'ENGLISH'))
+          .limit(1);
+        if (!englishRows.length) {
+          res.status(500).json({ error: 'English subject not found' });
+          return;
+        }
+        const englishId = englishRows[0].id;
+        const nextIds = Array.from(new Set([englishId, ...subjectIds.filter(Boolean)]));
 
-    // 1) Read current assignments to compute removed set
-    const current = await db
-      .select({ subjectId: studentSubjectsTable.subjectId })
-      .from(studentSubjectsTable)
-      .where(eq(studentSubjectsTable.studentId, studentId));
+        // 1) Read current assignments to compute removed set
+        const current = await db
+          .select({ subjectId: studentSubjectsTable.subjectId })
+          .from(studentSubjectsTable)
+          .where(eq(studentSubjectsTable.studentId, studentId));
 
-    const currentIds = current.map(r => r.subjectId);
-    const nextSet = new Set(nextIds);
-    const removedIds = currentIds.filter(id => !nextSet.has(id));
+        const currentIds = current.map(r => r.subjectId);
+        const nextSet = new Set(nextIds);
+        const removedIds = currentIds.filter(id => !nextSet.has(id));
 
-    // 2) Reset progress (default: for removed subjects; or all; or keep)
-    const mode: 'removed' | 'all' | 'keep' =
-      resetProgress === 'all' ? 'all'
-      : resetProgress === 'keep' ? 'keep'
-      : 'removed';
+        // 2) Reset progress (default: for removed subjects; or all; or keep)
+        const mode: 'removed' | 'all' | 'keep' =
+          resetProgress === 'all' ? 'all'
+          : resetProgress === 'keep' ? 'keep'
+          : 'removed';
 
-    if (mode === 'all' || nextIds.length === 0) {
-      // wipe ALL progress for this student
-      await db
-        .delete(studentTopicProgressTable)
-        .where(eq(studentTopicProgressTable.studentId, studentId));
-    } else if (mode === 'removed' && removedIds.length > 0) {
-      // delete progress only for topics under REMOVED subjects
-      const removedTopicRows = await db
-        .select({ id: topicsTable.id })
-        .from(topicsTable)
-        .where(inArray(topicsTable.subjectId, removedIds));
+        if (mode === 'all' || nextIds.length === 0) {
+          // wipe ALL progress for this student
+          await db
+            .delete(studentTopicProgressTable)
+            .where(eq(studentTopicProgressTable.studentId, studentId));
+        } else if (mode === 'removed' && removedIds.length > 0) {
+          // delete progress only for topics under REMOVED subjects
+          const removedTopicRows = await db
+            .select({ id: topicsTable.id })
+            .from(topicsTable)
+            .where(inArray(topicsTable.subjectId, removedIds));
 
-      const removedTopicIds = removedTopicRows.map(r => r.id);
-      if (removedTopicIds.length > 0) {
+          const removedTopicIds = removedTopicRows.map(r => r.id);
+          if (removedTopicIds.length > 0) {
+            await db
+              .delete(studentTopicProgressTable)
+              .where(
+                and(
+                  eq(studentTopicProgressTable.studentId, studentId),
+                  inArray(studentTopicProgressTable.topicId, removedTopicIds),
+                )
+              );
+          }
+        }
+
+        // 3) Replace subject assignments
         await db
-          .delete(studentTopicProgressTable)
-          .where(
-            and(
-              eq(studentTopicProgressTable.studentId, studentId),
-              inArray(studentTopicProgressTable.topicId, removedTopicIds),
-            )
-          );
-      }
-    }
+          .delete(studentSubjectsTable)
+          .where(eq(studentSubjectsTable.studentId, studentId));
 
-    // 3) Replace subject assignments
-    await db
-      .delete(studentSubjectsTable)
-      .where(eq(studentSubjectsTable.studentId, studentId));
+        if (nextIds.length > 0) {
+          const rows = nextIds.map((sid: string) => ({ studentId, subjectId: sid }));
+          await db.insert(studentSubjectsTable).values(rows);
+        }
 
-    if (nextIds.length > 0) {
-      const rows = nextIds.map((sid: string) => ({ studentId, subjectId: sid }));
-      await db.insert(studentSubjectsTable).values(rows);
-    }
-
-    res.json({ message: 'Subjects updated', resetApplied: mode });
+        res.json({ message: 'Subjects updated', resetApplied: mode });
+      },
+    );
+    return;
   } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
     console.error(err);
     res.status(500).json({ error: 'Database error' });
   }
@@ -2241,18 +2427,33 @@ app.put('/api/students/:studentId/subjects', authenticate, requireTeacher, async
 app.post('/api/students/:studentId/subjects/sync-catalog', authenticate, requireTeacher, async (req, res) => {
   const { studentId } = req.params;
   try {
-    const subjects = await db
-      .select({
-        id: subjectsTable.id,
-        code: subjectsTable.code,
-      })
-      .from(studentSubjectsTable)
-      .innerJoin(subjectsTable, eq(studentSubjectsTable.subjectId, subjectsTable.id))
-      .where(eq(studentSubjectsTable.studentId, studentId));
+    await withActionLock(
+      {
+        lockKey: subjectCatalogWriteLockKey(),
+        actionType: '同步科目主题目录',
+        ttlMs: ACTION_LOCK_TTL.subjectCatalogMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/students/:studentId/subjects/sync-catalog', studentId },
+      },
+      async () => {
+        const subjects = await db
+          .select({
+            id: subjectsTable.id,
+            code: subjectsTable.code,
+          })
+          .from(studentSubjectsTable)
+          .innerJoin(subjectsTable, eq(studentSubjectsTable.subjectId, subjectsTable.id))
+          .where(eq(studentSubjectsTable.studentId, studentId));
 
-    const summary = await syncCatalogForStudentSubjects(subjects);
-    res.json(summary);
+        const summary = await syncCatalogForStudentSubjects(subjects);
+        res.json(summary);
+      },
+    );
+    return;
   } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
     console.error('Error syncing catalog topics:', err);
     res.status(500).json({ error: 'Database error' });
   }
@@ -2382,104 +2583,119 @@ app.put('/api/students/:studentId/topics/:topicId/progress', authenticate, requi
     return res.status(400).json({ error: 'Invalid progress payload' });
   }
   try {
-    // Check if record exists
-    const existing = await db
-      .select()
-      .from(studentTopicProgressTable)
-      .where(
-        and(
-          eq(studentTopicProgressTable.studentId, studentId),
-          eq(studentTopicProgressTable.topicId, topicId)
-        )
-      );
-    const current = existing[0];
-    let nextDefinitionRecited =
-      typeof definitionRecited === 'boolean' ? definitionRecited : current?.definitionRecited ?? false;
-    let nextChapterExerciseCompleted =
-      typeof chapterExerciseCompleted === 'boolean'
-        ? chapterExerciseCompleted
-        : current?.chapterExerciseCompleted ?? false;
+    await withActionLock(
+      {
+        lockKey: studentSubjectProgressLockKey(studentId),
+        actionType: '更新主题学习进度',
+        ttlMs: ACTION_LOCK_TTL.studentWriteMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/students/:studentId/topics/:topicId/progress', topicId },
+      },
+      async () => {
+        // Check if record exists
+        const existing = await db
+          .select()
+          .from(studentTopicProgressTable)
+          .where(
+            and(
+              eq(studentTopicProgressTable.studentId, studentId),
+              eq(studentTopicProgressTable.topicId, topicId)
+            )
+          );
+        const current = existing[0];
+        let nextDefinitionRecited =
+          typeof definitionRecited === 'boolean' ? definitionRecited : current?.definitionRecited ?? false;
+        let nextChapterExerciseCompleted =
+          typeof chapterExerciseCompleted === 'boolean'
+            ? chapterExerciseCompleted
+            : current?.chapterExerciseCompleted ?? false;
 
-    if (!hasConditions && hasStatus) {
-      if (status === 'completed') {
-        nextDefinitionRecited = true;
-        nextChapterExerciseCompleted = true;
-      } else if (status === 'in_progress') {
-        nextDefinitionRecited = true;
-        nextChapterExerciseCompleted = false;
-      } else {
-        nextDefinitionRecited = false;
-        nextChapterExerciseCompleted = false;
-      }
-    }
+        if (!hasConditions && hasStatus) {
+          if (status === 'completed') {
+            nextDefinitionRecited = true;
+            nextChapterExerciseCompleted = true;
+          } else if (status === 'in_progress') {
+            nextDefinitionRecited = true;
+            nextChapterExerciseCompleted = false;
+          } else {
+            nextDefinitionRecited = false;
+            nextChapterExerciseCompleted = false;
+          }
+        }
 
-    const nextStatus = deriveTopicStatus(nextDefinitionRecited, nextChapterExerciseCompleted);
+        const nextStatus = deriveTopicStatus(nextDefinitionRecited, nextChapterExerciseCompleted);
 
-    if (existing.length > 0) {
-      await db
-        .update(studentTopicProgressTable)
-        .set({
-          status: nextStatus,
-          definitionRecited: nextDefinitionRecited,
-          chapterExerciseCompleted: nextChapterExerciseCompleted,
-        })
-        .where(
-          and(
-            eq(studentTopicProgressTable.studentId, studentId),
-            eq(studentTopicProgressTable.topicId, topicId)
-          )
-        );
-    } else {
-      await db
-        .insert(studentTopicProgressTable)
-        .values({
-          studentId,
-          topicId,
-          status: nextStatus,
-          definitionRecited: nextDefinitionRecited,
-          chapterExerciseCompleted: nextChapterExerciseCompleted,
-        });
-    }
-
-    // If a parent topic is completed, mark all descendants completed too
-    if (nextStatus === 'completed') {
-      const descendantIds: string[] = [];
-      let frontier = [topicId];
-      while (frontier.length > 0) {
-        const rows = await db
-          .select({ id: topicsTable.id })
-          .from(topicsTable)
-          .where(inArray(topicsTable.parentTopicId, frontier));
-        const nextIds = rows.map((r) => r.id);
-        if (nextIds.length === 0) break;
-        descendantIds.push(...nextIds);
-        frontier = nextIds;
-      }
-
-      if (descendantIds.length > 0) {
-        await db
-          .insert(studentTopicProgressTable)
-          .values(
-            descendantIds.map((id) => ({
+        if (existing.length > 0) {
+          await db
+            .update(studentTopicProgressTable)
+            .set({
+              status: nextStatus,
+              definitionRecited: nextDefinitionRecited,
+              chapterExerciseCompleted: nextChapterExerciseCompleted,
+            })
+            .where(
+              and(
+                eq(studentTopicProgressTable.studentId, studentId),
+                eq(studentTopicProgressTable.topicId, topicId)
+              )
+            );
+        } else {
+          await db
+            .insert(studentTopicProgressTable)
+            .values({
               studentId,
-              topicId: id,
-              status: 'completed' as const,
-              definitionRecited: true,
-              chapterExerciseCompleted: true,
-            }))
-          )
-          .onConflictDoUpdate({
-            target: [studentTopicProgressTable.studentId, studentTopicProgressTable.topicId],
-            set: {
-              status: 'completed' as const,
-              definitionRecited: true,
-              chapterExerciseCompleted: true,
-            },
-          });
-      }
-    }
-    res.json({ message: 'Progress updated' });
+              topicId,
+              status: nextStatus,
+              definitionRecited: nextDefinitionRecited,
+              chapterExerciseCompleted: nextChapterExerciseCompleted,
+            });
+        }
+
+        // If a parent topic is completed, mark all descendants completed too
+        if (nextStatus === 'completed') {
+          const descendantIds: string[] = [];
+          let frontier = [topicId];
+          while (frontier.length > 0) {
+            const rows = await db
+              .select({ id: topicsTable.id })
+              .from(topicsTable)
+              .where(inArray(topicsTable.parentTopicId, frontier));
+            const nextIds = rows.map((r) => r.id);
+            if (nextIds.length === 0) break;
+            descendantIds.push(...nextIds);
+            frontier = nextIds;
+          }
+
+          if (descendantIds.length > 0) {
+            await db
+              .insert(studentTopicProgressTable)
+              .values(
+                descendantIds.map((id) => ({
+                  studentId,
+                  topicId: id,
+                  status: 'completed' as const,
+                  definitionRecited: true,
+                  chapterExerciseCompleted: true,
+                }))
+              )
+              .onConflictDoUpdate({
+                target: [studentTopicProgressTable.studentId, studentTopicProgressTable.topicId],
+                set: {
+                  status: 'completed' as const,
+                  definitionRecited: true,
+                  chapterExerciseCompleted: true,
+                },
+              });
+          }
+        }
+        res.json({ message: 'Progress updated' });
+      },
+    );
+    return;
   } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -2501,20 +2717,36 @@ app.post('/api/paper-types', authenticate, requireTeacher, async (req, res) => {
     return res.status(400).json({ error: 'Missing name' });
   }
   try {
-    const existing = await db
-      .select()
-      .from(paperTypesTable)
-      .where(eq(paperTypesTable.name, String(name).trim()))
-      .limit(1);
-    if (existing.length) {
-      return res.status(409).json({ error: 'Type already exists', data: existing[0] });
-    }
-    const created = await db
-      .insert(paperTypesTable)
-      .values({ name: String(name).trim() })
-      .returning();
-    res.status(201).json(created[0]);
+    await withActionLock(
+      {
+        lockKey: subjectCatalogWriteLockKey(),
+        actionType: '新增试卷类型',
+        ttlMs: ACTION_LOCK_TTL.subjectCatalogMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/paper-types' },
+      },
+      async () => {
+        const existing = await db
+          .select()
+          .from(paperTypesTable)
+          .where(eq(paperTypesTable.name, String(name).trim()))
+          .limit(1);
+        if (existing.length) {
+          res.status(409).json({ error: 'Type already exists', data: existing[0] });
+          return;
+        }
+        const created = await db
+          .insert(paperTypesTable)
+          .values({ name: String(name).trim() })
+          .returning();
+        res.status(201).json(created[0]);
+      },
+    );
+    return;
   } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -2522,17 +2754,33 @@ app.post('/api/paper-types', authenticate, requireTeacher, async (req, res) => {
 app.delete('/api/paper-types/:id', authenticate, requireTeacher, async (req, res) => {
   const { id } = req.params;
   try {
-    const used = await db
-      .select()
-      .from(studentPapersTable)
-      .where(eq(studentPapersTable.typeId, id))
-      .limit(1);
-    if (used.length) {
-      return res.status(409).json({ error: 'Type is in use' });
-    }
-    await db.delete(paperTypesTable).where(eq(paperTypesTable.id, id));
-    res.json({ message: 'Deleted' });
+    await withActionLock(
+      {
+        lockKey: subjectCatalogWriteLockKey(),
+        actionType: '删除试卷类型',
+        ttlMs: ACTION_LOCK_TTL.subjectCatalogMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/paper-types/:id', paperTypeId: id },
+      },
+      async () => {
+        const used = await db
+          .select()
+          .from(studentPapersTable)
+          .where(eq(studentPapersTable.typeId, id))
+          .limit(1);
+        if (used.length) {
+          res.status(409).json({ error: 'Type is in use' });
+          return;
+        }
+        await db.delete(paperTypesTable).where(eq(paperTypesTable.id, id));
+        res.json({ message: 'Deleted' });
+      },
+    );
+    return;
   } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -2553,20 +2801,36 @@ app.post('/api/paper-schools', authenticate, requireTeacher, async (req, res) =>
     return res.status(400).json({ error: 'Missing name' });
   }
   try {
-    const existing = await db
-      .select()
-      .from(paperSchoolsTable)
-      .where(eq(paperSchoolsTable.name, String(name).trim()))
-      .limit(1);
-    if (existing.length) {
-      return res.status(409).json({ error: 'School already exists', data: existing[0] });
-    }
-    const created = await db
-      .insert(paperSchoolsTable)
-      .values({ name: String(name).trim() })
-      .returning();
-    res.status(201).json(created[0]);
+    await withActionLock(
+      {
+        lockKey: subjectCatalogWriteLockKey(),
+        actionType: '新增试卷学校',
+        ttlMs: ACTION_LOCK_TTL.subjectCatalogMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/paper-schools' },
+      },
+      async () => {
+        const existing = await db
+          .select()
+          .from(paperSchoolsTable)
+          .where(eq(paperSchoolsTable.name, String(name).trim()))
+          .limit(1);
+        if (existing.length) {
+          res.status(409).json({ error: 'School already exists', data: existing[0] });
+          return;
+        }
+        const created = await db
+          .insert(paperSchoolsTable)
+          .values({ name: String(name).trim() })
+          .returning();
+        res.status(201).json(created[0]);
+      },
+    );
+    return;
   } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -2574,17 +2838,33 @@ app.post('/api/paper-schools', authenticate, requireTeacher, async (req, res) =>
 app.delete('/api/paper-schools/:id', authenticate, requireTeacher, async (req, res) => {
   const { id } = req.params;
   try {
-    const used = await db
-      .select()
-      .from(studentPapersTable)
-      .where(eq(studentPapersTable.schoolId, id))
-      .limit(1);
-    if (used.length) {
-      return res.status(409).json({ error: 'School is in use' });
-    }
-    await db.delete(paperSchoolsTable).where(eq(paperSchoolsTable.id, id));
-    res.json({ message: 'Deleted' });
+    await withActionLock(
+      {
+        lockKey: subjectCatalogWriteLockKey(),
+        actionType: '删除试卷学校',
+        ttlMs: ACTION_LOCK_TTL.subjectCatalogMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/paper-schools/:id', paperSchoolId: id },
+      },
+      async () => {
+        const used = await db
+          .select()
+          .from(studentPapersTable)
+          .where(eq(studentPapersTable.schoolId, id))
+          .limit(1);
+        if (used.length) {
+          res.status(409).json({ error: 'School is in use' });
+          return;
+        }
+        await db.delete(paperSchoolsTable).where(eq(paperSchoolsTable.id, id));
+        res.json({ message: 'Deleted' });
+      },
+    );
+    return;
   } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -2660,52 +2940,69 @@ app.put('/api/students/:studentId/papers/batch', authenticate, requireTeacher, a
     });
   }
   try {
-    const clientUpdatedAt = parseTimestamp(expectedUpdatedAt);
-    const latest = await db
-      .select({
-        updatedAt: studentPapersTable.updatedAt,
-        updatedByName: studentPapersTable.updatedByName,
-      })
-      .from(studentPapersTable)
-      .where(and(eq(studentPapersTable.studentId, studentId), eq(studentPapersTable.date, date)))
-      .orderBy(desc(studentPapersTable.updatedAt))
-      .limit(1);
-    if (latest.length) {
-      if (!clientUpdatedAt || !isSameTimestamp(latest[0].updatedAt, clientUpdatedAt)) {
-        return res.status(409).json({
-          error: 'CONFLICT',
-          updatedAt: latest[0].updatedAt,
-          updatedByName: latest[0].updatedByName,
-        });
-      }
-    }
-    await db
-      .delete(studentPapersTable)
-      .where(and(eq(studentPapersTable.studentId, studentId), eq(studentPapersTable.date, date)));
+    await withActionLock(
+      {
+        lockKey: studentWriteLockKey(studentId),
+        actionType: '批量保存试卷记录',
+        ttlMs: ACTION_LOCK_TTL.studentWriteMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/students/:studentId/papers/batch', date },
+      },
+      async () => {
+        const clientUpdatedAt = parseTimestamp(expectedUpdatedAt);
+        const latest = await db
+          .select({
+            updatedAt: studentPapersTable.updatedAt,
+            updatedByName: studentPapersTable.updatedByName,
+          })
+          .from(studentPapersTable)
+          .where(and(eq(studentPapersTable.studentId, studentId), eq(studentPapersTable.date, date)))
+          .orderBy(desc(studentPapersTable.updatedAt))
+          .limit(1);
+        if (latest.length) {
+          if (!clientUpdatedAt || !isSameTimestamp(latest[0].updatedAt, clientUpdatedAt)) {
+            res.status(409).json({
+              error: 'CONFLICT',
+              updatedAt: latest[0].updatedAt,
+              updatedByName: latest[0].updatedByName,
+            });
+            return;
+          }
+        }
+        await db
+          .delete(studentPapersTable)
+          .where(and(eq(studentPapersTable.studentId, studentId), eq(studentPapersTable.date, date)));
 
-    if (papers.length === 0) {
-      return res.json({ message: 'No papers to save' });
-    }
+        if (papers.length === 0) {
+          res.json({ message: 'No papers to save' });
+          return;
+        }
 
-    const now = new Date();
-    const values = papers.map((p: any) => ({
-      studentId,
-      subjectId: p.subjectId || null,
-      subjectName: p.subjectName || null,
-      typeId: p.typeId,
-      schoolId: p.schoolId,
-      description: p.description || null,
-      strengths: String(p.strengths || '').trim(),
-      improvements: String(p.improvements || '').trim(),
-      date,
-      score: parseOptionalInt(p.score),
-      total: parseOptionalInt(p.total),
-      updatedAt: now,
-      updatedByName: req.user?.name || null,
-    }));
-    const inserted = await db.insert(studentPapersTable).values(values).returning();
-    res.json({ message: 'Saved', count: inserted.length });
+        const now = new Date();
+        const values = papers.map((p: any) => ({
+          studentId,
+          subjectId: p.subjectId || null,
+          subjectName: p.subjectName || null,
+          typeId: p.typeId,
+          schoolId: p.schoolId,
+          description: p.description || null,
+          strengths: String(p.strengths || '').trim(),
+          improvements: String(p.improvements || '').trim(),
+          date,
+          score: parseOptionalInt(p.score),
+          total: parseOptionalInt(p.total),
+          updatedAt: now,
+          updatedByName: req.user?.name || null,
+        }));
+        const inserted = await db.insert(studentPapersTable).values(values).returning();
+        res.json({ message: 'Saved', count: inserted.length });
+      },
+    );
+    return;
   } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -2721,26 +3018,41 @@ app.post('/api/students/:studentId/papers', authenticate, requireTeacher, async 
     return res.status(400).json({ error: 'PAPER_EVALUATION_REQUIRED' });
   }
   try {
-    const created = await db
-      .insert(studentPapersTable)
-      .values({
-        studentId,
-        subjectId: subjectId || null,
-        subjectName: subjectName || null,
-        typeId,
-        schoolId,
-        description: description || null,
-        strengths: String(strengths || '').trim(),
-        improvements: String(improvements || '').trim(),
-        date,
-        score: parseOptionalInt(score),
-        total: parseOptionalInt(total),
-        updatedAt: new Date(),
-        updatedByName: req.user?.name || null,
-      })
-      .returning();
-    res.status(201).json(created[0]);
+    await withActionLock(
+      {
+        lockKey: studentWriteLockKey(studentId),
+        actionType: '新增试卷记录',
+        ttlMs: ACTION_LOCK_TTL.studentWriteMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/students/:studentId/papers', date },
+      },
+      async () => {
+        const created = await db
+          .insert(studentPapersTable)
+          .values({
+            studentId,
+            subjectId: subjectId || null,
+            subjectName: subjectName || null,
+            typeId,
+            schoolId,
+            description: description || null,
+            strengths: String(strengths || '').trim(),
+            improvements: String(improvements || '').trim(),
+            date,
+            score: parseOptionalInt(score),
+            total: parseOptionalInt(total),
+            updatedAt: new Date(),
+            updatedByName: req.user?.name || null,
+          })
+          .returning();
+        res.status(201).json(created[0]);
+      },
+    );
+    return;
   } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -2760,40 +3072,62 @@ app.put('/api/students/:studentId/papers/:paperId', authenticate, requireTeacher
     return res.status(400).json({ error: 'Missing updatedAt' });
   }
   try {
-    const existing = await db
-      .select()
-      .from(studentPapersTable)
-      .where(and(eq(studentPapersTable.id, paperId), eq(studentPapersTable.studentId, studentId)))
-      .limit(1);
-    if (!existing.length) return res.status(404).json({ error: 'Not found' });
-    if (!isSameTimestamp(existing[0].updatedAt, clientUpdatedAt)) {
-      return res.status(409).json({
-        error: 'CONFLICT',
-        updatedAt: existing[0].updatedAt,
-        updatedByName: existing[0].updatedByName,
-      });
-    }
-    const updated = await db
-      .update(studentPapersTable)
-      .set({
-        subjectId: subjectId || null,
-        subjectName: subjectName || null,
-        typeId,
-        schoolId,
-        description: description || null,
-        strengths: String(strengths || '').trim(),
-        improvements: String(improvements || '').trim(),
-        date,
-        score: parseOptionalInt(score),
-        total: parseOptionalInt(total),
-        updatedAt: new Date(),
-        updatedByName: req.user?.name || null,
-      })
-      .where(and(eq(studentPapersTable.id, paperId), eq(studentPapersTable.studentId, studentId)))
-      .returning();
-    if (!updated.length) return res.status(404).json({ error: 'Not found' });
-    res.json(updated[0]);
+    await withActionLock(
+      {
+        lockKey: studentWriteLockKey(studentId),
+        actionType: '更新试卷记录',
+        ttlMs: ACTION_LOCK_TTL.studentWriteMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/students/:studentId/papers/:paperId', paperId },
+      },
+      async () => {
+        const existing = await db
+          .select()
+          .from(studentPapersTable)
+          .where(and(eq(studentPapersTable.id, paperId), eq(studentPapersTable.studentId, studentId)))
+          .limit(1);
+        if (!existing.length) {
+          res.status(404).json({ error: 'Not found' });
+          return;
+        }
+        if (!isSameTimestamp(existing[0].updatedAt, clientUpdatedAt)) {
+          res.status(409).json({
+            error: 'CONFLICT',
+            updatedAt: existing[0].updatedAt,
+            updatedByName: existing[0].updatedByName,
+          });
+          return;
+        }
+        const updated = await db
+          .update(studentPapersTable)
+          .set({
+            subjectId: subjectId || null,
+            subjectName: subjectName || null,
+            typeId,
+            schoolId,
+            description: description || null,
+            strengths: String(strengths || '').trim(),
+            improvements: String(improvements || '').trim(),
+            date,
+            score: parseOptionalInt(score),
+            total: parseOptionalInt(total),
+            updatedAt: new Date(),
+            updatedByName: req.user?.name || null,
+          })
+          .where(and(eq(studentPapersTable.id, paperId), eq(studentPapersTable.studentId, studentId)))
+          .returning();
+        if (!updated.length) {
+          res.status(404).json({ error: 'Not found' });
+          return;
+        }
+        res.json(updated[0]);
+      },
+    );
+    return;
   } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -2806,24 +3140,43 @@ app.delete('/api/students/:studentId/papers/:paperId', authenticate, requireTeac
     if (!clientUpdatedAt) {
       return res.status(400).json({ error: 'Missing updatedAt' });
     }
-    const existing = await db
-      .select()
-      .from(studentPapersTable)
-      .where(and(eq(studentPapersTable.id, paperId), eq(studentPapersTable.studentId, studentId)))
-      .limit(1);
-    if (!existing.length) return res.status(404).json({ error: 'Not found' });
-    if (!isSameTimestamp(existing[0].updatedAt, clientUpdatedAt)) {
-      return res.status(409).json({
-        error: 'CONFLICT',
-        updatedAt: existing[0].updatedAt,
-        updatedByName: existing[0].updatedByName,
-      });
-    }
-    await db
-      .delete(studentPapersTable)
-      .where(and(eq(studentPapersTable.id, paperId), eq(studentPapersTable.studentId, studentId)));
-    res.json({ message: 'Deleted' });
+    await withActionLock(
+      {
+        lockKey: studentWriteLockKey(studentId),
+        actionType: '删除试卷记录',
+        ttlMs: ACTION_LOCK_TTL.studentWriteMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/students/:studentId/papers/:paperId', paperId },
+      },
+      async () => {
+        const existing = await db
+          .select()
+          .from(studentPapersTable)
+          .where(and(eq(studentPapersTable.id, paperId), eq(studentPapersTable.studentId, studentId)))
+          .limit(1);
+        if (!existing.length) {
+          res.status(404).json({ error: 'Not found' });
+          return;
+        }
+        if (!isSameTimestamp(existing[0].updatedAt, clientUpdatedAt)) {
+          res.status(409).json({
+            error: 'CONFLICT',
+            updatedAt: existing[0].updatedAt,
+            updatedByName: existing[0].updatedByName,
+          });
+          return;
+        }
+        await db
+          .delete(studentPapersTable)
+          .where(and(eq(studentPapersTable.id, paperId), eq(studentPapersTable.studentId, studentId)));
+        res.json({ message: 'Deleted' });
+      },
+    );
+    return;
   } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -3167,18 +3520,33 @@ app.post('/api/weekly-cycles', authenticate, requireTeacher, async (req, res) =>
     return res.status(400).json({ error: 'startDate must be <= endDate' });
   }
   try {
-    const [row] = await db
-      .insert(weeklyStudyCyclesTable)
-      .values({
-        startDate,
-        endDate,
-        notes: notes ?? null,
-        updatedAt: new Date(),
-        updatedByName: req.user?.name || null,
-      })
-      .returning();
-    res.status(201).json(row);
+    await withActionLock(
+      {
+        lockKey: subjectCatalogWriteLockKey(),
+        actionType: '创建周学习周期',
+        ttlMs: ACTION_LOCK_TTL.subjectCatalogMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/weekly-cycles', startDate, endDate },
+      },
+      async () => {
+        const [row] = await db
+          .insert(weeklyStudyCyclesTable)
+          .values({
+            startDate,
+            endDate,
+            notes: notes ?? null,
+            updatedAt: new Date(),
+            updatedByName: req.user?.name || null,
+          })
+          .returning();
+        res.status(201).json(row);
+      },
+    );
+    return;
   } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
     console.error('Error creating weekly cycle:', err);
     res.status(500).json({ error: 'Database error' });
   }
@@ -3244,54 +3612,71 @@ app.put('/api/students/:studentId/weekly-targets', authenticate, requireTeacher,
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const data = parsed.data;
   try {
-    // Confirm the cycle exists (we never auto-create cycles from the targets
-    // endpoint to keep cycle creation an explicit teacher action).
-    const cycleRow = await db
-      .select({ id: weeklyStudyCyclesTable.id })
-      .from(weeklyStudyCyclesTable)
-      .where(eq(weeklyStudyCyclesTable.id, data.cycleId))
-      .limit(1);
-    if (!cycleRow.length) {
-      return res.status(404).json({ error: 'Cycle not found; create it first via POST /api/weekly-cycles' });
-    }
-    // Upsert by (studentId, cycleId)
-    const existing = await db
-      .select()
-      .from(studentWeeklyTaskTargetsTable)
-      .where(
-        and(
-          eq(studentWeeklyTaskTargetsTable.studentId, studentId),
-          eq(studentWeeklyTaskTargetsTable.cycleId, data.cycleId),
-        ),
-      )
-      .limit(1);
-    const values = {
-      studentId,
-      cycleId: data.cycleId,
-      readingTarget: data.readingTarget,
-      editingTarget: data.editingTarget,
-      grammarTarget: data.grammarTarget,
-      vocabTarget: data.vocabTarget,
-      compositionTarget: data.compositionTarget,
-      isGrammarRequired: data.isGrammarRequired,
-      isEditingRequired: data.isEditingRequired,
-      updatedAt: new Date(),
-      updatedByName: req.user?.name || null,
-    };
-    if (existing.length) {
-      const [row] = await db
-        .update(studentWeeklyTaskTargetsTable)
-        .set(values)
-        .where(eq(studentWeeklyTaskTargetsTable.id, existing[0].id))
-        .returning();
-      return res.json(row);
-    }
-    const [row] = await db
-      .insert(studentWeeklyTaskTargetsTable)
-      .values(values)
-      .returning();
-    res.status(201).json(row);
+    await withActionLock(
+      {
+        lockKey: studentWriteLockKey(studentId),
+        actionType: '更新学生周任务目标',
+        ttlMs: ACTION_LOCK_TTL.studentWriteMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/students/:studentId/weekly-targets', cycleId: data.cycleId },
+      },
+      async () => {
+        // Confirm the cycle exists (we never auto-create cycles from the targets
+        // endpoint to keep cycle creation an explicit teacher action).
+        const cycleRow = await db
+          .select({ id: weeklyStudyCyclesTable.id })
+          .from(weeklyStudyCyclesTable)
+          .where(eq(weeklyStudyCyclesTable.id, data.cycleId))
+          .limit(1);
+        if (!cycleRow.length) {
+          res.status(404).json({ error: 'Cycle not found; create it first via POST /api/weekly-cycles' });
+          return;
+        }
+        // Upsert by (studentId, cycleId)
+        const existing = await db
+          .select()
+          .from(studentWeeklyTaskTargetsTable)
+          .where(
+            and(
+              eq(studentWeeklyTaskTargetsTable.studentId, studentId),
+              eq(studentWeeklyTaskTargetsTable.cycleId, data.cycleId),
+            ),
+          )
+          .limit(1);
+        const values = {
+          studentId,
+          cycleId: data.cycleId,
+          readingTarget: data.readingTarget,
+          editingTarget: data.editingTarget,
+          grammarTarget: data.grammarTarget,
+          vocabTarget: data.vocabTarget,
+          compositionTarget: data.compositionTarget,
+          isGrammarRequired: data.isGrammarRequired,
+          isEditingRequired: data.isEditingRequired,
+          updatedAt: new Date(),
+          updatedByName: req.user?.name || null,
+        };
+        if (existing.length) {
+          const [row] = await db
+            .update(studentWeeklyTaskTargetsTable)
+            .set(values)
+            .where(eq(studentWeeklyTaskTargetsTable.id, existing[0].id))
+            .returning();
+          res.json(row);
+          return;
+        }
+        const [row] = await db
+          .insert(studentWeeklyTaskTargetsTable)
+          .values(values)
+          .returning();
+        res.status(201).json(row);
+      },
+    );
+    return;
   } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
     console.error('Error upserting weekly targets:', err);
     res.status(500).json({ error: 'Database error' });
   }
@@ -3426,65 +3811,83 @@ app.post('/api/progress', authenticate, requireTeacher, async (req, res) => {
     }
     const { studentId, date, attendance, attendanceStart, attendanceEnd, summary, activities } = parsed.data;
 
-    const narrativeValidation = validateActivityNarratives(activities);
-    if (!narrativeValidation.ok) {
-      return res.status(400).json({
-        error: 'ACTIVITY_NARRATIVE_REQUIRED',
-        details: narrativeValidation.errors,
-      });
-    }
+    await withActionLock(
+      {
+        lockKey: studentWriteLockKey(studentId),
+        actionType: '更新学生学习记录',
+        ttlMs: ACTION_LOCK_TTL.studentWriteMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/progress', date },
+      },
+      async () => {
+        const narrativeValidation = validateActivityNarratives(activities);
+        if (!narrativeValidation.ok) {
+          res.status(400).json({
+            error: 'ACTIVITY_NARRATIVE_REQUIRED',
+            details: narrativeValidation.errors,
+          });
+          return;
+        }
 
-    // Check if progress already exists for this student and date
-    const existingProgress = await db
-      .select()
-      .from(dailyProgress)
-      .where(and(eq(dailyProgress.studentId, studentId), eq(dailyProgress.date, date)))
-      .limit(1);
-    
-    if (existingProgress.length > 0) {
-      return res.status(409).json({ error: 'Progress already exists for this student and date' });
-    }
-    
-    // Insert new progress (normalize English V2 on the way in so that even
-    // legacy clients posting string-only `english` blocks land in V2 shape).
-    // Loss-point validation runs first so we reject unscored entries with
-    // missing loss points before we touch the DB.
-    const lossPointValidation = validateLossPointsRequired(activities);
-    if (!lossPointValidation.ok) {
-      return res.status(400).json({
-        error: 'LOSS_POINTS_REQUIRED',
-        details: lossPointValidation.errors,
-      });
-    }
-    const lossPointLookup = await loadLossPointLookup();
-    const enrichedActivities = enrichLossPointLabels(activities, lossPointLookup);
-    const normalizedActivities = normalizeActivities(enrichedActivities);
-    // Part 9: post-normalize structural sanity check — catches normalize
-    // regressions before they hit the DB.
-    const englishStructural = validateNormalizedEnglish(normalizedActivities);
-    if (!englishStructural.ok) {
-      return res.status(400).json({
-        error: 'INVALID_ENGLISH_STRUCTURE',
-        details: englishStructural.errors,
-      });
-    }
-    const newProgress = await db.insert(dailyProgress).values({
-      studentId,
-      date: date,
-      attendance,
-      attendanceStart: attendanceStart || null,
-      attendanceEnd: attendanceEnd || null,
-      summary: summary || null,
-      activities: normalizedActivities as Record<string, unknown>[],
-      updatedAt: new Date(),
-      updatedByName: req.user?.name || null,
-    }).returning();
+        // Check if progress already exists for this student and date
+        const existingProgress = await db
+          .select()
+          .from(dailyProgress)
+          .where(and(eq(dailyProgress.studentId, studentId), eq(dailyProgress.date, date)))
+          .limit(1);
+        
+        if (existingProgress.length > 0) {
+          res.status(409).json({ error: 'Progress already exists for this student and date' });
+          return;
+        }
+        
+        // Insert new progress (normalize English V2 on the way in so that even
+        // legacy clients posting string-only `english` blocks land in V2 shape).
+        // Loss-point validation runs first so we reject unscored entries with
+        // missing loss points before we touch the DB.
+        const lossPointValidation = validateLossPointsRequired(activities);
+        if (!lossPointValidation.ok) {
+          res.status(400).json({
+            error: 'LOSS_POINTS_REQUIRED',
+            details: lossPointValidation.errors,
+          });
+          return;
+        }
+        const lossPointLookup = await loadLossPointLookup();
+        const enrichedActivities = enrichLossPointLabels(activities, lossPointLookup);
+        const normalizedActivities = normalizeActivities(enrichedActivities);
+        // Part 9: post-normalize structural sanity check — catches normalize
+        // regressions before they hit the DB.
+        const englishStructural = validateNormalizedEnglish(normalizedActivities);
+        if (!englishStructural.ok) {
+          res.status(400).json({
+            error: 'INVALID_ENGLISH_STRUCTURE',
+            details: englishStructural.errors,
+          });
+          return;
+        }
+        const newProgress = await db.insert(dailyProgress).values({
+          studentId,
+          date: date,
+          attendance,
+          attendanceStart: attendanceStart || null,
+          attendanceEnd: attendanceEnd || null,
+          summary: summary || null,
+          activities: normalizedActivities as Record<string, unknown>[],
+          updatedAt: new Date(),
+          updatedByName: req.user?.name || null,
+        }).returning();
 
-    // Daily progress is teacher-only; skip parent notifications.
+        // Daily progress is teacher-only; skip parent notifications.
 
-    console.log('Progress saved successfully:', newProgress[0]);
-    res.status(201).json(withV2Activities(newProgress[0]));
+        console.log('Progress saved successfully:', newProgress[0]);
+        res.status(201).json(withV2Activities(newProgress[0]));
+      },
+    );
   } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
     console.error('Error creating progress:', err);
     res.status(500).json({ error: 'Database error' });
   }
@@ -3505,74 +3908,97 @@ app.put('/api/progress/:id', authenticate, requireTeacher, async (req, res) => {
     const { studentId, date, attendance, attendanceStart, attendanceEnd, summary, activities } = parsed.data;
     const { updatedAt } = req.body;
 
-    const narrativeValidation = validateActivityNarratives(activities);
-    if (!narrativeValidation.ok) {
-      return res.status(400).json({
-        error: 'ACTIVITY_NARRATIVE_REQUIRED',
-        details: narrativeValidation.errors,
-      });
-    }
+    await withActionLock(
+      {
+        lockKey: studentWriteLockKey(studentId),
+        actionType: '更新学生学习记录',
+        ttlMs: ACTION_LOCK_TTL.studentWriteMs,
+        ...withLockActor(req),
+        metadata: { route: `/api/progress/${id}`, date },
+      },
+      async () => {
+        const narrativeValidation = validateActivityNarratives(activities);
+        if (!narrativeValidation.ok) {
+          res.status(400).json({
+            error: 'ACTIVITY_NARRATIVE_REQUIRED',
+            details: narrativeValidation.errors,
+          });
+          return;
+        }
 
-    // Prevent duplicates on update
-    const dup = await db
-      .select()
-      .from(dailyProgress)
-      .where(and(eq(dailyProgress.studentId, studentId), eq(dailyProgress.date, date)))
-      .limit(1);
-    if (dup.length > 0 && dup[0].id !== id) {
-      return res.status(409).json({ error: 'Progress already exists for this student and date' });
-    }
+        // Prevent duplicates on update
+        const dup = await db
+          .select()
+          .from(dailyProgress)
+          .where(and(eq(dailyProgress.studentId, studentId), eq(dailyProgress.date, date)))
+          .limit(1);
+        if (dup.length > 0 && dup[0].id !== id) {
+          res.status(409).json({ error: 'Progress already exists for this student and date' });
+          return;
+        }
 
-    const existing = await db.select().from(dailyProgress).where(eq(dailyProgress.id, id)).limit(1);
-    if (!existing.length) return res.status(404).json({ error: 'Progress not found' });
-    const clientUpdatedAt = parseTimestamp(updatedAt);
-    if (!clientUpdatedAt) {
-      return res.status(400).json({ error: 'Missing updatedAt' });
-    }
-    if (!isSameTimestamp(existing[0].updatedAt, clientUpdatedAt)) {
-      return res.status(409).json({
-        error: 'CONFLICT',
-        updatedAt: existing[0].updatedAt,
-        updatedByName: existing[0].updatedByName,
-      });
-    }
+        const existing = await db.select().from(dailyProgress).where(eq(dailyProgress.id, id)).limit(1);
+        if (!existing.length) {
+          res.status(404).json({ error: 'Progress not found' });
+          return;
+        }
+        const clientUpdatedAt = parseTimestamp(updatedAt);
+        if (!clientUpdatedAt) {
+          res.status(400).json({ error: 'Missing updatedAt' });
+          return;
+        }
+        if (!isSameTimestamp(existing[0].updatedAt, clientUpdatedAt)) {
+          res.status(409).json({
+            error: 'CONFLICT',
+            updatedAt: existing[0].updatedAt,
+            updatedByName: existing[0].updatedByName,
+          });
+          return;
+        }
 
-    // Same loss-point validation + label-snapshot enrichment as POST so an
-    // edit that introduces (or removes) a score is held to the same contract.
-    const lossPointValidation = validateLossPointsRequired(activities);
-    if (!lossPointValidation.ok) {
-      return res.status(400).json({
-        error: 'LOSS_POINTS_REQUIRED',
-        details: lossPointValidation.errors,
-      });
-    }
-    const lossPointLookup = await loadLossPointLookup();
-    const enrichedActivities = enrichLossPointLabels(activities, lossPointLookup);
-    const normalizedActivitiesPut = normalizeActivities(enrichedActivities);
-    // Part 9: post-normalize structural sanity check (same as POST).
-    const englishStructuralPut = validateNormalizedEnglish(normalizedActivitiesPut);
-    if (!englishStructuralPut.ok) {
-      return res.status(400).json({
-        error: 'INVALID_ENGLISH_STRUCTURE',
-        details: englishStructuralPut.errors,
-      });
-    }
+        // Same loss-point validation + label-snapshot enrichment as POST so an
+        // edit that introduces (or removes) a score is held to the same contract.
+        const lossPointValidation = validateLossPointsRequired(activities);
+        if (!lossPointValidation.ok) {
+          res.status(400).json({
+            error: 'LOSS_POINTS_REQUIRED',
+            details: lossPointValidation.errors,
+          });
+          return;
+        }
+        const lossPointLookup = await loadLossPointLookup();
+        const enrichedActivities = enrichLossPointLabels(activities, lossPointLookup);
+        const normalizedActivitiesPut = normalizeActivities(enrichedActivities);
+        // Part 9: post-normalize structural sanity check (same as POST).
+        const englishStructuralPut = validateNormalizedEnglish(normalizedActivitiesPut);
+        if (!englishStructuralPut.ok) {
+          res.status(400).json({
+            error: 'INVALID_ENGLISH_STRUCTURE',
+            details: englishStructuralPut.errors,
+          });
+          return;
+        }
 
-    const data = {
-      studentId,
-      date: date,
-      attendance,
-      attendanceStart: attendanceStart || null,
-      attendanceEnd: attendanceEnd || null,
-      summary: summary || null,
-      activities: normalizedActivitiesPut as Record<string, unknown>[],
-      updatedAt: new Date(),
-      updatedByName: req.user?.name || null,
-    };
+        const data = {
+          studentId,
+          date: date,
+          attendance,
+          attendanceStart: attendanceStart || null,
+          attendanceEnd: attendanceEnd || null,
+          summary: summary || null,
+          activities: normalizedActivitiesPut as Record<string, unknown>[],
+          updatedAt: new Date(),
+          updatedByName: req.user?.name || null,
+        };
 
-    const result = await db.update(dailyProgress).set(data).where(eq(dailyProgress.id, id)).returning();
-    res.json(withV2Activities(result[0]));
+        const result = await db.update(dailyProgress).set(data).where(eq(dailyProgress.id, id)).returning();
+        res.json(withV2Activities(result[0]));
+      },
+    );
   } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
     console.error('Error updating progress:', err);
     res.status(500).json({ error: 'Database error' });
   }
@@ -3587,16 +4013,32 @@ app.delete('/api/progress/:id', authenticate, requireTeacher, async (req, res) =
     }
     const existing = await db.select().from(dailyProgress).where(eq(dailyProgress.id, id)).limit(1);
     if (!existing.length) return res.status(404).json({ error: 'Progress not found' });
-    if (!isSameTimestamp(existing[0].updatedAt, clientUpdatedAt)) {
-      return res.status(409).json({
-        error: 'CONFLICT',
-        updatedAt: existing[0].updatedAt,
-        updatedByName: existing[0].updatedByName,
-      });
-    }
-    const result = await db.delete(dailyProgress).where(eq(dailyProgress.id, id)).returning();
-    res.json({ message: 'Progress deleted successfully' });
+    const studentId = existing[0].studentId;
+    await withActionLock(
+      {
+        lockKey: studentWriteLockKey(studentId),
+        actionType: '删除学生学习记录',
+        ttlMs: ACTION_LOCK_TTL.studentWriteMs,
+        ...withLockActor(req),
+        metadata: { route: `/api/progress/${id}` },
+      },
+      async () => {
+        if (!isSameTimestamp(existing[0].updatedAt, clientUpdatedAt)) {
+          res.status(409).json({
+            error: 'CONFLICT',
+            updatedAt: existing[0].updatedAt,
+            updatedByName: existing[0].updatedByName,
+          });
+          return;
+        }
+        await db.delete(dailyProgress).where(eq(dailyProgress.id, id)).returning();
+        res.json({ message: 'Progress deleted successfully' });
+      },
+    );
   } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
     console.error('Error:', err);
     res.status(500).json({ error: 'Database error' });
   }
@@ -3663,24 +4105,38 @@ app.post('/api/feedback', authenticate, requireTeacher, async (req, res) => {
       updatedAt: new Date(),
       updatedByName: req.user?.name || null,
     };
-    const result = await db.insert(weeklyFeedback).values(data).returning();
-    const studentRows = await db.select().from(studentsTable).where(eq(studentsTable.id, parsedData.studentId));
-    const student = studentRows[0];
-    if (student) {
-      await notifyParent({
-        studentId: parsedData.studentId,
-        parentId: student.parentId ?? null,
-        templateId: weeklyTemplateId,
-        page: `/pages/student-detail/index?id=${parsedData.studentId}`,
-        data: {
-          // Weekly template in production expects `thing6` + `time1`.
-          thing6: { value: `每周反馈已发布` },
-          time1: { value: format(parsedData.weekStarting, 'yyyy-MM-dd') },
-        },
-      });
-    }
-    res.status(201).json(result[0]);
+    await withActionLock(
+      {
+        lockKey: studentWriteLockKey(parsedData.studentId),
+        actionType: '保存每周汇报',
+        ttlMs: ACTION_LOCK_TTL.studentWriteMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/feedback', weekStarting: data.weekStarting },
+      },
+      async () => {
+        const result = await db.insert(weeklyFeedback).values(data).returning();
+        const studentRows = await db.select().from(studentsTable).where(eq(studentsTable.id, parsedData.studentId));
+        const student = studentRows[0];
+        if (student) {
+          await notifyParent({
+            studentId: parsedData.studentId,
+            parentId: student.parentId ?? null,
+            templateId: weeklyTemplateId,
+            page: `/pages/student-detail/index?id=${parsedData.studentId}`,
+            data: {
+              // Weekly template in production expects `thing6` + `time1`.
+              thing6: { value: `每周反馈已发布` },
+              time1: { value: format(parsedData.weekStarting, 'yyyy-MM-dd') },
+            },
+          });
+        }
+        res.status(201).json(result[0]);
+      },
+    );
   } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
     console.error('Error:', err);
     res.status(500).json({ error: 'Database error' });
   }
@@ -3697,13 +4153,6 @@ app.put('/api/feedback/:id', authenticate, requireTeacher, async (req, res) => {
     const clientUpdatedAt = parseTimestamp(req.body?.updatedAt);
     if (!clientUpdatedAt) {
       return res.status(400).json({ error: 'Missing updatedAt' });
-    }
-    if (!isSameTimestamp(existing[0].updatedAt, clientUpdatedAt)) {
-      return res.status(409).json({
-        error: 'CONFLICT',
-        updatedAt: existing[0].updatedAt,
-        updatedByName: existing[0].updatedByName,
-      });
     }
     const parsedData = parsed.data as {
       id?: string;
@@ -3729,22 +4178,48 @@ app.put('/api/feedback/:id', authenticate, requireTeacher, async (req, res) => {
       updatedAt: new Date(),
       updatedByName: req.user?.name || null,
     };
-    const dup = await db
-      .select()
-      .from(weeklyFeedback)
-      .where(and(eq(weeklyFeedback.studentId, parsedData.studentId), eq(weeklyFeedback.weekStarting, data.weekStarting)))
-      .limit(1);
-    if (dup.length > 0 && dup[0].id !== req.params.id) {
-      return res.status(409).json({ error: 'Weekly feedback already exists for this student and week' });
-    }
-    const result = await db.update(weeklyFeedback)
-      .set(data)
-      .where(eq(weeklyFeedback.id, req.params.id))
-      .returning();
+    await withActionLock(
+      {
+        lockKey: studentWriteLockKey(parsedData.studentId),
+        actionType: '更新每周汇报',
+        ttlMs: ACTION_LOCK_TTL.studentWriteMs,
+        ...withLockActor(req),
+        metadata: { route: `/api/feedback/${req.params.id}`, weekStarting: data.weekStarting },
+      },
+      async () => {
+        if (!isSameTimestamp(existing[0].updatedAt, clientUpdatedAt)) {
+          res.status(409).json({
+            error: 'CONFLICT',
+            updatedAt: existing[0].updatedAt,
+            updatedByName: existing[0].updatedByName,
+          });
+          return;
+        }
+        const dup = await db
+          .select()
+          .from(weeklyFeedback)
+          .where(and(eq(weeklyFeedback.studentId, parsedData.studentId), eq(weeklyFeedback.weekStarting, data.weekStarting)))
+          .limit(1);
+        if (dup.length > 0 && dup[0].id !== req.params.id) {
+          res.status(409).json({ error: 'Weekly feedback already exists for this student and week' });
+          return;
+        }
+        const result = await db.update(weeklyFeedback)
+          .set(data)
+          .where(eq(weeklyFeedback.id, req.params.id))
+          .returning();
 
-    if (!result.length) return res.status(404).json({ error: 'Not found' });
-    res.json(result[0]);
+        if (!result.length) {
+          res.status(404).json({ error: 'Not found' });
+          return;
+        }
+        res.json(result[0]);
+      },
+    );
   } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
     console.error('Error:', err);
     res.status(500).json({ error: 'Database error' });
   }
@@ -3826,20 +4301,44 @@ app.post('/api/ai/weekly-summary', authenticate, requireTeacher, async (req, res
     const promptToUse = hasCustomWeeklyPrompt
       ? weeklySummaryPrompt
       : ENHANCED_WEEKLY_PROMPT;
-    const raw = await callDeepSeek(promptToUse, context, hasCustomWeeklyPrompt
-      ? { temperature: 0.2, responseFormat: 'text' }
-      : { temperature: 0.2, responseFormat: 'json_object' });
+    await withActionLock(
+      {
+        lockKey: studentAiLockKey(studentId),
+        actionType: '生成每周AI汇报',
+        ttlMs: ACTION_LOCK_TTL.studentAiMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/ai/weekly-summary', weekStarting, weekEnding: contextWeekEnding },
+      },
+      async () =>
+        withActionLock(
+          {
+            lockKey: studentWriteLockKey(studentId),
+            actionType: '生成每周AI汇报',
+            ttlMs: ACTION_LOCK_TTL.studentAiMs,
+            ...withLockActor(req),
+            metadata: { route: '/api/ai/weekly-summary', weekStarting, weekEnding: contextWeekEnding },
+          },
+          async () => {
+            const raw = await callDeepSeek(promptToUse, context, hasCustomWeeklyPrompt
+              ? { temperature: 0.2, responseFormat: 'text' }
+              : { temperature: 0.2, responseFormat: 'json_object' });
 
-    // If custom env prompt is configured, respect it as plain-text output.
-    // This avoids forcing the response back into the default structured schema.
-    if (hasCustomWeeklyPrompt) {
-      res.json({ summary: typeof raw === 'string' ? raw.trim() : '' });
-      return;
-    }
+            // If custom env prompt is configured, respect it as plain-text output.
+            // This avoids forcing the response back into the default structured schema.
+            if (hasCustomWeeklyPrompt) {
+              res.json({ summary: typeof raw === 'string' ? raw.trim() : '' });
+              return;
+            }
 
-    const structured = parseStructuredSummary(raw);
-    res.json(structured);
+            const structured = parseStructuredSummary(raw);
+            res.json(structured);
+          },
+        ),
+    );
   } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
     const message = getErrorMessage(err);
     if (message.includes('AI_NOT_CONFIGURED')) {
       return res.status(400).json({ error: 'AI_NOT_CONFIGURED' });
@@ -3973,56 +4472,84 @@ app.post('/api/ai/quarterly-summary', authenticate, requireRole('teacher', 'admi
     const promptToUse = hasCustomQuarterlyPrompt
       ? quarterlySummaryPrompt
       : DEEPSEEK_QUARTERLY_PROMPT;
-    const raw = await callDeepSeek(promptToUse, context, hasCustomQuarterlyPrompt
-      ? { temperature: 0.2, responseFormat: 'text' }
-      : { temperature: 0.2, responseFormat: 'json_object' });
-    const parsed = parseAiStructuredReportResponse(raw, 'quarterly');
-    const baseResponse: Record<string, unknown> = {
-      summary: parsed.summaryText,
-      structuredReport: parsed.structuredReport,
-      analytics,
-      rawAiResponse: parsed.rawAiResponse,
-      parseError: parsed.parseError,
-    };
+    await withActionLock(
+      {
+        lockKey: studentAiLockKey(studentId),
+        actionType: '生成学期学习报告',
+        ttlMs: ACTION_LOCK_TTL.studentAiMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/ai/quarterly-summary', startDate, endDate, saveReport },
+      },
+      async () =>
+        withActionLock(
+          {
+            lockKey: studentWriteLockKey(studentId),
+            actionType: '生成学期学习报告',
+            ttlMs: ACTION_LOCK_TTL.studentAiMs,
+            ...withLockActor(req),
+            metadata: { route: '/api/ai/quarterly-summary', startDate, endDate, saveReport },
+          },
+          async () => {
+            const raw = await callDeepSeek(promptToUse, context, hasCustomQuarterlyPrompt
+              ? { temperature: 0.2, responseFormat: 'text' }
+              : { temperature: 0.2, responseFormat: 'json_object' });
+            const parsed = parseAiStructuredReportResponse(raw, 'quarterly');
+            const baseResponse: Record<string, unknown> = {
+              summary: parsed.summaryText,
+              structuredReport: parsed.structuredReport,
+              analytics,
+              rawAiResponse: parsed.rawAiResponse,
+              parseError: parsed.parseError,
+            };
 
-    if (!saveReport) return res.json(baseResponse);
+            if (!saveReport) {
+              res.json(baseResponse);
+              return;
+            }
 
-    const normalizedPayload = normalizeReportPayload({
-      reportType: 'quarterly',
-      structuredReport: parsed.structuredReport,
-      finalReport: parsed.structuredReport,
-      analytics,
-    });
-    const saved = await db
-      .insert(studentReportsTable)
-      .values({
-        studentId,
-        reportType: 'quarterly',
-        title: `${student.name || '学生'}学期学习报告（${startDate}~${endDate}）`,
-        startDate,
-        endDate,
-        year: Number(String(startDate).slice(0, 4)),
-        summaryText: parsed.summaryText,
-        analyticsJson: serializeReportJson(analytics),
-        structuredReportJson: normalizedPayload.structuredReportJson,
-        finalReportJson: normalizedPayload.finalReportJson,
-        rawAiResponse: parsed.rawAiResponse || null,
-        parseError: parsed.parseError || null,
-        status: 'draft',
-        visibleToParent: false,
-        createdBy: req.user?.id || null,
-        updatedBy: req.user?.id || null,
-        updatedAt: new Date(),
-        updatedByName: req.user?.name || null,
-      })
-      .returning();
+            const normalizedPayload = normalizeReportPayload({
+              reportType: 'quarterly',
+              structuredReport: parsed.structuredReport,
+              finalReport: parsed.structuredReport,
+              analytics,
+            });
+            const saved = await db
+              .insert(studentReportsTable)
+              .values({
+                studentId,
+                reportType: 'quarterly',
+                title: `${student.name || '学生'}学期学习报告（${startDate}~${endDate}）`,
+                startDate,
+                endDate,
+                year: Number(String(startDate).slice(0, 4)),
+                summaryText: parsed.summaryText,
+                analyticsJson: serializeReportJson(analytics),
+                structuredReportJson: normalizedPayload.structuredReportJson,
+                finalReportJson: normalizedPayload.finalReportJson,
+                rawAiResponse: parsed.rawAiResponse || null,
+                parseError: parsed.parseError || null,
+                status: 'draft',
+                visibleToParent: false,
+                createdBy: req.user?.id || null,
+                updatedBy: req.user?.id || null,
+                updatedAt: new Date(),
+                updatedByName: req.user?.name || null,
+              })
+              .returning();
 
-    return res.json({
-      ...baseResponse,
-      savedReport: hydrateStudentReport(saved[0], req.user?.role || 'teacher', { includeHeavyFields: true }),
-      reportId: saved[0].id,
-    });
+            res.json({
+              ...baseResponse,
+              savedReport: hydrateStudentReport(saved[0], req.user?.role || 'teacher', { includeHeavyFields: true }),
+              reportId: saved[0].id,
+            });
+          },
+        ),
+    );
+    return;
   } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
     const message = getErrorMessage(err);
     if (message.includes('AI_NOT_CONFIGURED')) {
       return res.status(400).json({ error: 'AI_NOT_CONFIGURED' });
@@ -4154,56 +4681,84 @@ app.post('/api/ai/yearly-summary', authenticate, requireRole('teacher', 'admin')
     const promptToUse = hasCustomYearlyPrompt
       ? yearlySummaryPrompt
       : DEEPSEEK_YEARLY_PROMPT;
-    const raw = await callDeepSeek(promptToUse, context, hasCustomYearlyPrompt
-      ? { temperature: 0.2, responseFormat: 'text' }
-      : { temperature: 0.2, responseFormat: 'json_object' });
-    const parsed = parseAiStructuredReportResponse(raw, 'yearly');
-    const baseResponse: Record<string, unknown> = {
-      summary: parsed.summaryText,
-      structuredReport: parsed.structuredReport,
-      analytics,
-      rawAiResponse: parsed.rawAiResponse,
-      parseError: parsed.parseError,
-    };
+    await withActionLock(
+      {
+        lockKey: studentAiLockKey(studentId),
+        actionType: '生成年度学习报告',
+        ttlMs: ACTION_LOCK_TTL.studentAiMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/ai/yearly-summary', year: yearNum, saveReport },
+      },
+      async () =>
+        withActionLock(
+          {
+            lockKey: studentWriteLockKey(studentId),
+            actionType: '生成年度学习报告',
+            ttlMs: ACTION_LOCK_TTL.studentAiMs,
+            ...withLockActor(req),
+            metadata: { route: '/api/ai/yearly-summary', year: yearNum, saveReport },
+          },
+          async () => {
+            const raw = await callDeepSeek(promptToUse, context, hasCustomYearlyPrompt
+              ? { temperature: 0.2, responseFormat: 'text' }
+              : { temperature: 0.2, responseFormat: 'json_object' });
+            const parsed = parseAiStructuredReportResponse(raw, 'yearly');
+            const baseResponse: Record<string, unknown> = {
+              summary: parsed.summaryText,
+              structuredReport: parsed.structuredReport,
+              analytics,
+              rawAiResponse: parsed.rawAiResponse,
+              parseError: parsed.parseError,
+            };
 
-    if (!saveReport) return res.json(baseResponse);
+            if (!saveReport) {
+              res.json(baseResponse);
+              return;
+            }
 
-    const normalizedPayload = normalizeReportPayload({
-      reportType: 'yearly',
-      structuredReport: parsed.structuredReport,
-      finalReport: parsed.structuredReport,
-      analytics,
-    });
-    const saved = await db
-      .insert(studentReportsTable)
-      .values({
-        studentId,
-        reportType: 'yearly',
-        title: `${student.name || '学生'}年度学习报告（${yearNum}）`,
-        startDate,
-        endDate,
-        year: yearNum,
-        summaryText: parsed.summaryText,
-        analyticsJson: serializeReportJson(analytics),
-        structuredReportJson: normalizedPayload.structuredReportJson,
-        finalReportJson: normalizedPayload.finalReportJson,
-        rawAiResponse: parsed.rawAiResponse || null,
-        parseError: parsed.parseError || null,
-        status: 'draft',
-        visibleToParent: false,
-        createdBy: req.user?.id || null,
-        updatedBy: req.user?.id || null,
-        updatedAt: new Date(),
-        updatedByName: req.user?.name || null,
-      })
-      .returning();
+            const normalizedPayload = normalizeReportPayload({
+              reportType: 'yearly',
+              structuredReport: parsed.structuredReport,
+              finalReport: parsed.structuredReport,
+              analytics,
+            });
+            const saved = await db
+              .insert(studentReportsTable)
+              .values({
+                studentId,
+                reportType: 'yearly',
+                title: `${student.name || '学生'}年度学习报告（${yearNum}）`,
+                startDate,
+                endDate,
+                year: yearNum,
+                summaryText: parsed.summaryText,
+                analyticsJson: serializeReportJson(analytics),
+                structuredReportJson: normalizedPayload.structuredReportJson,
+                finalReportJson: normalizedPayload.finalReportJson,
+                rawAiResponse: parsed.rawAiResponse || null,
+                parseError: parsed.parseError || null,
+                status: 'draft',
+                visibleToParent: false,
+                createdBy: req.user?.id || null,
+                updatedBy: req.user?.id || null,
+                updatedAt: new Date(),
+                updatedByName: req.user?.name || null,
+              })
+              .returning();
 
-    return res.json({
-      ...baseResponse,
-      savedReport: hydrateStudentReport(saved[0], req.user?.role || 'teacher', { includeHeavyFields: true }),
-      reportId: saved[0].id,
-    });
+            res.json({
+              ...baseResponse,
+              savedReport: hydrateStudentReport(saved[0], req.user?.role || 'teacher', { includeHeavyFields: true }),
+              reportId: saved[0].id,
+            });
+          },
+        ),
+    );
+    return;
   } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
     const message = getErrorMessage(err);
     if (message.includes('AI_NOT_CONFIGURED')) {
       return res.status(400).json({ error: 'AI_NOT_CONFIGURED' });
@@ -4221,16 +4776,31 @@ app.delete('/api/feedback/:id', authenticate, requireTeacher, async (req, res) =
     }
     const existing = await db.select().from(weeklyFeedback).where(eq(weeklyFeedback.id, req.params.id)).limit(1);
     if (!existing.length) return res.status(404).json({ error: 'Not found' });
-    if (!isSameTimestamp(existing[0].updatedAt, clientUpdatedAt)) {
-      return res.status(409).json({
-        error: 'CONFLICT',
-        updatedAt: existing[0].updatedAt,
-        updatedByName: existing[0].updatedByName,
-      });
-    }
-    const result = await db.delete(weeklyFeedback).where(eq(weeklyFeedback.id, req.params.id)).returning();
-    res.json({ success: true });
+    await withActionLock(
+      {
+        lockKey: studentWriteLockKey(existing[0].studentId),
+        actionType: '删除每周汇报',
+        ttlMs: ACTION_LOCK_TTL.studentWriteMs,
+        ...withLockActor(req),
+        metadata: { route: `/api/feedback/${req.params.id}` },
+      },
+      async () => {
+        if (!isSameTimestamp(existing[0].updatedAt, clientUpdatedAt)) {
+          res.status(409).json({
+            error: 'CONFLICT',
+            updatedAt: existing[0].updatedAt,
+            updatedByName: existing[0].updatedByName,
+          });
+          return;
+        }
+        await db.delete(weeklyFeedback).where(eq(weeklyFeedback.id, req.params.id)).returning();
+        res.json({ success: true });
+      },
+    );
   } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
     console.error('Error:', err);
     res.status(500).json({ error: 'Database error' });
   }

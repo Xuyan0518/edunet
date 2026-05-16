@@ -102,6 +102,8 @@ const buildEditableForm = (report) => {
       longTermConcernsText: joinLines(displayReport.longTermConcerns),
       teacherAnnualComment: toText(displayReport.teacherAnnualComment),
       nextYearRecommendationsText: recommendationLinesFromArray(displayReport.nextYearRecommendations),
+      englishSpecialSummary: toText(displayReport?.englishSpecialAnalysis?.summary),
+      englishSpecialTeacherSuggestion: toText(displayReport?.englishSpecialAnalysis?.teacherSuggestion),
       subjectReports,
     };
   }
@@ -113,6 +115,8 @@ const buildEditableForm = (report) => {
     keyConcernsText: joinLines(displayReport.keyConcerns),
     teacherComment: toText(displayReport.teacherComment),
     nextStageRecommendationsText: recommendationLinesFromArray(displayReport.nextStageRecommendations),
+    englishSpecialSummary: toText(displayReport?.englishSpecialAnalysis?.summary),
+    englishSpecialTeacherSuggestion: toText(displayReport?.englishSpecialAnalysis?.teacherSuggestion),
     subjectReports,
   };
 };
@@ -123,6 +127,9 @@ const buildFinalReportPayload = (report, form) => {
   const subjectReports = ensureArray(form?.subjectReports);
 
   if (reportType === 'yearly') {
+    const baseEnglish = (base.englishSpecialAnalysis && typeof base.englishSpecialAnalysis === 'object')
+      ? base.englishSpecialAnalysis
+      : {};
     return {
       ...base,
       reportType: 'yearly',
@@ -136,9 +143,17 @@ const buildFinalReportPayload = (report, form) => {
       })),
       nextYearRecommendations: parseRecommendationLines(form.nextYearRecommendationsText),
       teacherAnnualComment: toText(form.teacherAnnualComment).trim(),
+      englishSpecialAnalysis: {
+        ...baseEnglish,
+        summary: toText(form.englishSpecialSummary).trim(),
+        teacherSuggestion: toText(form.englishSpecialTeacherSuggestion).trim(),
+      },
     };
   }
 
+  const baseEnglish = (base.englishSpecialAnalysis && typeof base.englishSpecialAnalysis === 'object')
+    ? base.englishSpecialAnalysis
+    : {};
   return {
     ...base,
     reportType: 'quarterly',
@@ -152,6 +167,11 @@ const buildFinalReportPayload = (report, form) => {
     })),
     nextStageRecommendations: parseRecommendationLines(form.nextStageRecommendationsText),
     teacherComment: toText(form.teacherComment).trim(),
+    englishSpecialAnalysis: {
+      ...baseEnglish,
+      summary: toText(form.englishSpecialSummary).trim(),
+      teacherSuggestion: toText(form.englishSpecialTeacherSuggestion).trim(),
+    },
   };
 };
 
@@ -252,6 +272,141 @@ const TAG_TYPE_CLASS = {
 
 const getTagClass = (tagType) => TAG_TYPE_CLASS[tagType] || 'tag-evidence';
 
+const TREND_LABELS = {
+  improving: '上升',
+  declining: '下降',
+  stable: '稳定',
+  insufficient_data: '数据不足',
+};
+
+const toNum = (value) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+};
+
+const toScoreText = (value) => {
+  const n = toNum(value);
+  if (n == null) return '--';
+  return `${n.toFixed(1)}%`;
+};
+
+const buildMiniTrendBars = (points) => {
+  const valid = ensureArray(points)
+    .map((point) => toNum(point?.percentage))
+    .filter((n) => n != null);
+  if (!valid.length) return [];
+  return valid.slice(-8).map((value, idx) => ({
+    key: `${idx}-${value}`,
+    heightStyle: `height:${Math.max(10, Math.round((value / 100) * 34))}rpx;`,
+  }));
+};
+
+const ENGLISH_SKILL_KEYS = ['editing', 'composition', 'readingComprehension', 'grammar'];
+const ENGLISH_SKILL_LABEL = {
+  editing: 'Editing',
+  composition: '作文',
+  readingComprehension: '阅读理解',
+  grammar: '语法',
+};
+
+const buildEnglishFallbackSummary = (englishAnalytics) => {
+  if (!englishAnalytics || !englishAnalytics.hasEnglishData) return '暂无足够英文专项数据。';
+  const skills = englishAnalytics.skillBreakdown || {};
+  const highlights = ENGLISH_SKILL_KEYS
+    .map((key) => skills[key])
+    .filter((item) => item && Number(item.activityCount || 0) > 0)
+    .map((item) => `${item.label || ENGLISH_SKILL_LABEL[item.key] || item.key}练习 ${item.activityCount} 次`)
+    .slice(0, 3);
+  if (!highlights.length) return '本周期有英文学习记录，但专项数据有限。';
+  return `本周期英文专项覆盖：${highlights.join('；')}。`;
+};
+
+const buildEnglishSpecialSection = (reportType, displayReport, analytics) => {
+  const englishAnalytics = analytics?.englishAnalytics || null;
+  const aiSection = (displayReport?.englishSpecialAnalysis && typeof displayReport.englishSpecialAnalysis === 'object')
+    ? displayReport.englishSpecialAnalysis
+    : null;
+  const hasEnglishData = !!(englishAnalytics && englishAnalytics.hasEnglishData);
+  const shouldShow = hasEnglishData || !!aiSection;
+  if (!shouldShow) {
+    return {
+      shouldShow: false,
+      hasEnglishData: false,
+      summary: '',
+      teacherSuggestion: '',
+      skillCards: [],
+      vocabularyRows: [],
+      vocabularyNote: '',
+      aiSkillReports: [],
+    };
+  }
+
+  const skillBreakdown = englishAnalytics?.skillBreakdown || {};
+  const skillCards = ENGLISH_SKILL_KEYS.map((skillKey) => {
+    const item = skillBreakdown[skillKey] || {};
+    const trend = item.trend || 'insufficient_data';
+    return {
+      key: skillKey,
+      label: item.label || ENGLISH_SKILL_LABEL[skillKey] || skillKey,
+      activityCount: Number(item.activityCount || 0),
+      scoreRecordCount: Number(item.scoreRecordCount || 0),
+      averageScoreText: toScoreText(item.averageScore),
+      latestScoreText: toScoreText(item.latestScore),
+      trendText: TREND_LABELS[trend] || TREND_LABELS.insufficient_data,
+      miniTrendBars: buildMiniTrendBars(item.scorePoints),
+      emptyScore: Number(item.scoreRecordCount || 0) === 0,
+    };
+  });
+
+  const vocabStats = englishAnalytics?.vocabularyStats || {};
+  const vocabularyRows = [
+    {
+      label: '单词/词汇数量',
+      value: vocabStats.vocabularyItemsCount == null ? '--' : String(vocabStats.vocabularyItemsCount),
+    },
+    {
+      label: '句子数量',
+      value: vocabStats.sentenceItemsCount == null ? '--' : String(vocabStats.sentenceItemsCount),
+    },
+    {
+      label: '总语言积累量',
+      value: vocabStats.totalLanguageItemsCount == null ? '--' : String(vocabStats.totalLanguageItemsCount),
+    },
+  ];
+  const vocabularyNote = [
+    ...(vocabStats.vocabularyItemsCount == null && Number(vocabStats.recordsWithVocabulary || 0) > 0
+      ? ['有词汇练习记录，但未记录明确数量。']
+      : []),
+    ...(vocabStats.sentenceItemsCount == null && Number(vocabStats.recordsWithSentences || 0) > 0
+      ? ['有句子练习记录，但未记录明确数量。']
+      : []),
+  ].join(' ');
+
+  const aiSkillReports = ensureArray(aiSection?.skillReports).map((item) => ({
+    skillKey: toText(item?.skillKey).trim(),
+    skillLabel: toText(item?.skillLabel).trim() || ENGLISH_SKILL_LABEL[item?.skillKey] || '专项',
+    summary: reportType === 'yearly'
+      ? toText(item?.annualSummary).trim() || toText(item?.summary).trim()
+      : toText(item?.summary).trim(),
+    trendText: TREND_LABELS[toText(item?.trend).trim()] || '',
+    activityCount: toNum(item?.activityCount),
+    averageScoreText: toScoreText(item?.averageScore),
+  }));
+
+  return {
+    shouldShow: true,
+    hasEnglishData,
+    summary:
+      toText(aiSection?.summary).trim() ||
+      buildEnglishFallbackSummary(englishAnalytics),
+    teacherSuggestion: toText(aiSection?.teacherSuggestion).trim(),
+    skillCards,
+    vocabularyRows,
+    vocabularyNote,
+    aiSkillReports,
+  };
+};
+
 module.exports = {
   PRIORITY_LABEL,
   ensureArray,
@@ -266,5 +421,6 @@ module.exports = {
   buildSummaryFromStructured,
   normalizeRecommendation,
   buildWeeklyActivityRows,
+  buildEnglishSpecialSection,
   getTagClass,
 };

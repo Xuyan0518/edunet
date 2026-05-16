@@ -253,6 +253,17 @@ export const StudentReportSchema = z.object({
   visibleToParent: z.boolean().optional().default(false),
 });
 
+export const ActionLockSchema = z.object({
+  id: z.string().uuid().optional(),
+  lockKey: z.string().min(1).max(255),
+  actionType: z.string().min(1).max(100),
+  actorUserId: z.string().min(1).max(64),
+  actorName: z.string().max(100).optional().nullable(),
+  metadataJson: z.unknown().optional().nullable(),
+  acquiredAt: z.date().optional(),
+  expiresAt: z.date(),
+});
+
 // ====== New enums and types for subjects and topics ======
 // Status of a student's progress on a topic
 export const TOPIC_STATUS = ['not_started', 'in_progress', 'completed'] as const;
@@ -483,6 +494,22 @@ export const studentReportsTable = pgTable('student_reports', {
 }, (table) => ({
   idxStudentReportsStudent: index('idx_student_reports_student_created')
     .on(table.studentId, table.createdAt, table.id),
+}));
+
+export const actionLocksTable = pgTable('action_locks', {
+  id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
+  lockKey: varchar('lock_key', { length: 255 }).notNull(),
+  actionType: varchar('action_type', { length: 100 }).notNull(),
+  actorUserId: varchar('actor_user_id', { length: 64 }).notNull(),
+  actorName: varchar('actor_name', { length: 100 }),
+  metadataJson: jsonb('metadata_json'),
+  acquiredAt: timestamp('acquired_at').defaultNow().notNull(),
+  expiresAt: timestamp('expires_at').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (table) => ({
+  uqActionLockKey: uniqueIndex('uq_action_locks_lock_key').on(table.lockKey),
+  idxActionLocksExpiresAt: index('idx_action_locks_expires_at').on(table.expiresAt),
+  idxActionLocksActor: index('idx_action_locks_actor').on(table.actorUserId),
 }));
 
 // ====== New tables for subjects and topics ======

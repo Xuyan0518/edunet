@@ -2,6 +2,7 @@ const { request } = require("../../utils/api");
 const { formatSubjectName } = require("../../utils/displayName");
 const { formatChinaDate, formatChinaDateTime } = require("../../utils/chinaDate");
 const { showConflictModal } = require("../../utils/conflict");
+const { showActionLockToast } = require("../../utils/actionLock");
 
 const attendanceLabels = {
   present: "出席",
@@ -427,6 +428,7 @@ Page({
             wx.navigateBack();
           })
           .catch((err) => {
+            if (showActionLockToast(err)) return;
             if (showConflictModal(err, () => this.fetchFeedback())) return;
             wx.showToast({ title: "删除失败", icon: "error" });
           });
@@ -513,6 +515,7 @@ Page({
         wx.navigateBack();
       })
       .catch((err) => {
+        if (showActionLockToast(err)) return;
         if (showConflictModal(err, () => this.fetchFeedback())) return;
         wx.showToast({ title: "保存失败", icon: "error" });
       });
@@ -540,9 +543,10 @@ Page({
         wx.showToast({ title: "已生成", icon: "success" });
       })
       .catch((err) => {
+        if (showActionLockToast(err)) return;
         const msg = err?.error === "AI_NOT_CONFIGURED"
           ? "AI未配置"
-          : err?.error || "生成失败";
+          : err?.message || err?.error || "生成失败";
         wx.showToast({ title: msg, icon: "none" });
       })
       .finally(() => this.setData({ aiLoading: false }));

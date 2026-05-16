@@ -395,4 +395,77 @@ describe('miniprogram report view helpers', () => {
     });
     expect(markdown).toContain('### 高等数学');
   });
+
+  it('builds english special section from analytics with fallback summary', () => {
+    const section = viewModel.buildEnglishSpecialSection(
+      'quarterly',
+      {},
+      {
+        englishAnalytics: {
+          hasEnglishData: true,
+          skillBreakdown: {
+            editing: { key: 'editing', label: 'Editing', activityCount: 3, scoreRecordCount: 2, averageScore: 72, latestScore: 76, trend: 'improving', scorePoints: [{ percentage: 70 }, { percentage: 76 }] },
+            composition: { key: 'composition', label: '作文', activityCount: 1, scoreRecordCount: 0, averageScore: null, latestScore: null, trend: 'insufficient_data', scorePoints: [] },
+            readingComprehension: { key: 'readingComprehension', label: '阅读理解', activityCount: 2, scoreRecordCount: 1, averageScore: 68, latestScore: 68, trend: 'stable', scorePoints: [{ percentage: 68 }] },
+            grammar: { key: 'grammar', label: '语法', activityCount: 2, scoreRecordCount: 1, averageScore: 65, latestScore: 65, trend: 'stable', scorePoints: [{ percentage: 65 }] },
+          },
+          vocabularyStats: {
+            vocabularyItemsCount: null,
+            sentenceItemsCount: 10,
+            totalLanguageItemsCount: null,
+            recordsWithVocabulary: 2,
+            recordsWithSentences: 1,
+          },
+        },
+      }
+    );
+    expect(section.shouldShow).toBe(true);
+    expect(section.skillCards[0].label).toBe('Editing');
+    expect(section.skillCards[0].miniTrendBars.length).toBeGreaterThan(0);
+    expect(section.vocabularyNote).toContain('有词汇练习记录');
+  });
+
+  it('does not crash when structured report misses englishSpecialAnalysis', () => {
+    const section = viewModel.buildEnglishSpecialSection('yearly', { reportType: 'yearly' }, { englishAnalytics: null });
+    expect(section.shouldShow).toBe(false);
+  });
+
+  it('markdown includes english special analysis', () => {
+    const markdown = buildReportMarkdown({
+      title: '学生学期学习报告',
+      reportType: 'quarterly',
+      startDate: '2026-01-01',
+      endDate: '2026-03-31',
+      summary: 'fallback summary',
+      analytics: {
+        overview: { activeDays: 10, totalSubjects: 2, totalPapers: 3, totalExams: 1 },
+        englishAnalytics: {
+          hasEnglishData: true,
+          skillBreakdown: {
+            editing: { label: 'Editing', activityCount: 4, averageScore: 75, trend: 'improving' },
+            composition: { label: '作文', activityCount: 1, averageScore: null, trend: 'insufficient_data' },
+            readingComprehension: { label: '阅读理解', activityCount: 2, averageScore: 68, trend: 'stable' },
+            grammar: { label: '语法', activityCount: 2, averageScore: 70, trend: 'stable' },
+          },
+          vocabularyStats: {
+            vocabularyItemsCount: 25,
+            sentenceItemsCount: 10,
+            totalLanguageItemsCount: 35,
+          },
+        },
+      },
+      finalReport: {
+        reportType: 'quarterly',
+        executiveSummary: '整体稳定',
+        subjectReports: [{ subjectName: 'English', summary: '专项训练有效' }],
+        englishSpecialAnalysis: {
+          summary: '英文专项总体向好',
+          teacherSuggestion: '继续保持每周精读训练',
+        },
+      },
+    });
+    expect(markdown).toContain('## 英文专项分析');
+    expect(markdown).toContain('英文专项总体向好');
+    expect(markdown).toContain('继续保持每周精读训练');
+  });
 });

@@ -1,5 +1,6 @@
 const { request } = require("../../utils/api");
 const { formatSubjectName, formatTopicTitle } = require("../../utils/displayName");
+const { showActionLockToast } = require("../../utils/actionLock");
 
 const statusLabel = {
   not_started: "未开始",
@@ -214,7 +215,10 @@ Page({
         wx.showToast({ title: "已同步", icon: "success" });
         return this.fetchSubjects();
       })
-      .catch(() => wx.showToast({ title: "同步失败", icon: "error" }));
+      .catch((err) => {
+        if (showActionLockToast(err)) return;
+        wx.showToast({ title: err?.message || "同步失败", icon: "error" });
+      });
   },
 
   updateTopicCondition(e) {
@@ -229,7 +233,10 @@ Page({
       data: payload,
     })
       .then(() => this.fetchSubjects())
-      .catch(() => wx.showToast({ title: "更新失败", icon: "error" }));
+      .catch((err) => {
+        if (showActionLockToast(err)) return;
+        wx.showToast({ title: err?.message || "更新失败", icon: "error" });
+      });
   },
 
   toggleSubject(e) {
@@ -322,6 +329,9 @@ Page({
         this.setData({ student: data, parentName: this.data.selectedParentName });
         wx.showToast({ title: "已保存", icon: "success" });
       })
-      .catch(() => wx.showToast({ title: "保存失败", icon: "error" }));
+      .catch((err) => {
+        if (showActionLockToast(err)) return;
+        wx.showToast({ title: err?.message || "保存失败", icon: "error" });
+      });
   },
 });

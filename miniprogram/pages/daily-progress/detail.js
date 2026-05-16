@@ -2,6 +2,7 @@ const { request } = require("../../utils/api");
 const { formatSubjectName } = require("../../utils/displayName");
 const { formatChinaDate, formatChinaDateTime } = require("../../utils/chinaDate");
 const { showConflictModal } = require("../../utils/conflict");
+const { showActionLockToast } = require("../../utils/actionLock");
 
 const attendanceMap = [
   { value: "present", label: "出席" },
@@ -590,7 +591,10 @@ Page({
       data: payload,
     })
       .then(() => this.fetchTopicProgress())
-      .catch(() => wx.showToast({ title: "章节进度更新失败", icon: "none" }));
+      .catch((err) => {
+        if (showActionLockToast(err)) return;
+        wx.showToast({ title: err?.message || "章节进度更新失败", icon: "none" });
+      });
   },
 
   fetchPaperTypes() {
@@ -1018,7 +1022,10 @@ Page({
               this.setData({ activities }, () => this.syncPaperPickers());
             }
           })
-          .catch(() => wx.showToast({ title: "添加失败", icon: "error" }));
+          .catch((err) => {
+            if (showActionLockToast(err)) return;
+            wx.showToast({ title: err?.message || "添加失败", icon: "error" });
+          });
       },
     });
   },
@@ -1048,7 +1055,10 @@ Page({
               this.setData({ activities }, () => this.syncPaperPickers());
             }
           })
-          .catch(() => wx.showToast({ title: "添加失败", icon: "error" }));
+          .catch((err) => {
+            if (showActionLockToast(err)) return;
+            wx.showToast({ title: err?.message || "添加失败", icon: "error" });
+          });
       },
     });
   },
@@ -1199,6 +1209,7 @@ Page({
             wx.navigateBack();
           })
           .catch((err) => {
+            if (showActionLockToast(err)) return;
             if (showConflictModal(err, () => this.fetchProgress())) return;
             wx.showToast({ title: "删除失败", icon: "error" });
           });
@@ -1386,6 +1397,7 @@ Page({
         wx.navigateBack();
       })
       .catch((err) => {
+        if (showActionLockToast(err)) return;
         if (showConflictModal(err, () => this.fetchProgress())) return;
         if (err?.error === "LOSS_POINTS_REQUIRED") {
           const fields = (err.details || [])

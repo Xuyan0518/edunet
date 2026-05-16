@@ -1,5 +1,6 @@
 const { request } = require("../../utils/api");
 const { formatSubjectName } = require("../../utils/displayName");
+const { showActionLockToast } = require("../../utils/actionLock");
 
 const isEnglishSubject = (subject = {}) => {
   const name = String(subject.name || "").toLowerCase();
@@ -98,6 +99,9 @@ Page({
         wx.showToast({ title: "已保存", icon: "success" });
         wx.navigateBack();
       })
-      .catch(() => wx.showToast({ title: "保存失败", icon: "error" }));
+      .catch((err) => {
+        if (showActionLockToast(err)) return;
+        wx.showToast({ title: err?.message || "保存失败", icon: "error" });
+      });
   },
 });

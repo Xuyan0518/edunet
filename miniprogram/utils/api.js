@@ -21,7 +21,11 @@ const request = ({ url, method = "GET", data, header = {} }) => {
         if (res.statusCode >= 200 && res.statusCode < 300) {
           resolve(res.data);
         } else {
-          reject(res.data || { error: "Request failed" });
+          const payload = (res.data && typeof res.data === "object")
+            ? { ...res.data }
+            : { error: "Request failed" };
+          payload.statusCode = res.statusCode;
+          reject(payload);
         }
       },
       fail: (err) => reject(err),

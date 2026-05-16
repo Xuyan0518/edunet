@@ -49,6 +49,8 @@ describe('normalizeStructuredReport', () => {
     expect(out?.reportType).toBe('yearly');
     expect(Array.isArray(out?.subjectReports)).toBe(true);
     expect(Array.isArray(out?.nextYearRecommendations)).toBe(true);
+    expect(out?.englishSpecialAnalysis).toBeTruthy();
+    expect(Array.isArray((out?.englishSpecialAnalysis as Record<string, unknown>).skillReports)).toBe(true);
   });
 });
 

@@ -2,6 +2,7 @@ const { request } = require("../../utils/api");
 const { formatSubjectName } = require("../../utils/displayName");
 const { formatChinaDateTime } = require("../../utils/chinaDate");
 const { showConflictModal } = require("../../utils/conflict");
+const { showActionLockToast } = require("../../utils/actionLock");
 
 Page({
   data: {
@@ -293,8 +294,9 @@ Page({
         wx.showToast({ title: isEditing ? "已保存" : "已添加", icon: "success" });
       })
       .catch((err) => {
+        if (showActionLockToast(err)) return;
         if (showConflictModal(err, () => this.fetchExams())) return;
-        wx.showToast({ title: isEditing ? "保存失败" : "添加失败", icon: "error" });
+        wx.showToast({ title: err?.message || (isEditing ? "保存失败" : "添加失败"), icon: "error" });
       });
   },
 
@@ -316,6 +318,7 @@ Page({
             wx.showToast({ title: "已删除", icon: "success" });
           })
           .catch((err) => {
+            if (showActionLockToast(err)) return;
             if (showConflictModal(err, () => this.fetchExams())) return;
             wx.showToast({ title: "删除失败", icon: "error" });
           });

@@ -58,6 +58,53 @@ const renderRecommendations = (recommendations = []) => {
     .join('\n');
 };
 
+const renderEnglishSpecialAnalysis = (reportType, displayReport = {}, analytics = {}) => {
+  const englishAi = displayReport?.englishSpecialAnalysis && typeof displayReport.englishSpecialAnalysis === 'object'
+    ? displayReport.englishSpecialAnalysis
+    : null;
+  const englishAnalytics = analytics?.englishAnalytics || null;
+  if (!englishAi && !(englishAnalytics && englishAnalytics.hasEnglishData)) return '';
+
+  const lines = ['## 英文专项分析'];
+  const summary = englishAi?.summary || '';
+  if (summary) {
+    lines.push(summary);
+  } else if (englishAnalytics?.hasEnglishData) {
+    lines.push('本周期存在英文专项学习记录，具体数据见下：');
+  }
+
+  const skillReports = Array.isArray(englishAi?.skillReports) ? englishAi.skillReports : [];
+  if (skillReports.length) {
+    for (const item of skillReports) {
+      const label = item.skillLabel || item.skillKey || '专项';
+      const summaryText = reportType === 'yearly'
+        ? item.annualSummary || item.summary || '暂无总结'
+        : item.summary || '暂无总结';
+      lines.push(`- ${label}：${summaryText}`);
+    }
+  } else if (englishAnalytics?.skillBreakdown) {
+    ['editing', 'composition', 'readingComprehension', 'grammar'].forEach((key) => {
+      const row = englishAnalytics.skillBreakdown[key];
+      if (!row) return;
+      lines.push(`- ${row.label || key}：练习 ${row.activityCount || 0} 次，平均分 ${row.averageScore ?? '--'}，趋势 ${row.trend || 'insufficient_data'}`);
+    });
+  }
+
+  const vocab = englishAi?.vocabularySummary || englishAnalytics?.vocabularyStats || null;
+  if (vocab) {
+    lines.push(
+      `- 词汇/句子：词汇 ${vocab.vocabularyItemsCount ?? '--'}，句子 ${vocab.sentenceItemsCount ?? '--'}，总量 ${vocab.totalLanguageItemsCount ?? '--'}`
+    );
+    if (vocab.summary) lines.push(`- 词汇补充：${vocab.summary}`);
+  }
+
+  if (englishAi?.teacherSuggestion) {
+    lines.push(`- 老师建议：${englishAi.teacherSuggestion}`);
+  }
+
+  return lines.join('\n');
+};
+
 const buildReportMarkdown = (report = {}) => {
   const reportType = resolveReportType(report);
   const displayReport = resolveDisplayReport(report);
@@ -110,6 +157,11 @@ const buildReportMarkdown = (report = {}) => {
     ? ensureArray(displayReport.nextYearRecommendations)
     : ensureArray(displayReport.nextStageRecommendations);
   lines.push(renderRecommendations(recommendations));
+
+  const englishSection = renderEnglishSpecialAnalysis(reportType, displayReport, report.analytics || {});
+  if (englishSection) {
+    lines.push('', englishSection);
+  }
 
   lines.push('', reportType === 'yearly' ? '## 老师年度评语' : '## 老师评语');
   lines.push(

@@ -34,6 +34,7 @@ Page({
     draftName: "",
     savingName: false,
     subscribing: false,
+    pendingTemplateIds: [],
   },
 
   onShow() {
@@ -109,32 +110,47 @@ Page({
 
     const templateById = new Map(templateEntries.map((item) => [item.id, item]));
     const uniqueTemplateIds = Array.from(new Set(templateEntries.map((item) => item.id)));
-    const batches = chunkArray(uniqueTemplateIds, 3); // 小程序单次最多 3 个
-    const mergedResult = {};
+    const pendingFromState = Array.isArray(this.data.pendingTemplateIds) ? this.data.pendingTemplateIds : [];
+    const queue = pendingFromState.length
+      ? pendingFromState.filter((id) => uniqueTemplateIds.includes(id))
+      : uniqueTemplateIds;
+    const batch = chunkArray(queue, 3)[0] || [];
+    const remaining = queue.slice(batch.length);
+    if (!batch.length) {
+      wx.showToast({ title: "暂无可订阅模板", icon: "none" });
+      return;
+    }
 
     this.setData({ subscribing: true });
     try {
-      for (const batch of batches) {
-        const res = await requestSubscribeBatch(batch);
-        Object.assign(mergedResult, res || {});
-      }
+      const result = (await requestSubscribeBatch(batch)) || {};
 
       const accepted = [];
       const rejected = [];
       const pending = [];
-      for (const id of uniqueTemplateIds) {
+      for (const id of batch) {
         const meta = templateById.get(id);
-        const status = mergedResult[id];
+        const status = result[id];
         if (!meta) continue;
         if (status === "accept") accepted.push(meta.label);
         else if (status === "reject") rejected.push(meta.label);
         else pending.push(meta.label);
       }
 
+      this.setData({ pendingTemplateIds: remaining });
+
       const lines = [];
       if (accepted.length) lines.push(`已授权：${accepted.join("、")}`);
       if (rejected.length) lines.push(`已拒绝：${rejected.join("、")}`);
       if (pending.length) lines.push(`未完成：${pending.join("、")}`);
+      if (remaining.length) {
+        const remainingLabels = remaining
+          .map((id) => templateById.get(id)?.label)
+          .filter(Boolean);
+        if (remainingLabels.length) {
+          lines.push(`仍需授权：${remainingLabels.join("、")}（请再点一次“订阅通知”）`);
+        }
+      }
       const content = lines.join("\n") || "未完成订阅授权";
       wx.showModal({
         title: "订阅结果",
@@ -143,7 +159,15 @@ Page({
       });
     } catch (err) {
       const code = err && typeof err.errCode !== "undefined" ? String(err.errCode) : "";
+      const msg = String((err && err.errMsg) || "").trim();
       wx.showToast({ title: code ? `订阅失败(${code})` : "订阅失败", icon: "none" });
+      if (msg) {
+        wx.showModal({
+          title: "失败详情",
+          content: msg,
+          showCancel: false,
+        });
+      }
     } finally {
       this.setData({ subscribing: false });
     }

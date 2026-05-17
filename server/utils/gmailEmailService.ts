@@ -47,7 +47,7 @@ export class GmailEmailService {
       const htmlContent = `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
           <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
-            <h1 style="color: white; margin: 0; font-size: 28px;">Welcome to EduNet!</h1>
+            <h1 style="color: white; margin: 0; font-size: 28px;">Welcome to 桐心成长!</h1>
             <p style="color: white; margin: 10px 0 0 0; opacity: 0.9;">Bridging the gap between teachers and parents</p>
           </div>
           
@@ -55,7 +55,7 @@ export class GmailEmailService {
             <h2 style="color: #333; margin-bottom: 20px;">Hi ${name},</h2>
             
             <p style="color: #666; line-height: 1.6; margin-bottom: 25px;">
-              Thank you for signing up for EduNet! To complete your registration and start using your account, 
+              Thank you for signing up for 桐心成长! To complete your registration and start using your account, 
               please verify your email address by clicking the button below.
             </p>
             
@@ -78,7 +78,7 @@ export class GmailEmailService {
             
             <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee;">
               <p style="color: #999; font-size: 14px; margin: 0;">
-                This verification link will expire in 24 hours. If you didn't create an account with EduNet, 
+                This verification link will expire in 24 hours. If you didn't create an account with 桐心成长, 
                 you can safely ignore this email.
               </p>
             </div>
@@ -87,27 +87,27 @@ export class GmailEmailService {
       `;
 
       const textContent = `
-        Welcome to EduNet!
+        Welcome to 桐心成长!
         
         Hi ${name},
         
-        Thank you for signing up for EduNet! To complete your registration and start using your account, 
+        Thank you for signing up for 桐心成长! To complete your registration and start using your account, 
         please verify your email address by visiting this link:
         
         ${verificationUrl}
         
-        This verification link will expire in 24 hours. If you didn't create an account with EduNet, 
+        This verification link will expire in 24 hours. If you didn't create an account with 桐心成长, 
         you can safely ignore this email.
         
         Best regards,
-        The EduNet Team
+        The 桐心成长 Team
       `;
 
       // Send email
       const mailOptions = {
-        from: `EduNet <${process.env.GMAIL_USER}>`,
+        from: `桐心成长 <${process.env.GMAIL_USER}>`,
         to: email,
-        subject: 'Verify Your EduNet Account',
+        subject: 'Verify Your 桐心成长 Account',
         html: htmlContent,
         text: textContent,
       };

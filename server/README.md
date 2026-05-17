@@ -1,7 +1,7 @@
 
-# EduNet Backend API
+# 桐心成长 Backend API
 
-This is the backend API for the EduNet application, providing endpoints for student data, daily progress, and weekly feedback.
+This is the backend API for the 桐心成长 application, providing endpoints for student data, daily progress, and weekly feedback.
 
 ## Prerequisites
 

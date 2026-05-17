@@ -1,9 +1,9 @@
-# EduNet
+# 桐心成长
 
-EduNet is a teacher‑parent learning management platform that includes a WeChat Mini Program (for teachers and parents) and a web admin app (for internal management). It captures daily learning activity, turns it into structured weekly/semester/yearly reports, and keeps families informed with minimal teacher overhead.
+桐心成长 is a teacher‑parent learning management platform that includes a WeChat Mini Program (for teachers and parents) and a web admin app (for internal management). It captures daily learning activity, turns it into structured weekly/semester/yearly reports, and keeps families informed with minimal teacher overhead.
 
 ## What the app is about
-EduNet helps teachers track student learning across subjects and topics, record assessments, and publish reports that parents can view in a clear, read‑only format. It is designed for multi‑teacher collaboration with conflict protection and optional AI‑assisted summaries.
+桐心成长 helps teachers track student learning across subjects and topics, record assessments, and publish reports that parents can view in a clear, read‑only format. It is designed for multi‑teacher collaboration with conflict protection and optional AI‑assisted summaries.
 
 ## How the app works
 ### Roles

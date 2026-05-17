@@ -126,7 +126,7 @@ if (WECHAT_CODE) {
   });
 }
 
-console.log('--- EduNet Beta Smoke Load Test ---');
+console.log('--- 桐心成长 Beta Smoke Load Test ---');
 console.log(`BASE_URL=${BASE_URL}`);
 console.log(`REQUESTS=${REQUESTS}, CONCURRENCY=${CONCURRENCY}`);
 console.log(`SCENARIOS=${scenarios.map((s) => s.name).join(', ')}`);

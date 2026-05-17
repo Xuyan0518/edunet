@@ -65,7 +65,7 @@ export async function sendVerificationEmailFallback(email: string, token: string
     
     console.log('=== VERIFICATION EMAIL (DEVELOPMENT MODE) ===');
     console.log(`To: ${email}`);
-    console.log(`Subject: Verify Your EduNet Account`);
+    console.log(`Subject: Verify Your 桐心成长 Account`);
     console.log(`Verification Link: ${verificationUrl}`);
     console.log('=============================================');
     

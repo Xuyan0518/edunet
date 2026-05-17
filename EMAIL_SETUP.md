@@ -41,7 +41,7 @@ FRONTEND_URL=http://localhost:3001
 Your app now supports:
 - ✅ **Resend** (when `RESEND_API_KEY` is set)
 - ✅ **Fallback mode** (console logging for development)
-- ✅ **Beautiful HTML emails** with EduNet branding
+- ✅ **Beautiful HTML emails** with 桐心成长 branding
 - ✅ **24-hour token expiration**
 - ✅ **Automatic fallback** if email service fails
 

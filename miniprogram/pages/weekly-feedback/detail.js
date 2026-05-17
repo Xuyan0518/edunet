@@ -89,12 +89,45 @@ const normalizePaper = (paper = {}) => {
   const score = paper.score !== null && paper.score !== undefined && paper.score !== "" ? paper.score : "-";
   const total = paper.total !== null && paper.total !== undefined && paper.total !== "" ? paper.total : "-";
   return {
+    id: paper.id || "",
+    date: paper.date || "",
+    subjectName: paper.subjectName || "",
+    subjectDisplayName: formatSubjectName(paper.subjectName || ""),
     title: `${paper.description || "试卷"} · ${score}/${total}`,
     typeName: paper.typeName || "",
     schoolName: paper.schoolName || "",
+    score,
+    total,
     strengths: paper.strengths || "",
     improvements: paper.improvements || "",
   };
+};
+
+const buildWeeklyPaperGroups = (papers = [], weekStarting = "", weekEnding = "") => {
+  const rows = Array.isArray(papers)
+    ? papers
+        .map((paper) => normalizePaper(paper))
+        .filter((paper) => {
+          const d = String(paper.date || "");
+          if (!d) return false;
+          if (!weekStarting || !weekEnding) return true;
+          return d >= weekStarting && d <= weekEnding;
+        })
+    : [];
+  const grouped = new Map();
+  rows.forEach((paper) => {
+    const key = paper.subjectDisplayName || paper.subjectName || "未命名科目";
+    const list = grouped.get(key) || [];
+    list.push(paper);
+    grouped.set(key, list);
+  });
+  return [...grouped.entries()]
+    .map(([subjectDisplayName, items]) => ({
+      subjectDisplayName,
+      count: items.length,
+      papers: items.sort((a, b) => (a.date > b.date ? -1 : 1)),
+    }))
+    .sort((a, b) => b.count - a.count);
 };
 
 const normalizeActivity = (activity = {}) => {
@@ -164,6 +197,8 @@ Page({
     progressEntries: [],
     expandedProgressMap: {},
     progressLoading: false,
+    weeklyPapersLoading: false,
+    weeklyPaperGroups: [],
     aiLoading: false,
     backup: null,
     lastUpdatedAt: "",
@@ -195,6 +230,7 @@ Page({
     this.fetchStudent();
     this.fetchFeedback();
     this.fetchWeeklyProgress();
+    this.fetchWeeklyPapers();
   },
 
   pad(num) {
@@ -306,6 +342,7 @@ Page({
             lastUpdatedAtText: updatedAtText,
           });
           this.fetchWeeklyProgress();
+          this.fetchWeeklyPapers();
         } else {
           wx.showToast({ title: "获取反馈失败", icon: "error" });
         }
@@ -336,6 +373,7 @@ Page({
     });
     this.fetchFeedback();
     this.fetchWeeklyProgress();
+    this.fetchWeeklyPapers();
   },
 
   onFieldInput(e) {
@@ -404,6 +442,22 @@ Page({
       })
       .catch(() => this.setData({ progressEntries: [] }))
       .finally(() => this.setData({ progressLoading: false }));
+  },
+
+  fetchWeeklyPapers() {
+    if (!this.studentId) return;
+    this.setData({ weeklyPapersLoading: true });
+    request({ url: `/students/${this.studentId}/papers` })
+      .then((rows) => {
+        const weeklyPaperGroups = buildWeeklyPaperGroups(
+          rows || [],
+          this.data.weekStarting,
+          this.data.weekEnding
+        );
+        this.setData({ weeklyPaperGroups });
+      })
+      .catch(() => this.setData({ weeklyPaperGroups: [] }))
+      .finally(() => this.setData({ weeklyPapersLoading: false }));
   },
 
   toggleProgressEntry(e) {

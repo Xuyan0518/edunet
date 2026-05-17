@@ -64,6 +64,14 @@
   border: 1rpx solid #e2e8f0;
 }
 
+.paper-group-card {
+  margin-top: 14rpx;
+  padding: 14rpx;
+  border-radius: 14rpx;
+  background: #ffffff;
+  border: 1rpx dashed #bfdbfe;
+}
+
 .daily-summary {
   margin-top: 12rpx;
   padding: 12rpx;

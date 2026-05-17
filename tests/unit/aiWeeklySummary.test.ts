@@ -3,6 +3,7 @@ import {
   aggregateAttendance,
   aggregateEnglishStats,
   aggregateLossPoints,
+  aggregateWeeklyPaperBreakdown,
   parseStructuredSummary,
 } from '../../server/utils/aiWeeklySummary';
 
@@ -136,6 +137,31 @@ describe('aggregateLossPoints', () => {
     const r = aggregateLossPoints(sample, lookup);
     expect(r.byField.editing.otherTexts).toContain('介词搭配');
     expect(r.byField.reading.otherTexts).toEqual([]);
+  });
+});
+
+describe('aggregateWeeklyPaperBreakdown', () => {
+  it('groups papers by subject and computes score metrics', () => {
+    const out = aggregateWeeklyPaperBreakdown([
+      { date: '2026-05-10', subjectName: 'Math', description: 'WA1', score: 78, total: 100 },
+      { date: '2026-05-12', subjectName: 'Math', description: 'WA2', score: 80, total: 80 },
+      { date: '2026-05-11', subjectName: 'English', description: 'Compre', score: 70, total: 100 },
+    ]);
+    expect(out.totalPapers).toBe(3);
+    expect(out.subjectPapers[0].subjectName).toBe('Math');
+    expect(out.subjectPapers[0].paperCount).toBe(2);
+    expect(out.subjectPapers[0].averagePercentage).toBe(89);
+    expect(out.subjectPapers[0].highestPercentage).toBe(100);
+    expect(out.subjectPapers[0].latestPercentage).toBe(100);
+  });
+
+  it('keeps metrics null when score quality is insufficient', () => {
+    const out = aggregateWeeklyPaperBreakdown([
+      { date: '2026-05-10', subjectName: 'Science', description: 'Quiz A', score: 120, total: null },
+    ]);
+    expect(out.subjectPapers[0].averagePercentage).toBe(null);
+    expect(out.subjectPapers[0].highestPercentage).toBe(null);
+    expect(out.subjectPapers[0].latestPercentage).toBe(null);
   });
 });
 

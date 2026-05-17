@@ -221,6 +221,20 @@ export type WeeklyEnglishBreakdown = {
   vocabularySentenceCount: number;
 };
 
+export type WeeklyPaperBreakdownEntry = {
+  subjectName: string;
+  paperCount: number;
+  averagePercentage: number | null;
+  highestPercentage: number | null;
+  latestPercentage: number | null;
+  evidence: string[];
+};
+
+export type WeeklyPaperBreakdown = {
+  totalPapers: number;
+  subjectPapers: WeeklyPaperBreakdownEntry[];
+};
+
 export function aggregateWeeklySubjectAndEnglishBreakdown(
   rows: Array<{ date?: unknown; activities?: unknown }>,
 ): {
@@ -374,6 +388,110 @@ export function aggregateWeeklySubjectAndEnglishBreakdown(
   return { subjectBreakdown, englishBreakdown };
 }
 
+const toOptionalNumber = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
+
+const toPercentage = (score: number | null, total: number | null): number | null => {
+  if (score == null) return null;
+  if (total != null && total > 0) return Number(((score / total) * 100).toFixed(1));
+  if (score >= 0 && score <= 100) return Number(score.toFixed(1));
+  return null;
+};
+
+/**
+ * Build weekly paper/test performance grouped by subject so the AI can cite
+ * concrete evidence for each subject paragraph.
+ */
+export function aggregateWeeklyPaperBreakdown(
+  rows: Array<{
+    date?: unknown;
+    subjectName?: unknown;
+    description?: unknown;
+    score?: unknown;
+    total?: unknown;
+    typeName?: unknown;
+    schoolName?: unknown;
+    strengths?: unknown;
+    improvements?: unknown;
+  }>,
+): WeeklyPaperBreakdown {
+  const subjectMap = new Map<
+    string,
+    {
+      subjectName: string;
+      paperCount: number;
+      percentages: number[];
+      latestDate: string;
+      latestPercentage: number | null;
+      evidence: string[];
+    }
+  >();
+
+  for (const row of rows) {
+    const subjectName = String(row?.subjectName ?? '').trim() || '未命名科目';
+    const date = toDateYmd(row?.date);
+    const score = toOptionalNumber(row?.score);
+    const total = toOptionalNumber(row?.total);
+    const percentage = toPercentage(score, total);
+    const existing = subjectMap.get(subjectName) || {
+      subjectName,
+      paperCount: 0,
+      percentages: [],
+      latestDate: '',
+      latestPercentage: null,
+      evidence: [],
+    };
+    existing.paperCount += 1;
+    if (percentage != null) existing.percentages.push(percentage);
+    if (date && date >= existing.latestDate) {
+      existing.latestDate = date;
+      existing.latestPercentage = percentage;
+    }
+    if (existing.evidence.length < 3) {
+      const desc = String(row?.description ?? '').trim() || String(row?.typeName ?? '').trim() || '试卷';
+      const scoreText =
+        score == null
+          ? '无分数'
+          : total != null && total > 0
+            ? `${score}/${total}`
+            : `${score}`;
+      const school = String(row?.schoolName ?? '').trim();
+      existing.evidence.push([date || '未知日期', desc, school, scoreText].filter(Boolean).join(' · '));
+    }
+    subjectMap.set(subjectName, existing);
+  }
+
+  const subjectPapers = [...subjectMap.values()]
+    .map((entry) => {
+      const averagePercentage = entry.percentages.length
+        ? Number((entry.percentages.reduce((s, n) => s + n, 0) / entry.percentages.length).toFixed(1))
+        : null;
+      const highestPercentage = entry.percentages.length
+        ? Number(Math.max(...entry.percentages).toFixed(1))
+        : null;
+      return {
+        subjectName: entry.subjectName,
+        paperCount: entry.paperCount,
+        averagePercentage,
+        highestPercentage,
+        latestPercentage: entry.latestPercentage,
+        evidence: entry.evidence,
+      };
+    })
+    .sort((a, b) => b.paperCount - a.paperCount);
+
+  return {
+    totalPapers: rows.length,
+    subjectPapers,
+  };
+}
+
 // ============================================================================
 // Prompt
 // ============================================================================
@@ -404,6 +522,7 @@ OUTPUT RULES (HARD):
    - first paragraph: 本周总体表现（2-3句）
    - then one paragraph per subject appearing in "subjectBreakdown", each paragraph starts with "【科目名】"
    - final paragraph: 下周重点
+   - if a subject appears in weeklyPaperBreakdown.subjectPapers with paperCount > 0, the same subject paragraph MUST mention paper/test performance (paperCount + score evidence).
 8. For English subject paragraph, you MUST explicitly describe each sub-skill:
    - editing / reading / grammar / essay
    For each sub-skill, include:
@@ -414,6 +533,7 @@ OUTPUT RULES (HARD):
 9. For vocabulary/sentences, cite counts from englishBreakdown:
    - vocabularyWordCount, vocabularySentenceCount.
    If a count is 0 or missing, state data is insufficient; do not invent.
+10. You MUST use weeklyPaperBreakdown as the source of truth for paper/test statements. Do not invent paper names or scores.
 
 Now produce the JSON.`;
 
@@ -424,6 +544,7 @@ export const WEEKLY_PROMPT_HARD_APPEND = `
 ADDITIONAL NON-NEGOTIABLE CONSTRAINTS:
 - Every subject in subjectBreakdown must have one dedicated paragraph in summary.
 - English paragraph must include editing/reading/grammar/essay attempt counts, per-attempt accuracy, and per-attempt issues.
+- For subjects with paperCount > 0 in weeklyPaperBreakdown, include at least one concrete paper/test score statement.
 - Do not summarize English as one generic sentence.
 - If any required field lacks data, explicitly state "本周无有效记录/数据不足以判断", never fabricate.
 `;

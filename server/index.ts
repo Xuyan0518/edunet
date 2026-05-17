@@ -50,6 +50,7 @@ import {
   aggregateAttendance,
   aggregateEnglishStats,
   aggregateLossPoints,
+  aggregateWeeklyPaperBreakdown,
   aggregateWeeklySubjectAndEnglishBreakdown,
   parseStructuredSummary,
 } from './utils/aiWeeklySummary';
@@ -4292,6 +4293,8 @@ app.post('/api/ai/weekly-summary', authenticate, requireTeacher, async (req, res
         schoolId: studentPapersTable.schoolId,
         schoolName: paperSchoolsTable.name,
         description: studentPapersTable.description,
+        strengths: studentPapersTable.strengths,
+        improvements: studentPapersTable.improvements,
         score: studentPapersTable.score,
         total: studentPapersTable.total,
       })
@@ -4316,6 +4319,7 @@ app.post('/api/ai/weekly-summary', authenticate, requireTeacher, async (req, res
     const lossPointBreakdown = aggregateLossPoints(v2Progress, lossPointLookup);
     const attendanceRollup = aggregateAttendance(v2Progress);
     const weeklyBreakdown = aggregateWeeklySubjectAndEnglishBreakdown(v2Progress);
+    const weeklyPaperBreakdown = aggregateWeeklyPaperBreakdown(papers);
     const context = {
       student,
       weekStarting,
@@ -4325,6 +4329,7 @@ app.post('/api/ai/weekly-summary', authenticate, requireTeacher, async (req, res
       englishStats,
       subjectBreakdown: weeklyBreakdown.subjectBreakdown,
       englishBreakdown: weeklyBreakdown.englishBreakdown,
+      weeklyPaperBreakdown,
       lossPoints: lossPointBreakdown,
       dailyProgress: v2Progress,
       papers,

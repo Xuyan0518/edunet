@@ -166,7 +166,17 @@ const topicShortMap = {
   GEOEL03: "板块构造",
 };
 
-const formatSubjectName = (name = "") => subjectShortMap[name] || name;
+const hasLatin = (value = "") => /[A-Za-z]/.test(String(value));
+
+const formatSubjectName = (name = "") => {
+  const raw = String(name || "").trim();
+  if (!raw) return "";
+  const mapped = subjectShortMap[raw] || raw;
+  if (mapped !== raw && hasLatin(raw)) {
+    return `${mapped}\n${raw}`;
+  }
+  return mapped;
+};
 
 const formatTopicTitle = (topic = {}) => {
   const code = typeof topic === "string" ? "" : topic.code || "";

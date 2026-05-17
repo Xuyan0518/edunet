@@ -166,6 +166,215 @@ export function aggregateLossPoints(
 }
 
 // ============================================================================
+// Subject-level + English-attempt weekly breakdown (for stronger narratives)
+// ============================================================================
+
+const toDateYmd = (value: unknown): string => {
+  if (typeof value === 'string' && value.trim()) return value.slice(0, 10);
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+  return '';
+};
+
+const toSubjectName = (activity: Record<string, unknown>): string => {
+  const candidate =
+    String(activity.subjectDisplayName ?? '').trim() ||
+    String(activity.subjectName ?? '').trim() ||
+    String(activity.subject ?? '').trim();
+  return candidate || '未命名科目';
+};
+
+const avg = (nums: number[]): number | null => {
+  if (!nums.length) return null;
+  return Number((nums.reduce((s, n) => s + n, 0) / nums.length).toFixed(1));
+};
+
+export type WeeklySubjectBreakdownEntry = {
+  subjectName: string;
+  activityCount: number;
+  activeDays: number;
+  evidence: string[];
+};
+
+export type WeeklyEnglishAttempt = {
+  date: string;
+  attemptIndex: number;
+  accuracy: number | null;
+  issues: string;
+};
+
+export type WeeklyEnglishSkillBreakdownEntry = {
+  skill: 'editing' | 'reading' | 'grammar' | 'essay';
+  totalAttempts: number;
+  scoredAttempts: number;
+  averageAccuracy: number | null;
+  attempts: WeeklyEnglishAttempt[];
+};
+
+export type WeeklyEnglishBreakdown = {
+  editing: WeeklyEnglishSkillBreakdownEntry;
+  reading: WeeklyEnglishSkillBreakdownEntry;
+  grammar: WeeklyEnglishSkillBreakdownEntry;
+  essay: WeeklyEnglishSkillBreakdownEntry;
+  vocabularyWordCount: number;
+  vocabularySentenceCount: number;
+};
+
+export function aggregateWeeklySubjectAndEnglishBreakdown(
+  rows: Array<{ date?: unknown; activities?: unknown }>,
+): {
+  subjectBreakdown: WeeklySubjectBreakdownEntry[];
+  englishBreakdown: WeeklyEnglishBreakdown;
+} {
+  const subjectMap = new Map<
+    string,
+    {
+      subjectName: string;
+      activityCount: number;
+      days: Set<string>;
+      evidence: string[];
+    }
+  >();
+
+  const buildSkill = (skill: 'editing' | 'reading' | 'grammar' | 'essay'): WeeklyEnglishSkillBreakdownEntry => ({
+    skill,
+    totalAttempts: 0,
+    scoredAttempts: 0,
+    averageAccuracy: null,
+    attempts: [],
+  });
+
+  const englishBreakdown: WeeklyEnglishBreakdown = {
+    editing: buildSkill('editing'),
+    reading: buildSkill('reading'),
+    grammar: buildSkill('grammar'),
+    essay: buildSkill('essay'),
+    vocabularyWordCount: 0,
+    vocabularySentenceCount: 0,
+  };
+
+  const scoreBuffer: Record<'editing' | 'reading' | 'grammar' | 'essay', number[]> = {
+    editing: [],
+    reading: [],
+    grammar: [],
+    essay: [],
+  };
+
+  for (const row of rows) {
+    const date = toDateYmd(row?.date);
+    if (!Array.isArray(row?.activities)) continue;
+
+    for (const item of row.activities) {
+      if (!isPlainObject(item)) continue;
+      const subjectName = toSubjectName(item);
+      const existing = subjectMap.get(subjectName) || {
+        subjectName,
+        activityCount: 0,
+        days: new Set<string>(),
+        evidence: [],
+      };
+      existing.activityCount += 1;
+      if (date) existing.days.add(date);
+      const taskSummary =
+        String(item.taskSummary ?? '').trim() ||
+        String(item.practiceProgress ?? '').trim() ||
+        String(item.description ?? '').trim();
+      if (taskSummary && existing.evidence.length < 3) {
+        existing.evidence.push(taskSummary.slice(0, 80));
+      }
+      subjectMap.set(subjectName, existing);
+
+      if (!isEnglishActivity(item)) continue;
+      const eng = normalizeEnglishFields(item.english ?? {});
+      englishBreakdown.vocabularyWordCount += Number(eng.vocab.vocabularyWordCount || 0);
+      englishBreakdown.vocabularySentenceCount += Number(eng.vocab.vocabularySentenceCount || 0);
+
+      const pushAttempt = (
+        skill: 'editing' | 'reading' | 'grammar',
+        accuracy: number | null,
+        issues: string,
+        attemptIndex: number,
+      ) => {
+        const target = englishBreakdown[skill];
+        target.totalAttempts += 1;
+        if (typeof accuracy === 'number') {
+          target.scoredAttempts += 1;
+          scoreBuffer[skill].push(accuracy);
+        }
+        if (target.attempts.length < 50) {
+          target.attempts.push({
+            date: date || '',
+            attemptIndex,
+            accuracy: typeof accuracy === 'number' ? accuracy : null,
+            issues: (issues || '').slice(0, 120),
+          });
+        }
+      };
+
+      (
+        [
+          ['editing', eng.editing] as const,
+          ['reading', eng.reading] as const,
+          ['grammar', eng.grammar] as const,
+        ] as const
+      ).forEach(([skill, block]) => {
+        const exercises = Array.isArray(block.exercises) ? block.exercises : [];
+        const ids = Array.isArray(block.lossPointLabelsSnapshot) ? block.lossPointLabelsSnapshot : [];
+        const commonIssue = String(block.otherLossPointText || '').trim();
+        if (exercises.length) {
+          exercises.forEach((ex, idx) => {
+            const score = typeof ex?.score === 'number' ? ex.score : null;
+            const issue = String(ex?.problems || '').trim() || ids.join('、') || commonIssue || '无';
+            pushAttempt(skill, score, issue, idx + 1);
+          });
+        } else if (typeof block.score === 'number') {
+          const issue = ids.join('、') || commonIssue || '无';
+          pushAttempt(skill, block.score, issue, 1);
+        }
+      });
+
+      if (eng.essay.completed || typeof eng.essay.score === 'number' || String(eng.essay.text || '').trim()) {
+        const target = englishBreakdown.essay;
+        target.totalAttempts += 1;
+        const score = typeof eng.essay.score === 'number' ? eng.essay.score : null;
+        if (typeof score === 'number') {
+          target.scoredAttempts += 1;
+          scoreBuffer.essay.push(score);
+        }
+        const issue =
+          (Array.isArray(eng.essay.lossPointLabelsSnapshot) ? eng.essay.lossPointLabelsSnapshot.join('、') : '') ||
+          String(eng.essay.otherLossPointText || '').trim() ||
+          '无';
+        if (target.attempts.length < 50) {
+          target.attempts.push({
+            date: date || '',
+            attemptIndex: target.totalAttempts,
+            accuracy: score,
+            issues: issue.slice(0, 120),
+          });
+        }
+      }
+    }
+  }
+
+  (['editing', 'reading', 'grammar', 'essay'] as const).forEach((skill) => {
+    englishBreakdown[skill].averageAccuracy = avg(scoreBuffer[skill]);
+  });
+
+  const subjectBreakdown = [...subjectMap.values()]
+    .map((item) => ({
+      subjectName: item.subjectName,
+      activityCount: item.activityCount,
+      activeDays: item.days.size,
+      evidence: item.evidence,
+    }))
+    .sort((a, b) => b.activityCount - a.activityCount);
+
+  return { subjectBreakdown, englishBreakdown };
+}
+
+// ============================================================================
 // Prompt
 // ============================================================================
 
@@ -191,8 +400,33 @@ OUTPUT RULES (HARD):
 4. Every recommendation MUST cite at least one of: a loss-point label, a topic name, a paper name, an attendance number, an English stat, or a daily comment. Do NOT use generic phrases like "继续努力" / "加强练习" / "保持良好习惯". If a recommendation cannot cite specific data, drop it.
 5. Use the same primary language as the input data (Chinese if Chinese predominates, English otherwise). Do not mix unnecessarily.
 6. Numbers in your output must be consistent with numbers in the input. Do not invent statistics.
+7. "summary" MUST be structured with clear subject paragraphs. Use this order:
+   - first paragraph: 本周总体表现（2-3句）
+   - then one paragraph per subject appearing in "subjectBreakdown", each paragraph starts with "【科目名】"
+   - final paragraph: 下周重点
+8. For English subject paragraph, you MUST explicitly describe each sub-skill:
+   - editing / reading / grammar / essay
+   For each sub-skill, include:
+   - this week's total attempts
+   - per-attempt accuracy (list briefly from attempts data, e.g. 第1次 78%，第2次 82%)
+   - per-attempt major issues (from problems / loss-point labels)
+   If data is missing, write "本周该分项无有效记录".
+9. For vocabulary/sentences, cite counts from englishBreakdown:
+   - vocabularyWordCount, vocabularySentenceCount.
+   If a count is 0 or missing, state data is insufficient; do not invent.
 
 Now produce the JSON.`;
+
+// Even when operators provide DEEPSEEK_WEEKLY_PROMPT in env, we append this
+// hard constraint block to keep output consistent with product expectations.
+export const WEEKLY_PROMPT_HARD_APPEND = `
+
+ADDITIONAL NON-NEGOTIABLE CONSTRAINTS:
+- Every subject in subjectBreakdown must have one dedicated paragraph in summary.
+- English paragraph must include editing/reading/grammar/essay attempt counts, per-attempt accuracy, and per-attempt issues.
+- Do not summarize English as one generic sentence.
+- If any required field lacks data, explicitly state "本周无有效记录/数据不足以判断", never fabricate.
+`;
 
 // ============================================================================
 // Output schema + parser

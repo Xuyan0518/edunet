@@ -6,7 +6,7 @@ Page({
     filtered: [],
     loading: true,
     query: "",
-    gradeOptions: ["全部年级", "初一", "初二", "初三", "初四"],
+    gradeOptions: ["全部年级", "中一", "中二", "中三", "中四"],
     gradeIndex: 0,
     isTeacher: false,
   },

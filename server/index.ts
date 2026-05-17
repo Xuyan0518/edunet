@@ -46,9 +46,11 @@ import { validateActivityNarratives } from './utils/activityNarrativeValidation'
 import { enrichLossPointLabels, type LossPointLookup } from './utils/lossPointLabels';
 import {
   ENHANCED_WEEKLY_PROMPT,
+  WEEKLY_PROMPT_HARD_APPEND,
   aggregateAttendance,
   aggregateEnglishStats,
   aggregateLossPoints,
+  aggregateWeeklySubjectAndEnglishBreakdown,
   parseStructuredSummary,
 } from './utils/aiWeeklySummary';
 import {
@@ -4313,6 +4315,7 @@ app.post('/api/ai/weekly-summary', authenticate, requireTeacher, async (req, res
     const englishStats = aggregateEnglishStats(v2Progress);
     const lossPointBreakdown = aggregateLossPoints(v2Progress, lossPointLookup);
     const attendanceRollup = aggregateAttendance(v2Progress);
+    const weeklyBreakdown = aggregateWeeklySubjectAndEnglishBreakdown(v2Progress);
     const context = {
       student,
       weekStarting,
@@ -4320,6 +4323,8 @@ app.post('/api/ai/weekly-summary', authenticate, requireTeacher, async (req, res
       recordWeekEnding,
       attendance: attendanceRollup,
       englishStats,
+      subjectBreakdown: weeklyBreakdown.subjectBreakdown,
+      englishBreakdown: weeklyBreakdown.englishBreakdown,
       lossPoints: lossPointBreakdown,
       dailyProgress: v2Progress,
       papers,
@@ -4327,9 +4332,8 @@ app.post('/api/ai/weekly-summary', authenticate, requireTeacher, async (req, res
     };
     // Operator-supplied prompt wins; otherwise use the Part 5 enhanced prompt.
     const hasCustomWeeklyPrompt = Boolean(weeklySummaryPrompt && weeklySummaryPrompt.trim());
-    const promptToUse = hasCustomWeeklyPrompt
-      ? weeklySummaryPrompt
-      : ENHANCED_WEEKLY_PROMPT;
+    const basePrompt = hasCustomWeeklyPrompt ? weeklySummaryPrompt : ENHANCED_WEEKLY_PROMPT;
+    const promptToUse = `${String(basePrompt || '').trim()}\n${WEEKLY_PROMPT_HARD_APPEND}`.trim();
     await withActionLock(
       {
         lockKey: studentAiLockKey(studentId),

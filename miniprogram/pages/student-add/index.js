@@ -20,7 +20,7 @@ Page({
     studentId: "",
     name: "",
     grade: "",
-    gradeOptions: ["初一", "初二", "初三", "初四"],
+    gradeOptions: ["中一", "中二", "中三", "中四"],
     gradeIndex: 0,
     parents: [],
     parentNames: ["不指定"],
@@ -192,14 +192,18 @@ Page({
         const parentId = data?.parentId || "";
         const gradeRaw = String(data?.grade || "");
         const gradeMap = {
-          "7": "初一",
-          "8": "初二",
-          "9": "初三",
-          "10": "初四",
-          初一: "初一",
-          初二: "初二",
-          初三: "初三",
-          初四: "初四",
+          "7": "中一",
+          "8": "中二",
+          "9": "中三",
+          "10": "中四",
+          初一: "中一",
+          初二: "中二",
+          初三: "中三",
+          初四: "中四",
+          中一: "中一",
+          中二: "中二",
+          中三: "中三",
+          中四: "中四",
         };
         const mappedGrade = gradeMap[gradeRaw] || gradeRaw;
         const gradeIndex = Math.max(

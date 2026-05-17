@@ -10,6 +10,17 @@ const normalize = (value) =>
 
 const includesAny = (value, keywords) => keywords.some((key) => value.includes(key));
 
+const hasLatin = (value = "") => /[A-Za-z]/.test(String(value));
+
+const withEnglishLine = (zhName, rawName) => {
+  const zh = String(zhName || "").trim();
+  const raw = String(rawName || "").trim();
+  if (!zh) return raw || "未命名科目";
+  if (!raw || zh === raw) return zh;
+  if (!hasLatin(raw)) return zh;
+  return `${zh}\n${raw}`;
+};
+
 const resolveFromNormalized = (normalized) => {
   if (!normalized) return '';
 
@@ -36,12 +47,12 @@ const getSubjectDisplayName = (subjectName) => {
   if (!raw) return '未命名科目';
 
   const direct = resolveFromNormalized(normalize(raw));
-  if (direct) return direct;
+  if (direct) return withEnglishLine(direct, raw);
 
   const mapped = formatSubjectName(raw);
   if (mapped && mapped !== raw) {
     const mappedResolved = resolveFromNormalized(normalize(mapped));
-    if (mappedResolved) return mappedResolved;
+    if (mappedResolved) return withEnglishLine(mappedResolved, raw);
     return mapped;
   }
 

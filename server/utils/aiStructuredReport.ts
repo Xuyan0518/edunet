@@ -342,6 +342,12 @@ const asRecord = (value: unknown): Record<string, unknown> => {
 };
 
 const asArray = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
+const clip = (value: unknown, maxLen: number) => {
+  const text = String(value ?? '').trim();
+  if (!text) return '';
+  if (text.length <= maxLen) return text;
+  return `${text.slice(0, maxLen)}...`;
+};
 
 export function buildCompactReportContext(input: CompactContextParams) {
   const compactDaily = sliceTail(input.dailyProgress, input.reportType === 'yearly' ? 180 : 120).map((dailyRow) => {
@@ -358,9 +364,9 @@ export function buildCompactReportContext(input: CompactContextParams) {
         const grammar = asRecord(english.grammar);
         return {
           subjectName: a.subjectDisplayName || a.subjectName || a.subject || null,
-          taskSummary: a.taskSummary || a.practiceProgress || a.description || null,
-          strengths: a.strengths || null,
-          improvements: a.improvements || null,
+          taskSummary: clip(a.taskSummary || a.practiceProgress || a.description, 120) || null,
+          strengths: clip(a.strengths, 120) || null,
+          improvements: clip(a.improvements, 120) || null,
           english: a.type === 'english' || a.english
             ? {
                 editing: { score: editing.score ?? null, exerciseCount: editing.exerciseCount ?? 0 },
@@ -379,8 +385,8 @@ export function buildCompactReportContext(input: CompactContextParams) {
       weekStarting: w.weekStarting ?? null,
       weekEnding: w.weekEnding ?? null,
       summary: w.summary ? String(w.summary).slice(0, 240) : null,
-      strengths: asArray(w.strengths).slice(0, 6),
-      areasToImprove: asArray(w.areasToImprove).slice(0, 6),
+      strengths: asArray(w.strengths).slice(0, 6).map((item) => clip(item, 100)),
+      areasToImprove: asArray(w.areasToImprove).slice(0, 6).map((item) => clip(item, 100)),
     };
   });
 
@@ -389,7 +395,7 @@ export function buildCompactReportContext(input: CompactContextParams) {
     return {
       date: p.date ?? null,
       subjectName: p.subjectName ?? null,
-      description: p.description ?? null,
+      description: clip(p.description, 120) || null,
       score: p.score ?? null,
       total: p.total ?? null,
       strengths: p.strengths ? String(p.strengths).slice(0, 100) : null,
@@ -408,7 +414,7 @@ export function buildCompactReportContext(input: CompactContextParams) {
           name: s.name ?? null,
           score: s.score ?? null,
           maxScore: s.maxScore ?? s.total ?? s.totalScore ?? null,
-          scope: s.scope ?? null,
+          scope: clip(s.scope, 120) || null,
         };
       }),
     };
@@ -427,5 +433,15 @@ export function buildCompactReportContext(input: CompactContextParams) {
       ? { previousQuarterSummary: input.previousQuarterSummary ?? null }
       : { quarterlySummaries: sliceTail(input.quarterlySummaries || [], 8) }),
     analytics: input.analytics,
+    contextMeta: {
+      dailyRowsOriginal: Array.isArray(input.dailyProgress) ? input.dailyProgress.length : 0,
+      weeklyRowsOriginal: Array.isArray(input.weeklyReports) ? input.weeklyReports.length : 0,
+      papersOriginal: Array.isArray(input.papers) ? input.papers.length : 0,
+      examsOriginal: Array.isArray(input.exams) ? input.exams.length : 0,
+      dailyRowsUsed: compactDaily.length,
+      weeklyRowsUsed: compactWeekly.length,
+      papersUsed: compactPapers.length,
+      examsUsed: compactExams.length,
+    },
   };
 }

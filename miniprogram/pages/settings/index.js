@@ -65,6 +65,10 @@ Page({
       wx.showToast({ title: "昵称不能为空", icon: "none" });
       return;
     }
+    if (displayName.length > 40) {
+      wx.showToast({ title: "昵称不能超过40字", icon: "none" });
+      return;
+    }
 
     this.setData({ savingName: true });
     request({

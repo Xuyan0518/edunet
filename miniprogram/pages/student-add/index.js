@@ -1,5 +1,6 @@
 const { request } = require("../../utils/api");
 const { formatSubjectName } = require("../../utils/displayName");
+const { LIMITS, trimText } = require("../../utils/validation");
 
 const isEnglishSubject = (subject = {}) => {
   const name = String(subject.name || "").toLowerCase();
@@ -233,6 +234,14 @@ Page({
   save() {
     if (!this.data.name.trim() || !this.data.grade.trim()) {
       wx.showToast({ title: "请填写姓名和年级", icon: "none" });
+      return;
+    }
+    if (trimText(this.data.name).length > 100) {
+      wx.showToast({ title: "学生姓名过长", icon: "none" });
+      return;
+    }
+    if ((this.data.selectedIds || []).length > LIMITS.examSubjectsMax) {
+      wx.showToast({ title: "科目数量过多", icon: "none" });
       return;
     }
     this.setData({ saving: true });

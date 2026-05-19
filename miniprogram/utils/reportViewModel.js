@@ -5,7 +5,12 @@ const PRIORITY_LABEL = {
 };
 const { getSubjectDisplayName } = require('./subjectDisplayName');
 
-const ensureArray = (value) => (Array.isArray(value) ? value.filter((item) => item != null && item !== '') : []);
+const SAFE_ARRAY_MAX = 60;
+const ensureArray = (value) => (
+  Array.isArray(value)
+    ? value.filter((item) => item != null && item !== '').slice(0, SAFE_ARRAY_MAX)
+    : []
+);
 
 const toText = (value) => (value == null ? '' : String(value));
 
@@ -293,7 +298,8 @@ const toScoreText = (value) => {
 const buildMiniTrendBars = (points) => {
   const valid = ensureArray(points)
     .map((point) => toNum(point?.percentage))
-    .filter((n) => n != null);
+    .filter((n) => n != null)
+    .map((n) => Math.min(100, Math.max(0, n)));
   if (!valid.length) return [];
   return valid.slice(-8).map((value, idx) => ({
     key: `${idx}-${value}`,

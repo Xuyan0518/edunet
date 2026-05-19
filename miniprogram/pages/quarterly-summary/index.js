@@ -2,6 +2,7 @@ const { request } = require("../../utils/api");
 const { formatChinaDateTime } = require("../../utils/chinaDate");
 const { showConflictModal } = require("../../utils/conflict");
 const { showActionLockToast } = require("../../utils/actionLock");
+const { LIMITS, trimText, validateDateRange, validateYear } = require("../../utils/validation");
 
 Page({
   data: {
@@ -128,12 +129,30 @@ Page({
 
   save() {
     if (!this.data.isTeacher) return;
+    const yearCheck = validateYear(this.data.year);
+    if (!yearCheck.ok) {
+      wx.showToast({ title: yearCheck.message, icon: "none" });
+      return;
+    }
     if (!this.data.rangeStart || !this.data.rangeEnd) {
       wx.showToast({ title: "请选择学期日期范围", icon: "none" });
       return;
     }
     if (this.data.rangeStart > this.data.rangeEnd) {
       wx.showToast({ title: "开始日期不能晚于结束日期", icon: "none" });
+      return;
+    }
+    const rangeCheck = validateDateRange({
+      startDate: this.data.rangeStart,
+      endDate: this.data.rangeEnd,
+      maxDays: LIMITS.quarterlyRangeMaxDays,
+    });
+    if (!rangeCheck.ok) {
+      wx.showToast({ title: rangeCheck.message, icon: "none" });
+      return;
+    }
+    if (trimText(this.data.summary).length > LIMITS.summaryMax) {
+      wx.showToast({ title: `总结过长（最多 ${LIMITS.summaryMax} 字）`, icon: "none" });
       return;
     }
     const payload = {
@@ -192,6 +211,15 @@ Page({
       wx.showToast({ title: "开始日期不能晚于结束日期", icon: "none" });
       return;
     }
+    const rangeCheck = validateDateRange({
+      startDate: this.data.rangeStart,
+      endDate: this.data.rangeEnd,
+      maxDays: LIMITS.quarterlyRangeMaxDays,
+    });
+    if (!rangeCheck.ok) {
+      wx.showToast({ title: rangeCheck.message, icon: "none" });
+      return;
+    }
     this.setData({ aiLoading: true });
     request({
       url: "/ai/quarterly-summary",
@@ -222,6 +250,15 @@ Page({
     }
     if (this.data.rangeStart > this.data.rangeEnd) {
       wx.showToast({ title: "开始日期不能晚于结束日期", icon: "none" });
+      return;
+    }
+    const rangeCheck = validateDateRange({
+      startDate: this.data.rangeStart,
+      endDate: this.data.rangeEnd,
+      maxDays: LIMITS.exportRangeMaxDays,
+    });
+    if (!rangeCheck.ok) {
+      wx.showToast({ title: rangeCheck.message, icon: "none" });
       return;
     }
     this.setData({ exportLoading: true });

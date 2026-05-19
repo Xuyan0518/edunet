@@ -254,6 +254,11 @@ type SubjectCounter = {
 };
 
 const MS_PER_DAY = 86_400_000;
+const MAX_SAFE_SCORE = 500;
+const MAX_SAFE_PERCENTAGE = 100;
+const MAX_SAFE_COUNT = 500;
+const MAX_SCORE_POINTS_PER_SUBJECT = 30;
+const MAX_SCORE_POINTS_PER_SKILL = 30;
 
 const round2 = (v: number) => Math.round(v * 100) / 100;
 
@@ -332,7 +337,8 @@ const parseScoreAndMax = (
       fromSlash = true;
     }
   }
-  if (maxNum !== null && maxNum <= 0) maxNum = null;
+  if (maxNum !== null && (maxNum <= 0 || maxNum > MAX_SAFE_SCORE)) maxNum = null;
+  if (score !== null && (score < 0 || score > MAX_SAFE_SCORE)) score = null;
   return { score, maxScore: maxNum, fromSlash };
 };
 
@@ -342,7 +348,11 @@ const calcPercentage = (
 ): { percentage: number | null; inferredFrom100: boolean } => {
   if (score === null) return { percentage: null, inferredFrom100: false };
   if (maxScore !== null && maxScore > 0) {
-    return { percentage: round2((score / maxScore) * 100), inferredFrom100: false };
+    const pct = round2((score / maxScore) * 100);
+    if (!Number.isFinite(pct) || pct < 0 || pct > MAX_SAFE_PERCENTAGE) {
+      return { percentage: null, inferredFrom100: false };
+    }
+    return { percentage: pct, inferredFrom100: false };
   }
   if (score >= 0 && score <= 100) {
     return { percentage: round2(score), inferredFrom100: true };
@@ -466,7 +476,7 @@ const extractCountFromPatterns = (textRaw: unknown, patterns: RegExp[]): number 
     const m = p.exec(text);
     if (!m) continue;
     const n = Number(m[1]);
-    if (Number.isFinite(n) && n >= 0 && n <= 10000) return Math.floor(n);
+    if (Number.isFinite(n) && n >= 0 && n <= MAX_SAFE_COUNT) return Math.floor(n);
   }
   return null;
 };
@@ -1180,6 +1190,9 @@ export function buildStudentReportAnalytics(params: BuildParams): StudentReportA
   for (const p of scorePoints) {
     const list = trendMap.get(p.subjectName) || [];
     list.push(p);
+    if (list.length > MAX_SCORE_POINTS_PER_SUBJECT) {
+      list.splice(0, list.length - MAX_SCORE_POINTS_PER_SUBJECT);
+    }
     trendMap.set(p.subjectName, list);
   }
   const scoreTrends = Array.from(trendMap.entries())
@@ -1340,8 +1353,8 @@ export function buildStudentReportAnalytics(params: BuildParams): StudentReportA
       return (a.title || '').localeCompare(b.title || '');
     });
 
-  const finalizeEnglishSkill = (skill: MutableEnglishSkill) => {
-    const sorted = normalizeEnglishPoints(skill.scorePoints);
+const finalizeEnglishSkill = (skill: MutableEnglishSkill) => {
+    const sorted = normalizeEnglishPoints(skill.scorePoints).slice(-MAX_SCORE_POINTS_PER_SKILL);
     const percentages = sorted
       .map((p) => p.percentage)
       .filter((p): p is number => typeof p === 'number' && Number.isFinite(p));
@@ -1382,7 +1395,7 @@ export function buildStudentReportAnalytics(params: BuildParams): StudentReportA
     sentences: finalizeEnglishSkill(englishSkillMap.get('sentences')!),
   };
 
-  const overallEnglishPointsSorted = normalizeEnglishPoints(overallEnglishPoints);
+  const overallEnglishPointsSorted = normalizeEnglishPoints(overallEnglishPoints).slice(-MAX_SCORE_POINTS_PER_SKILL);
   const overallEnglishPercentages = overallEnglishPointsSorted
     .map((p) => p.percentage)
     .filter((p): p is number => typeof p === 'number' && Number.isFinite(p));

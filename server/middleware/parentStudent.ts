@@ -13,6 +13,22 @@ export async function verifyParentStudentAccess(
   next: NextFunction
 ): Promise<void> {
   try {
+    // Reviewer sessions are teacher tokens with an explicit demo-student scope.
+    if (req.user?.role === 'teacher' && req.user?.isReviewer) {
+      const studentId = req.params.studentId || req.params.id || req.body.studentId || req.query.studentId;
+      const reviewerStudentId = String(req.user.reviewerStudentId || '').trim();
+      if (!reviewerStudentId) {
+        res.status(403).json({ error: 'Reviewer account is not configured with a demo student' });
+        return;
+      }
+      if (studentId && String(studentId) !== reviewerStudentId) {
+        res.status(403).json({ error: 'Reviewer account can only access demo student data' });
+        return;
+      }
+      next();
+      return;
+    }
+
     // Only apply to parents
     if (!req.user || req.user.role !== 'parent') {
       next();

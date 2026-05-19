@@ -66,3 +66,23 @@
   color: #94a3b8;
   margin-top: 12rpx;
 }
+
+.reviewer-box {
+  margin-top: 24rpx;
+  padding-top: 20rpx;
+  border-top: 2rpx dashed #e2e8f0;
+}
+
+.reviewer-title {
+  font-size: 24rpx;
+  color: #64748b;
+  margin-bottom: 10rpx;
+}
+
+.reviewer-input {
+  margin-top: 10rpx;
+}
+
+.reviewer-btn {
+  margin-top: 14rpx;
+}

@@ -492,6 +492,121 @@ export function aggregateWeeklyPaperBreakdown(
   };
 }
 
+type WeeklyContextInput = {
+  student: unknown;
+  weekStarting: string;
+  weekEnding: string;
+  recordWeekEnding: string;
+  attendance: unknown;
+  englishStats: unknown;
+  subjectBreakdown: unknown;
+  englishBreakdown: unknown;
+  weeklyPaperBreakdown: unknown;
+  lossPoints: unknown;
+  dailyProgress: unknown[];
+  papers: unknown[];
+  subjectProgress: unknown;
+};
+
+const clip = (value: unknown, maxLen: number) => {
+  const text = String(value ?? '').trim();
+  if (!text) return '';
+  if (text.length <= maxLen) return text;
+  return `${text.slice(0, maxLen)}...`;
+};
+
+export function buildCompactWeeklySummaryContext(input: WeeklyContextInput) {
+  const dailyRows = Array.isArray(input.dailyProgress) ? input.dailyProgress : [];
+  const paperRows = Array.isArray(input.papers) ? input.papers : [];
+  const dailyLimited = dailyRows.slice(-14).map((row) => {
+    const obj = isPlainObject(row) ? row : {};
+    const activities = Array.isArray(obj.activities) ? obj.activities : [];
+    return {
+      date: obj.date ?? null,
+      attendance: obj.attendance ?? null,
+      summary: clip(obj.summary, 200) || null,
+      activities: activities.slice(0, 12).map((raw) => {
+        const a = isPlainObject(raw) ? raw : {};
+        const english = normalizeEnglishFields(a.english ?? {});
+        return {
+          subjectName: a.subjectDisplayName || a.subjectName || a.subject || null,
+          taskSummary: clip(a.taskSummary || a.practiceProgress || a.description, 120) || null,
+          strengths: clip(a.strengths, 120) || null,
+          improvements: clip(a.improvements, 120) || null,
+          english:
+            isEnglishActivity(a)
+              ? {
+                  editing: {
+                    score: typeof english.editing.score === 'number' ? english.editing.score : null,
+                    exerciseCount: Number(english.editing.exerciseCount || 0),
+                  },
+                  reading: {
+                    score: typeof english.reading.score === 'number' ? english.reading.score : null,
+                    articleCount: Number(english.reading.articleCount || 0),
+                  },
+                  grammar: {
+                    score: typeof english.grammar.score === 'number' ? english.grammar.score : null,
+                    exerciseCount: Number(english.grammar.exerciseCount || 0),
+                  },
+                  vocab: {
+                    vocabularyWordCount: Number(english.vocab.vocabularyWordCount || 0),
+                    vocabularySentenceCount: Number(english.vocab.vocabularySentenceCount || 0),
+                  },
+                }
+              : undefined,
+        };
+      }),
+    };
+  });
+
+  const papersLimited = paperRows.slice(-30).map((row) => {
+    const p = isPlainObject(row) ? row : {};
+    return {
+      date: p.date ?? null,
+      subjectName: p.subjectName ?? null,
+      description: clip(p.description, 120) || null,
+      score: p.score ?? null,
+      total: p.total ?? null,
+      strengths: clip(p.strengths, 120) || null,
+      improvements: clip(p.improvements, 120) || null,
+    };
+  });
+
+  const subjectBreakdown = Array.isArray(input.subjectBreakdown)
+    ? input.subjectBreakdown.slice(0, 20)
+    : [];
+  const subjectProgress = Array.isArray(input.subjectProgress)
+    ? input.subjectProgress.slice(0, 24)
+    : input.subjectProgress;
+  const lossPointsObj = isPlainObject(input.lossPoints) ? input.lossPoints : {};
+  const compactLossPoints = {
+    ...lossPointsObj,
+    byEntry: Array.isArray(lossPointsObj.byEntry) ? lossPointsObj.byEntry.slice(0, 20) : [],
+  };
+
+  return {
+    student: input.student,
+    weekStarting: input.weekStarting,
+    weekEnding: input.weekEnding,
+    recordWeekEnding: input.recordWeekEnding,
+    attendance: input.attendance,
+    englishStats: input.englishStats,
+    subjectBreakdown,
+    englishBreakdown: input.englishBreakdown,
+    weeklyPaperBreakdown: input.weeklyPaperBreakdown,
+    lossPoints: compactLossPoints,
+    dailyProgress: dailyLimited,
+    papers: papersLimited,
+    subjectProgress,
+    contextMeta: {
+      dailyRowsOriginal: dailyRows.length,
+      dailyRowsUsed: dailyLimited.length,
+      papersOriginal: paperRows.length,
+      papersUsed: papersLimited.length,
+    },
+  };
+}
+
 // ============================================================================
 // Prompt
 // ============================================================================

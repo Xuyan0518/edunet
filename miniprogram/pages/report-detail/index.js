@@ -21,6 +21,7 @@ const {
   buildWeeklyActivityRows,
   buildEnglishSpecialSection,
 } = require('../../utils/reportViewModel');
+const { LIMITS, trimText, sanitizeScorePoints } = require('../../utils/validation');
 
 const scoreSourceMap = {
   paper: '试卷',
@@ -175,7 +176,7 @@ Page({
     const scoreTrendSubjects = ensureArray(analytics?.scoreTrends).map((item) => ({
       subjectName: item?.subjectName || '未命名科目',
       subjectDisplayName: getSubjectDisplayName(item?.subjectName || '未命名科目'),
-      points: ensureArray(item?.points).map((point) => ({
+      points: sanitizeScorePoints(ensureArray(item?.points), LIMITS.scorePointsRenderMax).map((point) => ({
         date: point?.date || '--',
         percentage: percentageText(point?.percentage),
         source: scoreSourceMap[point?.source] || point?.source || '--',
@@ -264,6 +265,19 @@ Page({
 
     this.setData({ saving: true });
     try {
+      const editForm = this.data.editForm || {};
+      const textFields = [
+        ['执行摘要', editForm.executiveSummary || editForm.annualExecutiveSummary, LIMITS.reportTextMax],
+        ['老师评语', editForm.teacherComment || editForm.teacherAnnualComment, LIMITS.reportTextMax],
+        ['英文专项总结', editForm.englishSpecialSummary, LIMITS.reportTextMax],
+        ['英文专项建议', editForm.englishSpecialTeacherSuggestion, LIMITS.reportTextMax],
+      ];
+      for (const [label, value, max] of textFields) {
+        if (trimText(value).length > max) {
+          wx.showToast({ title: `${label}过长`, icon: 'none' });
+          return;
+        }
+      }
       const finalReport = buildFinalReportPayload(this.data.report, this.data.editForm);
       const summary = buildSummaryFromStructured(this.data.reportType, finalReport, this.data.report.summary);
       const updated = await updateReport(this.data.report.id, { finalReport, summary });

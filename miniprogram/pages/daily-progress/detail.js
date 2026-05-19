@@ -3,6 +3,7 @@ const { formatSubjectName } = require("../../utils/displayName");
 const { formatChinaDate, formatChinaDateTime } = require("../../utils/chinaDate");
 const { showConflictModal } = require("../../utils/conflict");
 const { showActionLockToast } = require("../../utils/actionLock");
+const { LIMITS, trimText, clampIntInput } = require("../../utils/validation");
 
 const attendanceMap = [
   { value: "present", label: "出席" },
@@ -76,6 +77,14 @@ const toScoreOrNull = (v) => {
   if (typeof v === "number" && isFinite(v)) return v;
   const n = Number(v);
   return isFinite(n) ? n : null;
+};
+
+const toBoundedScore = (v) => {
+  const n = toScoreOrNull(v);
+  if (n == null) return null;
+  if (!Number.isFinite(n)) return null;
+  if (n < 0 || n > LIMITS.englishScoreMax) return null;
+  return n;
 };
 
 const defaultFieldFor = (kind) => {
@@ -895,7 +904,7 @@ Page({
     if (!this.data.isEditable) return;
     const idx = e.currentTarget.dataset.index;
     const sub = e.currentTarget.dataset.subfield;
-    this.updateEnglishBlock(idx, sub, { score: toScoreOrNull(e.detail.value) });
+    this.updateEnglishBlock(idx, sub, { score: toBoundedScore(e.detail.value) });
   },
 
   onEnglishCountChange(e) {
@@ -904,7 +913,14 @@ Page({
     const sub = e.currentTarget.dataset.subfield; // editing/reading/grammar/vocab
     const key = e.currentTarget.dataset.key;       // exerciseCount/articleCount/vocabularySentenceCount
     if (!key) return;
-    const count = toIntOrZero(e.detail.value);
+    const maxMap = {
+      exerciseCount: LIMITS.englishExerciseMax,
+      articleCount: LIMITS.englishExerciseMax,
+      vocabularyWordCount: LIMITS.englishVocabMax,
+      vocabularySentenceCount: LIMITS.englishSentenceMax,
+    };
+    const max = maxMap[key] || LIMITS.englishExerciseMax;
+    const count = clampIntInput(e.detail.value, 0, max);
     const patch = { [key]: count };
     if (sub === "editing" || sub === "grammar" || sub === "reading") {
       const a = this.data.activities[idx];
@@ -929,7 +945,7 @@ Page({
     const block = a?.english?.[sub] || {};
     const list = Array.isArray(block.exercises) ? block.exercises.slice() : [];
     while (list.length <= exIdx) list.push({ score: null, problems: "" });
-    list[exIdx] = { ...list[exIdx], score: toScoreOrNull(e.detail.value) };
+    list[exIdx] = { ...list[exIdx], score: toBoundedScore(e.detail.value) };
     this.updateEnglishBlock(idx, sub, { exercises: list });
   },
 
@@ -1289,6 +1305,104 @@ Page({
         showCancel: false,
       });
       return;
+    }
+
+    if (trimText(this.data.summary).length > LIMITS.summaryMax) {
+      wx.showToast({ title: `总结过长（最多 ${LIMITS.summaryMax} 字）`, icon: "none" });
+      return;
+    }
+
+    if ((this.data.activities || []).length > LIMITS.dailyActivityMax) {
+      wx.showToast({ title: `活动数量过多（最多 ${LIMITS.dailyActivityMax} 条）`, icon: "none" });
+      return;
+    }
+
+    for (const activity of this.data.activities || []) {
+      const subjectName = activity?.subjectDisplayName || activity?.subjectName || "该科目";
+      const checkText = (value, label, max = LIMITS.activityTextMax) => {
+        if (trimText(value).length > max) {
+          wx.showToast({ title: `${subjectName}${label}过长`, icon: "none" });
+          return false;
+        }
+        return true;
+      };
+      if (!checkText(activity?.taskSummary, "学习内容")) return;
+      if (!checkText(activity?.strengths, "亮点")) return;
+      if (!checkText(activity?.improvements, "待提升点")) return;
+      if (!checkText(activity?.comment, "备注")) return;
+      const papers = Array.isArray(activity?.papers) ? activity.papers : [];
+      if (papers.length > LIMITS.papersBatchMax) {
+        wx.showToast({ title: "试卷数量过多，请分次保存", icon: "none" });
+        return;
+      }
+      for (const p of papers) {
+        if (!checkText(p?.description, "试卷描述", LIMITS.shortTextMax)) return;
+        if (!checkText(p?.strengths, "试卷优点")) return;
+        if (!checkText(p?.improvements, "试卷改进点")) return;
+        const scoreText = trimText(p?.score);
+        const totalText = trimText(p?.total);
+        const score = scoreText ? Number(scoreText) : null;
+        const total = totalText ? Number(totalText) : null;
+        if (score != null && (!Number.isFinite(score) || score < 0 || score > LIMITS.scoreMax)) {
+          wx.showToast({ title: "试卷得分不在合理范围", icon: "none" });
+          return;
+        }
+        if (total != null && (!Number.isFinite(total) || total <= 0 || total > LIMITS.scoreMax)) {
+          wx.showToast({ title: "试卷总分不在合理范围", icon: "none" });
+          return;
+        }
+        if (score != null && total != null && score > total) {
+          wx.showToast({ title: "试卷得分不能超过总分", icon: "none" });
+          return;
+        }
+      }
+      if (activity?.type !== "english") continue;
+      const english = activity?.english || {};
+      const editing = english.editing || {};
+      const reading = english.reading || {};
+      const grammar = english.grammar || {};
+      const vocab = english.vocab || {};
+      const exerciseFields = [
+        { label: "改错题量", value: editing.exerciseCount, max: LIMITS.englishExerciseMax },
+        { label: "阅读篇数", value: reading.articleCount, max: LIMITS.englishExerciseMax },
+        { label: "语法题量", value: grammar.exerciseCount, max: LIMITS.englishExerciseMax },
+        { label: "单词数量", value: vocab.vocabularyWordCount, max: LIMITS.englishVocabMax },
+        { label: "句子数量", value: vocab.vocabularySentenceCount, max: LIMITS.englishSentenceMax },
+      ];
+      for (const field of exerciseFields) {
+        const count = Number(field.value || 0);
+        if (!Number.isFinite(count) || count < 0 || count > field.max) {
+          wx.showToast({ title: `${field.label}超过限制`, icon: "none" });
+          return;
+        }
+      }
+      const checkScore = (label, value) => {
+        if (value == null || value === "") return true;
+        const n = Number(value);
+        if (!Number.isFinite(n) || n < 0 || n > LIMITS.englishScoreMax) {
+          wx.showToast({ title: `${label}分数超范围`, icon: "none" });
+          return false;
+        }
+        return true;
+      };
+      if (!checkScore("改错", editing.score)) return;
+      if (!checkScore("阅读", reading.score)) return;
+      if (!checkScore("语法", grammar.score)) return;
+      if (!checkScore("作文", english?.essay?.score)) return;
+      const exerciseGroups = [editing.exercises || [], reading.exercises || [], grammar.exercises || []];
+      for (const group of exerciseGroups) {
+        if (group.length > LIMITS.englishExerciseMax) {
+          wx.showToast({ title: "英文练习条数过多", icon: "none" });
+          return;
+        }
+        for (const ex of group) {
+          if (!checkScore("英文", ex?.score)) return;
+          if (trimText(ex?.problems).length > LIMITS.activityTextMax) {
+            wx.showToast({ title: "英文错因描述过长", icon: "none" });
+            return;
+          }
+        }
+      }
     }
 
     // Strip the locally-derived helper fields (chips, hasAnyScore, per-exercise

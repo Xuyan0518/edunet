@@ -4,6 +4,7 @@ const { formatChinaDateTime } = require("../../utils/chinaDate");
 const { showConflictModal } = require("../../utils/conflict");
 const { formatChinaDate } = require("../../utils/chinaDate");
 const { showActionLockToast } = require("../../utils/actionLock");
+const { LIMITS, trimText, isYmd } = require("../../utils/validation");
 
 const buildGroups = (papers = []) => {
   const map = {};
@@ -263,12 +264,44 @@ Page({
       wx.showToast({ title: "请选择类型/学校/日期", icon: "none" });
       return;
     }
+    if (!isYmd(this.data.date)) {
+      wx.showToast({ title: "日期格式无效", icon: "none" });
+      return;
+    }
     if (!String(this.data.strengths || "").trim()) {
       wx.showToast({ title: "请填写做得好的地方", icon: "none" });
       return;
     }
     if (!String(this.data.improvements || "").trim()) {
       wx.showToast({ title: "请填写需要改进的地方", icon: "none" });
+      return;
+    }
+    if (trimText(this.data.description).length > LIMITS.shortTextMax) {
+      wx.showToast({ title: "描述过长", icon: "none" });
+      return;
+    }
+    if (trimText(this.data.strengths).length > LIMITS.commentMax) {
+      wx.showToast({ title: "优点评价过长", icon: "none" });
+      return;
+    }
+    if (trimText(this.data.improvements).length > LIMITS.commentMax) {
+      wx.showToast({ title: "改进建议过长", icon: "none" });
+      return;
+    }
+    const scoreText = trimText(this.data.score);
+    const totalText = trimText(this.data.total);
+    const scoreNum = scoreText ? Number(scoreText) : null;
+    const totalNum = totalText ? Number(totalText) : null;
+    if (scoreNum != null && (!Number.isFinite(scoreNum) || scoreNum < 0 || scoreNum > LIMITS.scoreMax)) {
+      wx.showToast({ title: "得分超出合理范围", icon: "none" });
+      return;
+    }
+    if (totalNum != null && (!Number.isFinite(totalNum) || totalNum <= 0 || totalNum > LIMITS.scoreMax)) {
+      wx.showToast({ title: "总分超出合理范围", icon: "none" });
+      return;
+    }
+    if (scoreNum != null && totalNum != null && scoreNum > totalNum) {
+      wx.showToast({ title: "得分不能超过总分", icon: "none" });
       return;
     }
     const payload = {

@@ -6,6 +6,13 @@ const {
   normalizeRecommendation,
 } = require('./reportViewModel');
 const { getSubjectDisplayName } = require('./subjectDisplayName');
+const MAX_MARKDOWN_ROWS = 30;
+
+const clip = (value, max = 280) => {
+  const text = String(value == null ? '' : value).trim();
+  if (!text) return '';
+  return text.length > max ? `${text.slice(0, max)}...` : text;
+};
 
 const fmtDateRange = (report = {}) => {
   if (report.reportType === 'yearly' && report.year) {
@@ -14,7 +21,7 @@ const fmtDateRange = (report = {}) => {
   return `${report.startDate || '--'} ~ ${report.endDate || '--'}`;
 };
 
-const list = (items) => ensureArray(items).map((item) => `- ${item}`).join('\n');
+const list = (items) => ensureArray(items).slice(0, MAX_MARKDOWN_ROWS).map((item) => `- ${clip(item, 180)}`).join('\n');
 
 const renderSubjectReports = (reportType, subjectReports = []) => {
   if (!subjectReports.length) return '暂无科目报告';
@@ -36,10 +43,11 @@ const renderSubjectReports = (reportType, subjectReports = []) => {
   }
 
   return subjectReports
+    .slice(0, MAX_MARKDOWN_ROWS)
     .map((subject) => {
       const parts = [
         `### ${getSubjectDisplayName(subject.subjectName || '未命名科目')}`,
-        subject.summary ? subject.summary : '暂无学科总结。',
+        subject.summary ? clip(subject.summary, 280) : '暂无学科总结。',
         ensureArray(subject.strengths).length ? `- 优势：${ensureArray(subject.strengths).join('；')}` : '',
         ensureArray(subject.areasToImprove).length ? `- 待提升：${ensureArray(subject.areasToImprove).join('；')}` : '',
         ensureArray(subject.nextSteps).length ? `- 下一步：${ensureArray(subject.nextSteps).join('；')}` : '',
@@ -53,8 +61,9 @@ const renderSubjectReports = (reportType, subjectReports = []) => {
 const renderRecommendations = (recommendations = []) => {
   if (!recommendations.length) return '暂无建议';
   return recommendations
+    .slice(0, MAX_MARKDOWN_ROWS)
     .map((item) => normalizeRecommendation(item))
-    .map((item) => `- [${item.priority}] ${item.area || '建议'}：${item.recommendation || '暂无内容'}`)
+    .map((item) => `- [${item.priority}] ${clip(item.area || '建议', 80)}：${clip(item.recommendation || '暂无内容', 220)}`)
     .join('\n');
 };
 
@@ -73,14 +82,14 @@ const renderEnglishSpecialAnalysis = (reportType, displayReport = {}, analytics 
     lines.push('本周期存在英文专项学习记录，具体数据见下：');
   }
 
-  const skillReports = Array.isArray(englishAi?.skillReports) ? englishAi.skillReports : [];
+  const skillReports = Array.isArray(englishAi?.skillReports) ? englishAi.skillReports.slice(0, MAX_MARKDOWN_ROWS) : [];
   if (skillReports.length) {
     for (const item of skillReports) {
       const label = item.skillLabel || item.skillKey || '专项';
       const summaryText = reportType === 'yearly'
         ? item.annualSummary || item.summary || '暂无总结'
         : item.summary || '暂无总结';
-      lines.push(`- ${label}：${summaryText}`);
+      lines.push(`- ${clip(label, 80)}：${clip(summaryText, 220)}`);
     }
   } else if (englishAnalytics?.skillBreakdown) {
     ['editing', 'composition', 'readingComprehension', 'grammar'].forEach((key) => {

@@ -57,5 +57,27 @@
     </block>
 
     <button class="btn-outline admin-btn" size="mini" bindtap="goAdminLogin">管理员登录</button>
+
+    <view class="reviewer-box">
+      <view class="reviewer-title">审核员体验入口</view>
+      <input
+        class="input reviewer-input"
+        placeholder="审核账号"
+        value="{{reviewerUsername}}"
+        data-field="reviewerUsername"
+        bindinput="onReviewerInput"
+      />
+      <input
+        class="input reviewer-input"
+        placeholder="审核密码"
+        password
+        value="{{reviewerPassword}}"
+        data-field="reviewerPassword"
+        bindinput="onReviewerInput"
+      />
+      <button class="btn-outline reviewer-btn" loading="{{reviewerLoading}}" bindtap="submitReviewerLogin">
+        审核员登录
+      </button>
+    </view>
   </view>
 </view>

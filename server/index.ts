@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import bodyParser from 'body-parser';
 import dotenv from 'dotenv';
+import crypto from 'crypto';
 import { db } from './db';
 import { eq, desc, and, isNull, inArray, gte, lte, lt } from 'drizzle-orm';
 import { format } from 'date-fns';
@@ -52,6 +53,7 @@ import {
   aggregateLossPoints,
   aggregateWeeklyPaperBreakdown,
   aggregateWeeklySubjectAndEnglishBreakdown,
+  buildCompactWeeklySummaryContext,
   parseStructuredSummary,
 } from './utils/aiWeeklySummary';
 import {
@@ -90,6 +92,18 @@ import {
   withActionLock,
 } from './services/actionLocks';
 import { serializeReportJson } from './utils/reportJson';
+import {
+  INPUT_LIMITS,
+  parseFiniteInteger,
+  trimString,
+  validateDailyProgressExtremes,
+  validateDateRange,
+  validateDisplayName,
+  validateExamSubjects,
+  validatePaperPayload,
+  validateReportInput,
+  validateYearRange,
+} from './utils/inputValidation';
 
 // Apply V2 English normalization to a daily_progress row's activities. Used at
 // every read/write boundary so legacy rows look V2 to consumers and new writes
@@ -277,6 +291,41 @@ const requirePaperEvaluations = (
   });
   return details.length ? { ok: false, details } : { ok: true };
 };
+
+const REVIEWER_USERNAME = String(process.env.REVIEWER_USERNAME || 'account').trim();
+const REVIEWER_PASSWORD = String(process.env.REVIEWER_PASSWORD || 'xyz2026!!');
+const REVIEWER_DISPLAY_NAME = String(process.env.REVIEWER_DISPLAY_NAME || '审核体验账号').trim() || '审核体验账号';
+const REVIEWER_EMAIL = String(process.env.REVIEWER_EMAIL || 'reviewer@local.edunet').trim();
+const REVIEWER_TEACHER_ID = String(process.env.REVIEWER_TEACHER_ID || '').trim();
+const REVIEWER_STUDENT_ID = String(process.env.REVIEWER_STUDENT_ID || '').trim();
+
+const safeEq = (a: string, b: string) => {
+  const left = Buffer.from(String(a || ''), 'utf8');
+  const right = Buffer.from(String(b || ''), 'utf8');
+  if (left.length !== right.length) return false;
+  return crypto.timingSafeEqual(left, right);
+};
+
+const isReviewerSession = (req: express.Request) =>
+  req.user?.role === 'teacher' && req.user?.isReviewer === true;
+
+const enforceReviewerScope = (req: express.Request, res: express.Response, studentId?: unknown) => {
+  if (!isReviewerSession(req)) return true;
+  const reviewerStudentId = String(req.user?.reviewerStudentId || '').trim();
+  if (!reviewerStudentId) {
+    res.status(403).json({ error: 'Reviewer account is not configured with a demo student' });
+    return false;
+  }
+  if (studentId == null || studentId === '') return true;
+  if (String(studentId) !== reviewerStudentId) {
+    res.status(403).json({ error: 'Reviewer account can only access demo student data' });
+    return false;
+  }
+  return true;
+};
+
+const invalidInput = (res: express.Response, issues: Array<{ field: string; message: string }>) =>
+  res.status(400).json({ error: 'INVALID_INPUT', details: issues });
 
 type WeChatSessionResponse = {
   openid?: string;
@@ -560,6 +609,18 @@ const buildMarkdownReport = (params: {
   papers: Array<any>;
   exams: Array<any>;
 }) => {
+  const clipMd = (value: unknown, max = 280) => {
+    const text = String(value || '').trim();
+    if (!text) return '';
+    return text.length > max ? `${text.slice(0, max)}...` : text;
+  };
+
+  const dailyRows = (params.daily || []).slice(-30);
+  const weeklyRows = (params.weekly || []).slice(-20);
+  const paperRows = (params.papers || []).slice(-30);
+  const examRows = (params.exams || []).slice(-20);
+  const subjectProgressRows = (params.subjectProgress || []).slice(0, 20);
+
   const lines: string[] = [];
   lines.push(`# 学生学习总结报告`);
   lines.push('');
@@ -570,30 +631,30 @@ const buildMarkdownReport = (params: {
   lines.push('');
 
   lines.push('## 章节完成情况');
-  if (!params.subjectProgress.length) {
+  if (!subjectProgressRows.length) {
     lines.push('- 暂无章节进度数据');
   } else {
-    params.subjectProgress.forEach((s) => {
+    subjectProgressRows.forEach((s) => {
       lines.push(`- ${s.subjectName || '未命名科目'}：完成 ${s.completed}/${s.totalTopics}，进行中 ${s.inProgress}，未开始 ${s.notStarted}`);
     });
   }
   lines.push('');
 
   lines.push('## 每日进度');
-  if (!params.daily.length) {
+  if (!dailyRows.length) {
     lines.push('- 暂无每日进度');
   } else {
-    params.daily.forEach((d) => {
+    dailyRows.forEach((d) => {
       lines.push(`### ${toDateString(d.date)}`);
       lines.push(`- 出勤：${d.attendance || '-'}`);
-      if (d.summary) lines.push(`- 当日总结：${String(d.summary).trim()}`);
-      const activities = Array.isArray(d.activities) ? d.activities : [];
+      if (d.summary) lines.push(`- 当日总结：${clipMd(d.summary, 240)}`);
+      const activities = (Array.isArray(d.activities) ? d.activities : []).slice(0, 16);
       if (activities.length) {
         activities.forEach((a: any, idx: number) => {
           const subject = a?.subjectDisplayName || a?.subjectName || a?.subject || `科目${idx + 1}`;
-          const taskSummary = String(a?.taskSummary || a?.practiceProgress || a?.description || '').trim();
-          const strengths = String(a?.strengths || '').trim();
-          const improvements = String(a?.improvements || '').trim();
+          const taskSummary = clipMd(a?.taskSummary || a?.practiceProgress || a?.description, 180);
+          const strengths = clipMd(a?.strengths, 180);
+          const improvements = clipMd(a?.improvements, 180);
           lines.push(`- ${subject}`);
           if (taskSummary) lines.push(`  - 学生具体做了什么：${taskSummary}`);
           if (strengths) lines.push(`  - 做得好的地方：${strengths}`);
@@ -605,40 +666,40 @@ const buildMarkdownReport = (params: {
   }
 
   lines.push('## 每周反馈');
-  if (!params.weekly.length) {
+  if (!weeklyRows.length) {
     lines.push('- 暂无每周反馈');
   } else {
-    params.weekly.forEach((w) => {
-      lines.push(`- ${toDateString(w.weekStarting)} ~ ${toDateString(w.weekEnding)}：${String(w.summary || '').trim() || '无'}`);
+    weeklyRows.forEach((w) => {
+      lines.push(`- ${toDateString(w.weekStarting)} ~ ${toDateString(w.weekEnding)}：${clipMd(w.summary, 220) || '无'}`);
     });
   }
   lines.push('');
 
   lines.push('## 试卷 / 测验记录');
-  if (!params.papers.length) {
+  if (!paperRows.length) {
     lines.push('- 暂无试卷记录');
   } else {
-    params.papers.forEach((p) => {
+    paperRows.forEach((p) => {
       lines.push(`- ${toDateString(p.date)}｜${p.subjectName || '未指定科目'}｜${p.typeName || '未分类类型'}｜${p.schoolName || '未指定学校'}｜${p.score ?? '-'} / ${p.total ?? '-'}`);
-      if (p.description) lines.push(`  - 描述：${String(p.description).trim()}`);
-      if (p.strengths) lines.push(`  - 做得好的地方：${String(p.strengths).trim()}`);
-      if (p.improvements) lines.push(`  - 需要改进的地方：${String(p.improvements).trim()}`);
+      if (p.description) lines.push(`  - 描述：${clipMd(p.description, 180)}`);
+      if (p.strengths) lines.push(`  - 做得好的地方：${clipMd(p.strengths, 180)}`);
+      if (p.improvements) lines.push(`  - 需要改进的地方：${clipMd(p.improvements, 180)}`);
     });
   }
   lines.push('');
 
   lines.push('## 考试成绩');
-  if (!params.exams.length) {
+  if (!examRows.length) {
     lines.push('- 暂无考试成绩');
   } else {
-    params.exams.forEach((e) => {
+    examRows.forEach((e) => {
       lines.push(`- ${e.name}（${toDateString(e.examDate)}）`);
-      const subjects = Array.isArray(e.subjects) ? e.subjects : [];
+      const subjects = (Array.isArray(e.subjects) ? e.subjects : []).slice(0, 24);
       if (!subjects.length) {
         lines.push('  - 暂无科目成绩');
       } else {
         subjects.forEach((s: any) => {
-          lines.push(`  - ${s.name}：${s.score || '未录入'}${s.scope ? `；范围：${s.scope}` : ''}`);
+          lines.push(`  - ${s.name}：${s.score || '未录入'}${s.scope ? `；范围：${clipMd(s.scope, 120)}` : ''}`);
         });
       }
     });
@@ -739,7 +800,8 @@ app.get('/api/parents/unassigned', async (req, res) => {
   }
 });
 
-app.get('/api/parents', authenticate, requireTeacher, async (_, res) => {
+app.get('/api/parents', authenticate, requireTeacher, async (req, res) => {
+  if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot access parent directory' });
   try {
     const result = await db
       .select()
@@ -839,6 +901,18 @@ app.delete('/api/parents/:id', authenticate, requireTeacher, async (req, res) =>
 // Get all students (teachers see all, parents see only their children)
 app.get('/api/students', authenticate, async (req, res) => {
   try {
+    if (isReviewerSession(req)) {
+      const reviewerStudentId = String(req.user?.reviewerStudentId || '').trim();
+      if (!reviewerStudentId) {
+        return res.status(403).json({ error: 'Reviewer account is not configured with a demo student' });
+      }
+      const rows = await db
+        .select()
+        .from(studentsTable)
+        .where(eq(studentsTable.id, reviewerStudentId))
+        .limit(1);
+      return res.json(rows);
+    }
     if (req.user?.role === 'parent') {
       // Parents only see their own children
       const result = await db
@@ -875,6 +949,7 @@ app.get('/api/students/:id', authenticate, verifyParentStudentAccess, async (req
 });
 
 app.post('/api/students', authenticate, requireTeacher, async (req, res) => {
+  if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot manage student roster' });
   // Normalize parentId field (handle both parentId and parent_id from frontend)
   const body = { ...req.body };
   if (body.parent_id && !body.parentId) {
@@ -913,6 +988,7 @@ app.post('/api/students', authenticate, requireTeacher, async (req, res) => {
 });
 
 app.put('/api/students/:id', authenticate, requireTeacher, async (req, res) => {
+  if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot manage student roster' });
   const id = req.params.id;
   // Normalize parentId field (handle both parentId and parent_id from frontend)
   const body = { ...req.body };
@@ -943,6 +1019,7 @@ app.put('/api/students/:id', authenticate, requireTeacher, async (req, res) => {
 });
 
 app.delete('/api/students/:id', authenticate, requireTeacher, async (req, res) => {
+  if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot manage student roster' });
   const id = req.params.id;
   try {
     const existing = await db
@@ -1017,6 +1094,7 @@ app.get('/api/students/:studentId/exams', authenticate, verifyParentStudentAcces
 
 app.post('/api/students/:studentId/exams', authenticate, requireTeacher, async (req, res) => {
   const { studentId } = req.params;
+  if (!enforceReviewerScope(req, res, studentId)) return;
   const name = String(req.body?.name || '').trim();
   const examDate = String(req.body?.examDate || '').trim();
   // Part 6 additions: examType, reminderDate, subjects[].scope. All optional —
@@ -1049,6 +1127,10 @@ app.post('/api/students/:studentId/exams', authenticate, requireTeacher, async (
     .filter((s: any) => s.name);
 
   if (!normalized.length) return res.status(400).json({ error: 'Invalid subjects' });
+  const examDateParsed = parseDateString(examDate);
+  if (!examDateParsed) return res.status(400).json({ error: 'Invalid exam date' });
+  const subjectIssues = validateExamSubjects(normalized);
+  if (subjectIssues.length) return invalidInput(res, subjectIssues);
 
   try {
     await withActionLock(
@@ -1143,10 +1225,15 @@ app.put('/api/exams/:id', authenticate, requireTeacher, async (req, res) => {
     .filter((s: any) => s.name);
 
   if (!normalized.length) return res.status(400).json({ error: 'Invalid subjects' });
+  const examDateParsed = parseDateString(examDate);
+  if (!examDateParsed) return res.status(400).json({ error: 'Invalid exam date' });
+  const subjectIssues = validateExamSubjects(normalized);
+  if (subjectIssues.length) return invalidInput(res, subjectIssues);
 
   try {
     const existing = await db.select().from(examsTable).where(eq(examsTable.id, id)).limit(1);
     if (!existing.length) return res.status(404).json({ error: 'Exam not found' });
+    if (!enforceReviewerScope(req, res, existing[0].studentId)) return;
     if (studentId && existing[0].studentId !== studentId) {
       return res.status(404).json({ error: 'Exam not found' });
     }
@@ -1219,6 +1306,7 @@ app.delete('/api/exams/:id', authenticate, requireTeacher, async (req, res) => {
     }
     const existing = await db.select().from(examsTable).where(eq(examsTable.id, id)).limit(1);
     if (!existing.length) return res.status(404).json({ error: 'Exam not found' });
+    if (!enforceReviewerScope(req, res, existing[0].studentId)) return;
     await withActionLock(
       {
         lockKey: studentWriteLockKey(existing[0].studentId),
@@ -1258,6 +1346,9 @@ app.delete('/api/exams/:id', authenticate, requireTeacher, async (req, res) => {
 // "即将到来的考试" dashboard card. Returns exams across all students that are
 // inside their reminder window (effective reminder ≤ today ≤ examDate).
 app.get('/api/exams/upcoming', authenticate, requireTeacher, async (req, res) => {
+  if (isReviewerSession(req)) {
+    return res.status(403).json({ error: 'Reviewer account cannot access cross-student reminders' });
+  }
   try {
     const requested = req.query?.date;
     const today = requested ? parseDateString(requested) : chinaTodayDateString();
@@ -1342,8 +1433,10 @@ app.get('/api/exams/upcoming', authenticate, requireTeacher, async (req, res) =>
 // ====== SUMMARY ROUTES ======
 app.get('/api/students/:studentId/quarterly-summary', authenticate, verifyParentStudentAccess, async (req, res) => {
   const { studentId } = req.params;
-  const year = Number(req.query.year || new Date().getFullYear());
-  if (!Number.isFinite(year)) return res.status(400).json({ error: 'Invalid year' });
+  const year = parseFiniteInteger(req.query.year || new Date().getFullYear());
+  if (year === null) return res.status(400).json({ error: 'Invalid year' });
+  const yearIssue = validateYearRange(year, 'year');
+  if (yearIssue) return invalidInput(res, [yearIssue]);
   try {
     const rows = await db
       .select()
@@ -1359,14 +1452,29 @@ app.get('/api/students/:studentId/quarterly-summary', authenticate, verifyParent
 
 app.put('/api/students/:studentId/quarterly-summary', authenticate, requireTeacher, async (req, res) => {
   const { studentId } = req.params;
-  const year = Number(req.body?.year || new Date().getFullYear());
+  if (!enforceReviewerScope(req, res, studentId)) return;
+  const year = parseFiniteInteger(req.body?.year || new Date().getFullYear());
   const summaries = Array.isArray(req.body?.summaries) ? req.body.summaries : [];
   const singleQuarter = Number(req.body?.quarter);
   const singleSummary = req.body?.summary;
   const startDate = req.body?.startDate ? String(req.body.startDate) : null;
   const endDate = req.body?.endDate ? String(req.body.endDate) : null;
   const clientUpdatedAt = parseTimestamp(req.body?.updatedAt);
-  if (!Number.isFinite(year)) return res.status(400).json({ error: 'Invalid year' });
+  if (year === null) return res.status(400).json({ error: 'Invalid year' });
+  const yearIssue = validateYearRange(year, 'year');
+  if (yearIssue) return invalidInput(res, [yearIssue]);
+  if (startDate || endDate) {
+    const rangeIssues = validateDateRange({
+      startDate: String(startDate || ''),
+      endDate: String(endDate || ''),
+      maxDays: INPUT_LIMITS.quarterlyDateRangeMaxDays,
+      fieldPrefix: 'quarterlyRange',
+    });
+    if (rangeIssues.length) return invalidInput(res, rangeIssues);
+  }
+  if (trimString(singleSummary).length > INPUT_LIMITS.summaryTextMax) {
+    return invalidInput(res, [{ field: 'summary', message: `文本过长（最多 ${INPUT_LIMITS.summaryTextMax} 字）` }]);
+  }
   try {
     await withActionLock(
       {
@@ -1482,8 +1590,10 @@ app.put('/api/students/:studentId/quarterly-summary', authenticate, requireTeach
 
 app.get('/api/students/:studentId/yearly-summary', authenticate, verifyParentStudentAccess, async (req, res) => {
   const { studentId } = req.params;
-  const year = Number(req.query.year || new Date().getFullYear());
-  if (!Number.isFinite(year)) return res.status(400).json({ error: 'Invalid year' });
+  const year = parseFiniteInteger(req.query.year || new Date().getFullYear());
+  if (year === null) return res.status(400).json({ error: 'Invalid year' });
+  const yearIssue = validateYearRange(year, 'year');
+  if (yearIssue) return invalidInput(res, [yearIssue]);
   try {
     const rows = await db
       .select()
@@ -1499,10 +1609,16 @@ app.get('/api/students/:studentId/yearly-summary', authenticate, verifyParentStu
 
 app.put('/api/students/:studentId/yearly-summary', authenticate, requireTeacher, async (req, res) => {
   const { studentId } = req.params;
-  const year = Number(req.body?.year || new Date().getFullYear());
+  if (!enforceReviewerScope(req, res, studentId)) return;
+  const year = parseFiniteInteger(req.body?.year || new Date().getFullYear());
   const summary = String(req.body?.summary || "");
   const clientUpdatedAt = parseTimestamp(req.body?.updatedAt);
-  if (!Number.isFinite(year)) return res.status(400).json({ error: 'Invalid year' });
+  if (year === null) return res.status(400).json({ error: 'Invalid year' });
+  const yearIssue = validateYearRange(year, 'year');
+  if (yearIssue) return invalidInput(res, [yearIssue]);
+  if (trimString(summary).length > INPUT_LIMITS.summaryTextMax) {
+    return invalidInput(res, [{ field: 'summary', message: `文本过长（最多 ${INPUT_LIMITS.summaryTextMax} 字）` }]);
+  }
   try {
     await withActionLock(
       {
@@ -1598,6 +1714,25 @@ app.post('/api/reports', authenticate, requireRole('teacher', 'admin'), async (r
   const year = req.body?.year == null || req.body?.year === '' ? null : Number(req.body.year);
   if (!studentId || !startDate || !endDate) return res.status(400).json({ error: 'Missing required fields' });
   if (year != null && !Number.isFinite(year)) return res.status(400).json({ error: 'Invalid year' });
+  if (!enforceReviewerScope(req, res, studentId)) return;
+  const rangeIssues = validateDateRange({
+    startDate,
+    endDate,
+    maxDays: INPUT_LIMITS.exportDateRangeMaxDays,
+    fieldPrefix: 'reportRange',
+  });
+  if (rangeIssues.length) return invalidInput(res, rangeIssues);
+  if (year != null) {
+    const yearIssue = validateYearRange(year, 'year');
+    if (yearIssue) return invalidInput(res, [yearIssue]);
+  }
+  const reportIssues = validateReportInput({
+    title,
+    summary,
+    finalReport: req.body?.finalReport ?? req.body?.structuredReport,
+    structuredReport: req.body?.structuredReport,
+  });
+  if (reportIssues.length) return invalidInput(res, reportIssues);
 
   const parsed = StudentReportSchema.safeParse({
     studentId,
@@ -1766,6 +1901,7 @@ app.patch('/api/reports/:reportId', authenticate, requireRole('teacher', 'admin'
   try {
     const report = await getReportWithStudent(req.params.reportId);
     if (!report) return res.status(404).json({ error: 'Report not found' });
+    if (!enforceReviewerScope(req, res, report.studentId)) return;
 
     await withActionLock(
       {
@@ -1797,6 +1933,15 @@ app.patch('/api/reports/:reportId', authenticate, requireRole('teacher', 'admin'
             analytics: report.analyticsJson,
           });
           updates.finalReportJson = normalizedPayload.finalReportJson;
+        }
+        const reportIssues = validateReportInput({
+          title: req.body?.title,
+          summary: req.body?.summary,
+          finalReport: req.body?.finalReport,
+        });
+        if (reportIssues.length) {
+          res.status(400).json({ error: 'INVALID_INPUT', details: reportIssues });
+          return;
         }
 
         if (Object.keys(updates).length <= 3) {
@@ -1844,6 +1989,7 @@ app.patch('/api/reports/:reportId/visibility', authenticate, requireRole('teache
   try {
     const existing = await getReportWithStudent(req.params.reportId);
     if (!existing) return res.status(404).json({ error: 'Report not found' });
+    if (!enforceReviewerScope(req, res, existing.studentId)) return;
 
     await withActionLock(
       {
@@ -1892,6 +2038,7 @@ app.delete('/api/reports/:reportId', authenticate, requireRole('teacher', 'admin
   try {
     const report = await getReportWithStudent(req.params.reportId);
     if (!report) return res.status(404).json({ error: 'Report not found' });
+    if (!enforceReviewerScope(req, res, report.studentId)) return;
 
     const allowed = canUserManageReport({
       user,
@@ -2191,6 +2338,13 @@ app.get('/api/students/:studentId/report-export', authenticate, verifyParentStud
   if (startDate > endDate) {
     return res.status(400).json({ error: 'startDate must be <= endDate' });
   }
+  const exportRangeIssues = validateDateRange({
+    startDate,
+    endDate,
+    maxDays: INPUT_LIMITS.exportDateRangeMaxDays,
+    fieldPrefix: 'exportRange',
+  });
+  if (exportRangeIssues.length) return invalidInput(res, exportRangeIssues);
   if (formatType !== 'markdown') {
     return res.status(400).json({ error: 'Only markdown export is currently supported' });
   }
@@ -2344,6 +2498,7 @@ app.get('/api/subjects', async (_, res) => {
 // Get list of subject IDs a student is enrolled in
 app.get('/api/students/:studentId/subjects', authenticate, requireTeacher, async (req, res) => {
   const { studentId } = req.params;
+  if (!enforceReviewerScope(req, res, studentId)) return;
   try {
     const records = await db
       .select({ subjectId: studentSubjectsTable.subjectId })
@@ -2358,6 +2513,7 @@ app.get('/api/students/:studentId/subjects', authenticate, requireTeacher, async
 // Assign subjects to a student (replaces existing assignments)
 app.put('/api/students/:studentId/subjects', authenticate, requireTeacher, async (req, res) => {
   const { studentId } = req.params;
+  if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot change subject assignments' });
   const { subjectIds, resetProgress } = req.body as {
     subjectIds: string[];
     /** optional: 'removed' | 'all' | 'keep' */
@@ -2457,6 +2613,7 @@ app.put('/api/students/:studentId/subjects', authenticate, requireTeacher, async
 // Sync topics from subjectCatalogs.json for a student's assigned subjects
 app.post('/api/students/:studentId/subjects/sync-catalog', authenticate, requireTeacher, async (req, res) => {
   const { studentId } = req.params;
+  if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot sync catalog' });
   try {
     await withActionLock(
       {
@@ -2602,6 +2759,7 @@ app.get('/api/students/:studentId/subjects/full', authenticate, verifyParentStud
 // Update or insert progress status for a student's topic
 app.put('/api/students/:studentId/topics/:topicId/progress', authenticate, requireTeacher, async (req, res) => {
   const { studentId, topicId } = req.params;
+  if (!enforceReviewerScope(req, res, studentId)) return;
   const { status, definitionRecited, chapterExerciseCompleted } = req.body as {
     status?: TopicStatusValue;
     definitionRecited?: boolean;
@@ -2743,6 +2901,7 @@ app.get('/api/paper-types', authenticate, async (_, res) => {
 });
 
 app.post('/api/paper-types', authenticate, requireTeacher, async (req, res) => {
+  if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot edit paper catalog' });
   const { name } = req.body || {};
   if (!name || !String(name).trim()) {
     return res.status(400).json({ error: 'Missing name' });
@@ -2783,6 +2942,7 @@ app.post('/api/paper-types', authenticate, requireTeacher, async (req, res) => {
 });
 
 app.delete('/api/paper-types/:id', authenticate, requireTeacher, async (req, res) => {
+  if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot edit paper catalog' });
   const { id } = req.params;
   try {
     await withActionLock(
@@ -2827,6 +2987,7 @@ app.get('/api/paper-schools', authenticate, async (_, res) => {
 });
 
 app.post('/api/paper-schools', authenticate, requireTeacher, async (req, res) => {
+  if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot edit paper catalog' });
   const { name } = req.body || {};
   if (!name || !String(name).trim()) {
     return res.status(400).json({ error: 'Missing name' });
@@ -2867,6 +3028,7 @@ app.post('/api/paper-schools', authenticate, requireTeacher, async (req, res) =>
 });
 
 app.delete('/api/paper-schools/:id', authenticate, requireTeacher, async (req, res) => {
+  if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot edit paper catalog' });
   const { id } = req.params;
   try {
     await withActionLock(
@@ -2955,14 +3117,24 @@ app.get('/api/students/:studentId/papers', authenticate, verifyParentStudentAcce
 // Replace all papers for a student on a specific date
 app.put('/api/students/:studentId/papers/batch', authenticate, requireTeacher, async (req, res) => {
   const { studentId } = req.params;
+  if (!enforceReviewerScope(req, res, studentId)) return;
   const { date, papers, expectedUpdatedAt } = req.body || {};
   if (!date || !Array.isArray(papers)) {
     return res.status(400).json({ error: 'Missing date or papers' });
+  }
+  const dateParsed = parseDateString(date);
+  if (!dateParsed) return res.status(400).json({ error: 'Invalid paper date' });
+  if (papers.length > INPUT_LIMITS.papersBatchMax) {
+    return res.status(400).json({ error: `Too many papers in one batch (max ${INPUT_LIMITS.papersBatchMax})` });
   }
   const missingRequired = papers.some((p: any) => !p?.typeId || !p?.schoolId);
   if (missingRequired) {
     return res.status(400).json({ error: 'Missing required paper fields' });
   }
+  const batchIssues = papers.flatMap((paper: unknown, index: number) =>
+    validatePaperPayload(paper, `papers[${index}]`),
+  );
+  if (batchIssues.length) return invalidInput(res, batchIssues);
   const paperEvaluationValidation = requirePaperEvaluations(papers);
   if (!paperEvaluationValidation.ok) {
     return res.status(400).json({
@@ -3041,10 +3213,17 @@ app.put('/api/students/:studentId/papers/batch', authenticate, requireTeacher, a
 // Create single paper
 app.post('/api/students/:studentId/papers', authenticate, requireTeacher, async (req, res) => {
   const { studentId } = req.params;
+  if (!enforceReviewerScope(req, res, studentId)) return;
   const { subjectId, subjectName, typeId, schoolId, description, strengths, improvements, date, score, total } = req.body || {};
   if (!typeId || !schoolId || !date) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
+  if (!parseDateString(date)) return res.status(400).json({ error: 'Invalid paper date' });
+  const createIssues = validatePaperPayload(
+    { subjectId, subjectName, typeId, schoolId, description, strengths, improvements, date, score, total },
+    'paper',
+  );
+  if (createIssues.length) return invalidInput(res, createIssues);
   if (!String(strengths || '').trim() || !String(improvements || '').trim()) {
     return res.status(400).json({ error: 'PAPER_EVALUATION_REQUIRED' });
   }
@@ -3091,10 +3270,17 @@ app.post('/api/students/:studentId/papers', authenticate, requireTeacher, async 
 // Update single paper
 app.put('/api/students/:studentId/papers/:paperId', authenticate, requireTeacher, async (req, res) => {
   const { studentId, paperId } = req.params;
+  if (!enforceReviewerScope(req, res, studentId)) return;
   const { subjectId, subjectName, typeId, schoolId, description, strengths, improvements, date, score, total, updatedAt } = req.body || {};
   if (!typeId || !schoolId || !date) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
+  if (!parseDateString(date)) return res.status(400).json({ error: 'Invalid paper date' });
+  const updateIssues = validatePaperPayload(
+    { subjectId, subjectName, typeId, schoolId, description, strengths, improvements, date, score, total },
+    'paper',
+  );
+  if (updateIssues.length) return invalidInput(res, updateIssues);
   if (!String(strengths || '').trim() || !String(improvements || '').trim()) {
     return res.status(400).json({ error: 'PAPER_EVALUATION_REQUIRED' });
   }
@@ -3166,6 +3352,7 @@ app.put('/api/students/:studentId/papers/:paperId', authenticate, requireTeacher
 // Delete single paper
 app.delete('/api/students/:studentId/papers/:paperId', authenticate, requireTeacher, async (req, res) => {
   const { studentId, paperId } = req.params;
+  if (!enforceReviewerScope(req, res, studentId)) return;
   try {
     const clientUpdatedAt = parseTimestamp((req.query as any).updatedAt || req.body?.updatedAt);
     if (!clientUpdatedAt) {
@@ -3375,9 +3562,21 @@ app.get('/api/students/:studentId/progress', authenticate, verifyParentStudentAc
 });
 
 // Return empty array for now until tables are created
-app.get('/api/progress', authenticate, requireTeacher, async (_, res) => {
+app.get('/api/progress', authenticate, requireTeacher, async (req, res) => {
   try {
     console.log('Fetching all daily progress...');
+    if (isReviewerSession(req)) {
+      const reviewerStudentId = String(req.user?.reviewerStudentId || '').trim();
+      if (!reviewerStudentId) {
+        return res.status(403).json({ error: 'Reviewer account is not configured with a demo student' });
+      }
+      const reviewerRows = await db
+        .select()
+        .from(dailyProgress)
+        .where(eq(dailyProgress.studentId, reviewerStudentId))
+        .orderBy(desc(dailyProgress.date));
+      return res.json(reviewerRows.map(withV2Activities));
+    }
     const result = await db.select().from(dailyProgress).orderBy(desc(dailyProgress.date));
     console.log(`Found ${result.length} progress records`);
     res.json(result.map(withV2Activities));
@@ -3392,6 +3591,9 @@ app.get('/api/progress', authenticate, requireTeacher, async (_, res) => {
 // finish records before evening study ends at 21:00. ?date= overrides the
 // default of "today in Asia/Shanghai".
 app.get('/api/daily-progress/missing', authenticate, requireTeacher, async (req, res) => {
+  if (isReviewerSession(req)) {
+    return res.status(403).json({ error: 'Reviewer account cannot access cross-student reminders' });
+  }
   try {
     const requestedDate = req.query?.date;
     const date = requestedDate
@@ -3429,6 +3631,9 @@ app.get('/api/daily-progress/missing', authenticate, requireTeacher, async (req,
 // checks the active study cycle's weekStarting as the expected weekly feedback
 // key, so teachers can quickly see who still lacks a weekly report.
 app.get('/api/feedback/missing', authenticate, requireTeacher, async (req, res) => {
+  if (isReviewerSession(req)) {
+    return res.status(403).json({ error: 'Reviewer account cannot access cross-student reminders' });
+  }
   try {
     const requestedDate = req.query?.date;
     const date = requestedDate
@@ -3600,6 +3805,7 @@ app.get('/api/weekly-cycles/current', authenticate, requireTeacher, async (req, 
 
 app.get('/api/students/:studentId/weekly-targets', authenticate, requireTeacher, async (req, res) => {
   const { studentId } = req.params;
+  if (!enforceReviewerScope(req, res, studentId)) return;
   const cycleIdParam = req.query?.cycleId;
   try {
     let cycleId: string | null = null;
@@ -3639,6 +3845,7 @@ app.get('/api/students/:studentId/weekly-targets', authenticate, requireTeacher,
 
 app.put('/api/students/:studentId/weekly-targets', authenticate, requireTeacher, async (req, res) => {
   const { studentId } = req.params;
+  if (!enforceReviewerScope(req, res, studentId)) return;
   const parsed = StudentWeeklyTaskTargetsSchema.safeParse({ ...req.body, studentId });
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const data = parsed.data;
@@ -3718,6 +3925,9 @@ app.put('/api/students/:studentId/weekly-targets', authenticate, requireTeacher,
 // required tasks aren't all met. Heavy: O(students) progress reads — fine for
 // classroom-sized rosters; revisit if rosters grow into the thousands.
 app.get('/api/weekly-tasks/incomplete', authenticate, requireTeacher, async (req, res) => {
+  if (isReviewerSession(req)) {
+    return res.status(403).json({ error: 'Reviewer account cannot access cross-student reminders' });
+  }
   try {
     const requested = req.query?.date;
     const date = requested ? parseDateString(requested) : chinaTodayDateString();
@@ -3841,6 +4051,12 @@ app.post('/api/progress', authenticate, requireTeacher, async (req, res) => {
       });
     }
     const { studentId, date, attendance, attendanceStart, attendanceEnd, summary, activities } = parsed.data;
+    if (!enforceReviewerScope(req, res, studentId)) return;
+    const extremeIssues = validateDailyProgressExtremes(activities);
+    if (extremeIssues.length) return invalidInput(res, extremeIssues);
+    if (trimString(summary).length > INPUT_LIMITS.summaryTextMax) {
+      return invalidInput(res, [{ field: 'summary', message: `文本过长（最多 ${INPUT_LIMITS.summaryTextMax} 字）` }]);
+    }
 
     await withActionLock(
       {
@@ -3938,6 +4154,12 @@ app.put('/api/progress/:id', authenticate, requireTeacher, async (req, res) => {
     }
     const { studentId, date, attendance, attendanceStart, attendanceEnd, summary, activities } = parsed.data;
     const { updatedAt } = req.body;
+    if (!enforceReviewerScope(req, res, studentId)) return;
+    const extremeIssues = validateDailyProgressExtremes(activities);
+    if (extremeIssues.length) return invalidInput(res, extremeIssues);
+    if (trimString(summary).length > INPUT_LIMITS.summaryTextMax) {
+      return invalidInput(res, [{ field: 'summary', message: `文本过长（最多 ${INPUT_LIMITS.summaryTextMax} 字）` }]);
+    }
 
     await withActionLock(
       {
@@ -4045,6 +4267,7 @@ app.delete('/api/progress/:id', authenticate, requireTeacher, async (req, res) =
     const existing = await db.select().from(dailyProgress).where(eq(dailyProgress.id, id)).limit(1);
     if (!existing.length) return res.status(404).json({ error: 'Progress not found' });
     const studentId = existing[0].studentId;
+    if (!enforceReviewerScope(req, res, studentId)) return;
     await withActionLock(
       {
         lockKey: studentWriteLockKey(studentId),
@@ -4096,8 +4319,20 @@ app.get('/api/progress/list', authenticate, verifyParentStudentAccess, async (re
 
 // ========== WEEKLY FEEDBACK ROUTES ==========
 
-app.get('/api/feedback', authenticate, requireTeacher, async (_, res) => {
+app.get('/api/feedback', authenticate, requireTeacher, async (req, res) => {
   try {
+    if (isReviewerSession(req)) {
+      const reviewerStudentId = String(req.user?.reviewerStudentId || '').trim();
+      if (!reviewerStudentId) {
+        return res.status(403).json({ error: 'Reviewer account is not configured with a demo student' });
+      }
+      const reviewerRows = await db
+        .select()
+        .from(weeklyFeedback)
+        .where(eq(weeklyFeedback.studentId, reviewerStudentId))
+        .orderBy(desc(weeklyFeedback.weekStarting));
+      return res.json(reviewerRows);
+    }
     const result = await db.select().from(weeklyFeedback).orderBy(desc(weeklyFeedback.weekStarting));
     res.json(result);
   } catch (err) {
@@ -4123,6 +4358,17 @@ app.post('/api/feedback', authenticate, requireTeacher, async (req, res) => {
       teacherNotes?: string;
       nextWeekFocus?: string;
     };
+    if (!enforceReviewerScope(req, res, parsedData.studentId)) return;
+    const feedbackRangeIssues = validateDateRange({
+      startDate: format(parsedData.weekStarting, 'yyyy-MM-dd'),
+      endDate: format(parsedData.weekEnding, 'yyyy-MM-dd'),
+      maxDays: INPUT_LIMITS.weeklyDateRangeMaxDays,
+      fieldPrefix: 'weeklyRange',
+    });
+    if (feedbackRangeIssues.length) return invalidInput(res, feedbackRangeIssues);
+    if (trimString(parsedData.summary).length > INPUT_LIMITS.summaryTextMax) {
+      return invalidInput(res, [{ field: 'summary', message: `文本过长（最多 ${INPUT_LIMITS.summaryTextMax} 字）` }]);
+    }
     const data = {
       id: parsedData.id,
       studentId: parsedData.studentId,
@@ -4197,6 +4443,17 @@ app.put('/api/feedback/:id', authenticate, requireTeacher, async (req, res) => {
       teacherNotes?: string;
       nextWeekFocus?: string;
     };
+    if (!enforceReviewerScope(req, res, parsedData.studentId)) return;
+    const feedbackRangeIssues = validateDateRange({
+      startDate: format(parsedData.weekStarting, 'yyyy-MM-dd'),
+      endDate: format(parsedData.weekEnding, 'yyyy-MM-dd'),
+      maxDays: INPUT_LIMITS.weeklyDateRangeMaxDays,
+      fieldPrefix: 'weeklyRange',
+    });
+    if (feedbackRangeIssues.length) return invalidInput(res, feedbackRangeIssues);
+    if (trimString(parsedData.summary).length > INPUT_LIMITS.summaryTextMax) {
+      return invalidInput(res, [{ field: 'summary', message: `文本过长（最多 ${INPUT_LIMITS.summaryTextMax} 字）` }]);
+    }
     const data = {
       id: parsedData.id,
       studentId: parsedData.studentId,
@@ -4263,9 +4520,19 @@ app.post('/api/ai/weekly-summary', authenticate, requireTeacher, async (req, res
   if (!studentId || !weekStarting) {
     return res.status(400).json({ error: 'Missing required fields: studentId, weekStarting' });
   }
+  if (!enforceReviewerScope(req, res, studentId)) return;
+  const weekStart = parseDateString(weekStarting);
+  if (!weekStart) return res.status(400).json({ error: 'Invalid weekStarting date' });
   try {
-    const contextWeekEnding = addDaysToDate(String(weekStarting), 6);
+    const contextWeekEnding = addDaysToDate(String(weekStart), 6);
     const recordWeekEnding = weekEnding || contextWeekEnding;
+    const rangeIssues = validateDateRange({
+      startDate: String(weekStart),
+      endDate: String(contextWeekEnding),
+      maxDays: INPUT_LIMITS.weeklyDateRangeMaxDays,
+      fieldPrefix: 'weeklyRange',
+    });
+    if (rangeIssues.length) return invalidInput(res, rangeIssues);
     const studentRows = await db.select().from(studentsTable).where(eq(studentsTable.id, studentId));
     const student = studentRows[0];
     if (!student) {
@@ -4277,7 +4544,7 @@ app.post('/api/ai/weekly-summary', authenticate, requireTeacher, async (req, res
       .where(
         and(
           eq(dailyProgress.studentId, studentId),
-          gte(dailyProgress.date, weekStarting),
+          gte(dailyProgress.date, weekStart),
           lte(dailyProgress.date, contextWeekEnding)
         )
       )
@@ -4304,7 +4571,7 @@ app.post('/api/ai/weekly-summary', authenticate, requireTeacher, async (req, res
       .where(
         and(
           eq(studentPapersTable.studentId, studentId),
-          gte(studentPapersTable.date, weekStarting),
+          gte(studentPapersTable.date, weekStart),
           lte(studentPapersTable.date, contextWeekEnding)
         )
       )
@@ -4320,9 +4587,9 @@ app.post('/api/ai/weekly-summary', authenticate, requireTeacher, async (req, res
     const attendanceRollup = aggregateAttendance(v2Progress);
     const weeklyBreakdown = aggregateWeeklySubjectAndEnglishBreakdown(v2Progress);
     const weeklyPaperBreakdown = aggregateWeeklyPaperBreakdown(papers);
-    const context = {
+    const context = buildCompactWeeklySummaryContext({
       student,
-      weekStarting,
+      weekStarting: weekStart,
       weekEnding: contextWeekEnding,
       recordWeekEnding,
       attendance: attendanceRollup,
@@ -4334,7 +4601,7 @@ app.post('/api/ai/weekly-summary', authenticate, requireTeacher, async (req, res
       dailyProgress: v2Progress,
       papers,
       subjectProgress,
-    };
+    });
     // Operator-supplied prompt wins; otherwise use the Part 5 enhanced prompt.
     const hasCustomWeeklyPrompt = Boolean(weeklySummaryPrompt && weeklySummaryPrompt.trim());
     const basePrompt = hasCustomWeeklyPrompt ? weeklySummaryPrompt : ENHANCED_WEEKLY_PROMPT;
@@ -4345,7 +4612,7 @@ app.post('/api/ai/weekly-summary', authenticate, requireTeacher, async (req, res
         actionType: '生成每周AI汇报',
         ttlMs: ACTION_LOCK_TTL.studentAiMs,
         ...withLockActor(req),
-        metadata: { route: '/api/ai/weekly-summary', weekStarting, weekEnding: contextWeekEnding },
+        metadata: { route: '/api/ai/weekly-summary', weekStarting: weekStart, weekEnding: contextWeekEnding },
       },
       async () =>
         withActionLock(
@@ -4354,7 +4621,7 @@ app.post('/api/ai/weekly-summary', authenticate, requireTeacher, async (req, res
             actionType: '生成每周AI汇报',
             ttlMs: ACTION_LOCK_TTL.studentAiMs,
             ...withLockActor(req),
-            metadata: { route: '/api/ai/weekly-summary', weekStarting, weekEnding: contextWeekEnding },
+            metadata: { route: '/api/ai/weekly-summary', weekStarting: weekStart, weekEnding: contextWeekEnding },
           },
           async () => {
             const raw = await callDeepSeek(promptToUse, context, hasCustomWeeklyPrompt
@@ -4392,6 +4659,14 @@ app.post('/api/ai/quarterly-summary', authenticate, requireRole('teacher', 'admi
   if (!studentId || !startDate || !endDate) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
+  if (!enforceReviewerScope(req, res, studentId)) return;
+  const quarterlyRangeIssues = validateDateRange({
+    startDate: String(startDate),
+    endDate: String(endDate),
+    maxDays: INPUT_LIMITS.quarterlyDateRangeMaxDays,
+    fieldPrefix: 'quarterlyRange',
+  });
+  if (quarterlyRangeIssues.length) return invalidInput(res, quarterlyRangeIssues);
   try {
     const studentRows = await db.select().from(studentsTable).where(eq(studentsTable.id, studentId));
     const student = studentRows[0];
@@ -4600,10 +4875,13 @@ app.post('/api/ai/quarterly-summary', authenticate, requireRole('teacher', 'admi
 app.post('/api/ai/yearly-summary', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
   const { studentId, year } = req.body || {};
   const saveReport = parseBooleanLike(req.body?.saveReport) === true;
-  const yearNum = Number(year);
-  if (!studentId || !Number.isFinite(yearNum)) {
+  const yearNum = parseFiniteInteger(year);
+  if (!studentId || yearNum === null) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
+  if (!enforceReviewerScope(req, res, studentId)) return;
+  const yearIssue = validateYearRange(yearNum, 'year');
+  if (yearIssue) return invalidInput(res, [yearIssue]);
   const startDate = `${yearNum}-01-01`;
   const endDate = `${yearNum}-12-31`;
   try {
@@ -4814,6 +5092,7 @@ app.delete('/api/feedback/:id', authenticate, requireTeacher, async (req, res) =
     }
     const existing = await db.select().from(weeklyFeedback).where(eq(weeklyFeedback.id, req.params.id)).limit(1);
     if (!existing.length) return res.status(404).json({ error: 'Not found' });
+    if (!enforceReviewerScope(req, res, existing[0].studentId)) return;
     await withActionLock(
       {
         lockKey: studentWriteLockKey(existing[0].studentId),
@@ -4925,6 +5204,10 @@ app.post('/api/auth/wechat', async (req, res) => {
     const unionid = session.unionid || null;
     const submittedDisplayName =
       pickDisplayName(displayName) || pickDisplayName(nickname) || pickDisplayName(name);
+    if (submittedDisplayName) {
+      const displayIssue = validateDisplayName(submittedDisplayName);
+      if (displayIssue) return invalidInput(res, [displayIssue]);
+    }
     const nextAvatarUrl = typeof avatarUrl === 'string' && avatarUrl.trim() ? avatarUrl.trim() : null;
 
     if (role === 'teacher' || role === 'parent') {
@@ -5061,6 +5344,123 @@ app.post('/api/auth/wechat', async (req, res) => {
   }
 });
 
+const reviewerLoginHandler: express.RequestHandler = async (req, res) => {
+  const username = trimString(req.body?.username);
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Missing credentials' });
+  }
+  if (username.length > 64 || password.length > 128) {
+    return res.status(400).json({ error: 'Invalid credentials format' });
+  }
+
+  const validUser = safeEq(username, REVIEWER_USERNAME);
+  const validPass = safeEq(password, REVIEWER_PASSWORD);
+  if (!validUser || !validPass) {
+    return res.status(401).json({ error: '账号或密码错误' });
+  }
+
+  if (!REVIEWER_STUDENT_ID) {
+    return res.status(503).json({
+      error: 'Reviewer login is not configured',
+      code: 'reviewer_not_configured',
+    });
+  }
+
+  try {
+    const demoStudentRows = await db
+      .select()
+      .from(studentsTable)
+      .where(eq(studentsTable.id, REVIEWER_STUDENT_ID))
+      .limit(1);
+    if (!demoStudentRows.length) {
+      return res.status(503).json({
+        error: 'Reviewer demo student is not configured correctly',
+        code: 'reviewer_student_not_found',
+      });
+    }
+
+    let teacherRows: Array<typeof teachersTable.$inferSelect> = [];
+    if (REVIEWER_TEACHER_ID) {
+      teacherRows = await db
+        .select()
+        .from(teachersTable)
+        .where(eq(teachersTable.id, REVIEWER_TEACHER_ID))
+        .limit(1);
+    }
+    if (!teacherRows.length) {
+      teacherRows = await db
+        .select()
+        .from(teachersTable)
+        .where(eq(teachersTable.email, REVIEWER_EMAIL))
+        .limit(1);
+    }
+
+    let reviewerTeacher = teacherRows[0];
+    if (!reviewerTeacher) {
+      const created = await db
+        .insert(teachersTable)
+        .values({
+          name: REVIEWER_DISPLAY_NAME,
+          displayName: REVIEWER_DISPLAY_NAME,
+          email: REVIEWER_EMAIL,
+          password: null,
+          status: 'approved',
+          emailVerified: 'true',
+          authProvider: 'reviewer',
+          wechatOpenId: null,
+          wechatUnionId: null,
+          avatarUrl: null,
+          updatedAt: new Date(),
+        })
+        .returning();
+      reviewerTeacher = created[0];
+    } else if (
+      reviewerTeacher.status !== 'approved' ||
+      reviewerTeacher.displayName !== REVIEWER_DISPLAY_NAME ||
+      reviewerTeacher.name !== REVIEWER_DISPLAY_NAME
+    ) {
+      const updated = await db
+        .update(teachersTable)
+        .set({
+          name: REVIEWER_DISPLAY_NAME,
+          displayName: REVIEWER_DISPLAY_NAME,
+          status: 'approved',
+          emailVerified: 'true',
+          authProvider: reviewerTeacher.authProvider || 'reviewer',
+          updatedAt: new Date(),
+        })
+        .where(eq(teachersTable.id, reviewerTeacher.id))
+        .returning();
+      reviewerTeacher = updated[0];
+    }
+
+    const token = generateToken({
+      id: reviewerTeacher.id,
+      role: 'teacher',
+      name: reviewerTeacher.displayName || reviewerTeacher.name || REVIEWER_DISPLAY_NAME,
+      isReviewer: true,
+      reviewerStudentId: REVIEWER_STUDENT_ID,
+    });
+
+    return res.json({
+      user: {
+        ...toPublicUser(reviewerTeacher, 'teacher'),
+        isReviewer: true,
+        reviewerStudentId: REVIEWER_STUDENT_ID,
+      },
+      token,
+    });
+  } catch (err) {
+    console.error('Reviewer login error:', err);
+    return res.status(500).json({ error: 'Reviewer login failed' });
+  }
+};
+
+// Keep both paths to tolerate API gateway setups that may or may not strip `/api`.
+app.post('/api/auth/reviewer-login', reviewerLoginHandler);
+app.post('/auth/reviewer-login', reviewerLoginHandler);
+
 app.post('/api/login', async (_req, res) => {
   res.status(410).json({
     error: 'Email/password login is deprecated. Use /api/auth/wechat.',
@@ -5102,6 +5502,10 @@ app.put('/api/profile', authenticate, async (req, res) => {
   }
 
   try {
+    if (hasDisplayName) {
+      const displayIssue = validateDisplayName(explicitDisplayName);
+      if (displayIssue) return invalidInput(res, [displayIssue]);
+    }
     const patch: Record<string, unknown> = { updatedAt: new Date() };
     if (hasDisplayName) {
       patch.name = explicitDisplayName;

@@ -9,6 +9,7 @@ const {
   resolveRoleFlags,
 } = require('../../utils/reportApi');
 const { showActionLockToast } = require('../../utils/actionLock');
+const { LIMITS, validateDateRange, validateYear } = require('../../utils/validation');
 
 const buildYearOptions = () => {
   const currentYear = new Date().getFullYear();
@@ -201,6 +202,15 @@ Page({
       wx.showToast({ title: '开始日期不能晚于结束日期', icon: 'none' });
       return;
     }
+    const rangeCheck = validateDateRange({
+      startDate,
+      endDate,
+      maxDays: LIMITS.quarterlyRangeMaxDays,
+    });
+    if (!rangeCheck.ok) {
+      wx.showToast({ title: rangeCheck.message, icon: 'none' });
+      return;
+    }
 
     this.setData({ generatingQuarterly: true, parseWarning: '' });
     try {
@@ -247,14 +257,15 @@ Page({
     const yearText =
       this.data.generateYearOptions[this.data.generateYearIndex] || String(new Date().getFullYear());
     const year = Number(yearText);
-    if (!Number.isFinite(year)) {
+    const yearCheck = validateYear(year);
+    if (!yearCheck.ok) {
       wx.showToast({ title: '请选择年份', icon: 'none' });
       return;
     }
 
     this.setData({ generatingYearly: true, parseWarning: '' });
     try {
-      const response = await generateYearlyReport(this.studentId, year, true);
+      const response = await generateYearlyReport(this.studentId, yearCheck.year, true);
       if (response?.parseError) {
         this.setData({ parseWarning: 'AI 返回格式存在问题，已使用文本 fallback。' });
       }
@@ -270,9 +281,9 @@ Page({
         reportType: 'yearly',
         studentId: this.studentId,
         studentName: this.data.student?.name || '',
-        startDate: `${year}-01-01`,
-        endDate: `${year}-12-31`,
-        year,
+        startDate: `${yearCheck.year}-01-01`,
+        endDate: `${yearCheck.year}-12-31`,
+        year: yearCheck.year,
         response,
       });
       wx.setStorageSync('report_preview_payload', previewReport);

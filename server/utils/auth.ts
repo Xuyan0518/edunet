@@ -13,6 +13,8 @@ export interface AuthUser {
   displayName?: string;
   email?: string | null;
   parentId?: string;
+  isReviewer?: boolean;
+  reviewerStudentId?: string;
 }
 
 export interface RequestWithAuth extends Express.Request {
@@ -28,6 +30,8 @@ export function generateToken(user: AuthUser): string {
     role: user.role,
     name: user.name,
     displayName: user.displayName || user.name,
+    isReviewer: user.isReviewer === true,
+    reviewerStudentId: user.reviewerStudentId || null,
     timestamp: Date.now(),
   };
 
@@ -74,6 +78,11 @@ export function verifyToken(token: string): AuthUser | null {
       role: payload.role,
       name: payload.displayName || payload.name,
       displayName: payload.displayName || payload.name,
+      isReviewer: payload.isReviewer === true,
+      reviewerStudentId:
+        typeof payload.reviewerStudentId === 'string' && payload.reviewerStudentId.trim()
+          ? payload.reviewerStudentId.trim()
+          : undefined,
     };
   } catch (error) {
     return null;

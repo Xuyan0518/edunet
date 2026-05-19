@@ -3,6 +3,7 @@ const { formatSubjectName } = require("../../utils/displayName");
 const { formatChinaDateTime } = require("../../utils/chinaDate");
 const { showConflictModal } = require("../../utils/conflict");
 const { showActionLockToast } = require("../../utils/actionLock");
+const { LIMITS, trimText, isYmd } = require("../../utils/validation");
 
 Page({
   data: {
@@ -201,6 +202,14 @@ Page({
       wx.showToast({ title: "科目已存在", icon: "none" });
       return;
     }
+    if (name.length > 50) {
+      wx.showToast({ title: "科目名称过长", icon: "none" });
+      return;
+    }
+    if ((this.data.examSubjects || []).length >= LIMITS.examSubjectsMax) {
+      wx.showToast({ title: "科目数量过多", icon: "none" });
+      return;
+    }
     const examSubjects = [
       ...this.data.examSubjects,
       { name, displayName: formatSubjectName(name), score: "", examDate: "", isCustom: true },
@@ -239,6 +248,10 @@ Page({
       wx.showToast({ title: "请填写考试名称", icon: "none" });
       return;
     }
+    if (name.length > 50) {
+      wx.showToast({ title: "考试名称过长", icon: "none" });
+      return;
+    }
     // Only subjects with a date (or a score, for retroactive entry) are part
     // of the exam. Others are silently dropped.
     const subjects = (this.data.examSubjects || [])
@@ -248,6 +261,40 @@ Page({
         examDate: (s.examDate || "").trim() || null,
       }))
       .filter((s) => s.examDate || s.score);
+    if (subjects.length > LIMITS.examSubjectsMax) {
+      wx.showToast({ title: "科目数量过多", icon: "none" });
+      return;
+    }
+    for (const subject of subjects) {
+      if (subject.examDate && !isYmd(subject.examDate)) {
+        wx.showToast({ title: `科目 ${subject.name} 日期无效`, icon: "none" });
+        return;
+      }
+      const scoreText = trimText(subject.score);
+      if (!scoreText) continue;
+      const slashMatch = /^(-?\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/.exec(scoreText);
+      if (slashMatch) {
+        const scoreNum = Number(slashMatch[1]);
+        const totalNum = Number(slashMatch[2]);
+        if (
+          !Number.isFinite(scoreNum) ||
+          !Number.isFinite(totalNum) ||
+          scoreNum < 0 ||
+          totalNum <= 0 ||
+          totalNum > LIMITS.scoreMax ||
+          scoreNum > totalNum
+        ) {
+          wx.showToast({ title: `科目 ${subject.name} 分数格式异常`, icon: "none" });
+          return;
+        }
+        continue;
+      }
+      const scoreNum = Number(scoreText);
+      if (!Number.isFinite(scoreNum) || scoreNum < 0 || scoreNum > LIMITS.scoreMax) {
+        wx.showToast({ title: `科目 ${subject.name} 分数超范围`, icon: "none" });
+        return;
+      }
+    }
     if (!subjects.length) {
       wx.showToast({ title: "请至少为一个科目设置考试日期", icon: "none" });
       return;

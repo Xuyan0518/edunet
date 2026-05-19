@@ -3,6 +3,7 @@ const { formatSubjectName } = require("../../utils/displayName");
 const { formatChinaDate, formatChinaDateTime } = require("../../utils/chinaDate");
 const { showConflictModal } = require("../../utils/conflict");
 const { showActionLockToast } = require("../../utils/actionLock");
+const { LIMITS, trimText, validateDateRange } = require("../../utils/validation");
 
 const attendanceLabels = {
   present: "出席",
@@ -495,6 +496,20 @@ Page({
 
     if (!this.data.summary.trim()) {
       wx.showToast({ title: "请填写总结", icon: "none" });
+      return;
+    }
+    const summaryLen = trimText(this.data.summary).length;
+    if (summaryLen > LIMITS.summaryMax) {
+      wx.showToast({ title: `总结过长（最多 ${LIMITS.summaryMax} 字）`, icon: "none" });
+      return;
+    }
+    const rangeCheck = validateDateRange({
+      startDate: this.data.weekStarting,
+      endDate: this.data.weekEnding,
+      maxDays: LIMITS.weeklyRangeMaxDays,
+    });
+    if (!rangeCheck.ok) {
+      wx.showToast({ title: rangeCheck.message, icon: "none" });
       return;
     }
 

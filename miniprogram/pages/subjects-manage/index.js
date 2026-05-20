@@ -268,6 +268,7 @@ Page({
   addSubject(e) {
     if (!this.data.canManageCatalog) return;
     const levelId = e.currentTarget.dataset.levelId;
+    const level = this.data.levels.find((item) => item.id === levelId);
     wx.showModal({
       title: "新增科目",
       editable: true,
@@ -295,7 +296,7 @@ Page({
                 chineseName,
                 englishName,
                 levelId,
-                level: "O-Level",
+                level: level?.name || "O-Level",
                 isRequired: false,
                 sortOrder: 0,
                 isActive: true,
@@ -324,10 +325,9 @@ Page({
     if (!subject) return;
 
     const levelNames = this.data.levels.map((item) => item.name || "");
-    const levelIndex = this.data.levels.findIndex((item) => item.id === subject.levelId);
 
     wx.showActionSheet({
-      itemList: ["编辑名称/Code", "移动到其他层级", subject.isActive === false ? "启用科目" : "停用科目"],
+      itemList: ["编辑名称/Code", "移动到其他层级", "删除科目"],
       success: (sheet) => {
         if (sheet.tapIndex === 0) {
           wx.showModal({
@@ -357,10 +357,9 @@ Page({
                       chineseName,
                       englishName,
                       levelId: subject.levelId,
-                      level: subject.level || "O-Level",
                       isRequired: !!subject.isRequired,
                       sortOrder: Number(subject.sortOrder || 0),
-                      isActive: subject.isActive !== false,
+                      isActive: true,
                     },
                   })
                     .then(() => {
@@ -390,10 +389,9 @@ Page({
                   chineseName: subject.chineseName || subject.name,
                   englishName: subject.englishName || "",
                   levelId: targetLevel.id,
-                  level: targetLevel.name || "O-Level",
                   isRequired: !!subject.isRequired,
                   sortOrder: Number(subject.sortOrder || 0),
-                  isActive: subject.isActive !== false,
+                  isActive: true,
                 },
               })
                 .then(() => {
@@ -407,29 +405,25 @@ Page({
             },
           });
         } else if (sheet.tapIndex === 2) {
-          request({
-            url: `/subjects/${subject.id}`,
-            method: "PUT",
-            data: {
-              code: subject.code,
-              name: subject.name,
-              chineseName: subject.chineseName || subject.name,
-              englishName: subject.englishName || "",
-              levelId: subject.levelId,
-              level: subject.level || "O-Level",
-              isRequired: !!subject.isRequired,
-              sortOrder: Number(subject.sortOrder || 0),
-              isActive: subject.isActive === false,
+          wx.showModal({
+            title: "删除科目",
+            content: "删除后该科目将从全局列表隐藏，并从所有学生选科中移除。",
+            success: (confirmRes) => {
+              if (!confirmRes.confirm) return;
+              request({
+                url: `/subjects/${subject.id}`,
+                method: "DELETE",
+              })
+                .then(() => {
+                  wx.showToast({ title: "已删除", icon: "success" });
+                  this.fetchAll();
+                })
+                .catch((err) => {
+                  if (showActionLockToast(err)) return;
+                  wx.showToast({ title: err?.error || "删除失败", icon: "none" });
+                });
             },
-          })
-            .then(() => {
-              wx.showToast({ title: "已更新", icon: "success" });
-              this.fetchAll();
-            })
-            .catch((err) => {
-              if (showActionLockToast(err)) return;
-              wx.showToast({ title: err?.error || "更新失败", icon: "none" });
-            });
+          });
         }
       },
     });

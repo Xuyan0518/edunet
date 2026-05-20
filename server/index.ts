@@ -2987,6 +2987,7 @@ app.post('/api/subjects', authenticate, requireRole('teacher', 'admin'), async (
         const defaultLevel = await ensureDefaultSubjectLevel();
         const levelIdInput = trimString(req.body?.levelId);
         const levelId = levelIdInput || defaultLevel.id;
+        let resolvedLevelName = levelNameFallback;
         if (levelIdInput) {
           const level = await db
             .select({ id: subjectLevelsTable.id, name: subjectLevelsTable.name })
@@ -2997,11 +2998,14 @@ app.post('/api/subjects', authenticate, requireRole('teacher', 'admin'), async (
             res.status(400).json({ error: 'Invalid levelId' });
             return;
           }
+          resolvedLevelName = trimString(level[0].name).slice(0, 64) || levelNameFallback;
+        } else {
+          resolvedLevelName = trimString(defaultLevel.name).slice(0, 64) || levelNameFallback;
         }
         const parsed = SubjectSchema.safeParse({
           code,
           name,
-          level: levelNameFallback,
+          level: resolvedLevelName,
           chineseName: chineseName || null,
           englishName: englishName || null,
           sortOrder,
@@ -3014,12 +3018,35 @@ app.post('/api/subjects', authenticate, requireRole('teacher', 'admin'), async (
           return;
         }
         const exists = await db
-          .select({ id: subjectsTable.id })
+          .select({ id: subjectsTable.id, isActive: subjectsTable.isActive })
           .from(subjectsTable)
           .where(eq(subjectsTable.code, code))
           .limit(1);
         if (exists.length) {
-          res.status(409).json({ error: 'Subject code already exists' });
+          const existing = exists[0];
+          if (existing.isActive !== false) {
+            res.status(409).json({ error: 'Subject code already exists' });
+            return;
+          }
+          // Reuse inactive subject row for the same code instead of forcing
+          // a brand-new code. This keeps historical references stable.
+          const reactivated = await db
+            .update(subjectsTable)
+            .set({
+              name,
+              chineseName: chineseName || null,
+              englishName: englishName || null,
+              level: resolvedLevelName,
+              sortOrder,
+              isRequired,
+              levelId,
+              isActive: true,
+              updatedBy: req.user?.id || null,
+              updatedAt: new Date(),
+            })
+            .where(eq(subjectsTable.id, existing.id))
+            .returning();
+          res.status(200).json({ ...reactivated[0], reactivated: true });
           return;
         }
         const created = await db
@@ -3029,7 +3056,7 @@ app.post('/api/subjects', authenticate, requireRole('teacher', 'admin'), async (
             name,
             chineseName: chineseName || null,
             englishName: englishName || null,
-            level: levelNameFallback,
+            level: resolvedLevelName,
             sortOrder,
             isRequired,
             levelId,
@@ -3086,9 +3113,10 @@ app.put('/api/subjects/:id', authenticate, requireRole('teacher', 'admin'), asyn
         const defaultLevel = await ensureDefaultSubjectLevel();
         const levelIdInput = trimString(req.body?.levelId);
         const levelId = levelIdInput || existing[0].levelId || defaultLevel.id;
+        let resolvedLevelName = levelNameFallback || existing[0].level || DEFAULT_SUBJECT_LEVEL_NAME;
         if (levelIdInput) {
           const level = await db
-            .select({ id: subjectLevelsTable.id })
+            .select({ id: subjectLevelsTable.id, name: subjectLevelsTable.name })
             .from(subjectLevelsTable)
             .where(eq(subjectLevelsTable.id, levelIdInput))
             .limit(1);
@@ -3096,6 +3124,9 @@ app.put('/api/subjects/:id', authenticate, requireRole('teacher', 'admin'), asyn
             res.status(400).json({ error: 'Invalid levelId' });
             return;
           }
+          resolvedLevelName = trimString(level[0].name).slice(0, 64) || resolvedLevelName;
+        } else if (levelId === defaultLevel.id) {
+          resolvedLevelName = trimString(defaultLevel.name).slice(0, 64) || resolvedLevelName;
         }
         const duplicate = await db
           .select({ id: subjectsTable.id })
@@ -3109,7 +3140,7 @@ app.put('/api/subjects/:id', authenticate, requireRole('teacher', 'admin'), asyn
         const parsed = SubjectSchema.safeParse({
           code,
           name,
-          level: levelNameFallback,
+          level: resolvedLevelName,
           chineseName: chineseName || null,
           englishName: englishName || null,
           sortOrder,
@@ -3128,7 +3159,7 @@ app.put('/api/subjects/:id', authenticate, requireRole('teacher', 'admin'), asyn
             name,
             chineseName: chineseName || null,
             englishName: englishName || null,
-            level: levelNameFallback,
+            level: resolvedLevelName,
             sortOrder,
             isRequired,
             levelId,
@@ -3145,6 +3176,54 @@ app.put('/api/subjects/:id', authenticate, requireRole('teacher', 'admin'), asyn
       return res.status(409).json(buildActionLockConflictPayload(err.conflict));
     }
     console.error('Error updating subject:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.delete('/api/subjects/:id', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
+  if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot manage subjects' });
+  const id = req.params.id;
+  try {
+    await withActionLock(
+      {
+        lockKey: subjectCatalogWriteLockKey(),
+        actionType: '删除科目',
+        ttlMs: ACTION_LOCK_TTL.subjectCatalogMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/subjects/:id', id },
+      },
+      async () => {
+        const existing = await db
+          .select({ id: subjectsTable.id, code: subjectsTable.code, isRequired: subjectsTable.isRequired })
+          .from(subjectsTable)
+          .where(eq(subjectsTable.id, id))
+          .limit(1);
+        if (!existing.length) {
+          res.status(404).json({ error: 'Subject not found' });
+          return;
+        }
+        if (existing[0].isRequired || String(existing[0].code || '').toUpperCase() === 'ENGLISH') {
+          res.status(400).json({ error: 'Core required subject cannot be deleted' });
+          return;
+        }
+        await db
+          .update(subjectsTable)
+          .set({
+            isActive: false,
+            updatedBy: req.user?.id || null,
+            updatedAt: new Date(),
+          })
+          .where(eq(subjectsTable.id, id));
+        await db.delete(studentSubjectsTable).where(eq(studentSubjectsTable.subjectId, id));
+        res.json({ success: true });
+      },
+    );
+    return;
+  } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
+    console.error('Error deleting subject:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });

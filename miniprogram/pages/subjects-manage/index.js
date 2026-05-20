@@ -26,6 +26,9 @@ Page({
     query: "",
     canManageCatalog: false,
     editLevelNames: [],
+    activeLevelId: "",
+    activeSubjectId: "",
+    activeTopicId: "",
   },
 
   onLoad(query) {
@@ -101,6 +104,31 @@ Page({
     this.setData({ query: e.detail.value || "" }, () => {
       this.setData({ filteredLevels: this.buildFilteredLevels() });
     });
+  },
+
+  toggleLevelActions(e) {
+    if (!this.data.canManageCatalog) return;
+    const levelId = e.currentTarget.dataset.levelId || "";
+    this.setData({
+      activeLevelId: this.data.activeLevelId === levelId ? "" : levelId,
+      activeSubjectId: "",
+      activeTopicId: "",
+    });
+  },
+
+  toggleSubjectActions(e) {
+    if (!this.data.canManageCatalog) return;
+    const subjectId = e.currentTarget.dataset.subjectId || "";
+    this.setData({
+      activeSubjectId: this.data.activeSubjectId === subjectId ? "" : subjectId,
+      activeTopicId: "",
+    });
+  },
+
+  toggleTopicActions(e) {
+    if (!this.data.canManageCatalog) return;
+    const topicId = e.currentTarget.dataset.topicId || "";
+    this.setData({ activeTopicId: this.data.activeTopicId === topicId ? "" : topicId });
   },
 
   onCheckChange(e) {

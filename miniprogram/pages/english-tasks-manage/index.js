@@ -45,6 +45,7 @@ Page({
     presets: TASK_TYPE_PRESETS,
     studentName: "",
     canEdit: false,
+    showPresetPicker: false,
   },
 
   onLoad(query) {
@@ -98,33 +99,45 @@ Page({
 
   onToggleEnabled(e) {
     const index = Number(e.currentTarget.dataset.index);
+    if (!Number.isInteger(index) || !this.data.tasks[index]) return;
     this.updateTask(index, { enabled: !this.data.tasks[index].enabled });
   },
 
   onChineseNameInput(e) {
     const index = Number(e.currentTarget.dataset.index);
+    if (!Number.isInteger(index)) return;
     this.updateTask(index, { chineseName: e.detail.value || "" });
   },
 
   onEnglishNameInput(e) {
     const index = Number(e.currentTarget.dataset.index);
+    if (!Number.isInteger(index)) return;
     this.updateTask(index, { englishName: e.detail.value || "" });
   },
 
   onWeeklyTargetInput(e) {
     const index = Number(e.currentTarget.dataset.index);
+    if (!Number.isInteger(index)) return;
     this.updateTask(index, { weeklyTargetCount: e.detail.value });
   },
 
-  onFieldChange(e) {
+  onFieldToggle(e) {
     const index = Number(e.currentTarget.dataset.index);
-    const values = Array.isArray(e.detail.value) ? e.detail.value : [];
-    const normalized = FIELD_KEYS.filter((field) => values.includes(field));
-    this.updateTask(index, { enabledFields: normalized.length ? normalized : ["practiceCount"] });
+    const field = String(e.currentTarget.dataset.field || "");
+    if (!Number.isInteger(index) || !FIELD_KEYS.includes(field)) return;
+    const current = this.data.tasks[index];
+    if (!current) return;
+    const currentFields = Array.isArray(current.enabledFields) ? [...current.enabledFields] : [];
+    const exists = currentFields.includes(field);
+    const nextFields = exists
+      ? currentFields.filter((item) => item !== field)
+      : [...currentFields, field];
+    this.updateTask(index, { enabledFields: nextFields.length ? nextFields : ["practiceCount"] });
   },
 
   removeTask(e) {
     const index = Number(e.currentTarget.dataset.index);
+    if (!Number.isInteger(index)) return;
     const tasks = this.data.tasks.filter((_, i) => i !== index).map((task, i) => ({ ...task, sortOrder: i }));
     this.setData({ tasks });
   },
@@ -132,6 +145,7 @@ Page({
   moveTask(e) {
     const index = Number(e.currentTarget.dataset.index);
     const direction = e.currentTarget.dataset.direction;
+    if (!Number.isInteger(index)) return;
     const target = direction === "up" ? index - 1 : index + 1;
     if (target < 0 || target >= this.data.tasks.length) return;
     const tasks = [...this.data.tasks];
@@ -140,23 +154,29 @@ Page({
     this.setData({ tasks: tasks.map((task, i) => ({ ...task, sortOrder: i })) });
   },
 
-  addTask() {
-    wx.showActionSheet({
-      itemList: TASK_TYPE_PRESETS.map((item) => `${item.chineseName} (${item.englishName})`),
-      success: async (res) => {
-        const preset = TASK_TYPE_PRESETS[res.tapIndex];
-        if (!preset) return;
-        if (preset.key === "custom") {
-          const names = await this.promptCustomNames();
-          if (!names) return;
-          const next = buildTaskFromPreset(preset, this.data.tasks.length, names);
-          this.setData({ tasks: [...this.data.tasks, next] });
-          return;
-        }
-        const next = buildTaskFromPreset(preset, this.data.tasks.length);
-        this.setData({ tasks: [...this.data.tasks, next] });
-      },
-    });
+  openAddTaskPicker() {
+    if (!this.data.canEdit) return;
+    this.setData({ showPresetPicker: true });
+  },
+
+  closeAddTaskPicker() {
+    this.setData({ showPresetPicker: false });
+  },
+
+  async pickPresetTask(e) {
+    const presetIndex = Number(e.currentTarget.dataset.index);
+    const preset = TASK_TYPE_PRESETS[presetIndex];
+    this.closeAddTaskPicker();
+    if (!preset) return;
+    if (preset.key === "custom") {
+      const names = await this.promptCustomNames();
+      if (!names) return;
+      const next = buildTaskFromPreset(preset, this.data.tasks.length, names);
+      this.setData({ tasks: [...this.data.tasks, next] });
+      return;
+    }
+    const next = buildTaskFromPreset(preset, this.data.tasks.length);
+    this.setData({ tasks: [...this.data.tasks, next] });
   },
 
   promptCustomNames() {

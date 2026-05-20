@@ -60,6 +60,9 @@
     <view class="row-between">
       <view class="section-title">活动记录</view>
     </view>
+    <view wx:if="{{isTeacher && !isEditable}}" class="muted" style="margin-top: 8rpx;">
+      当前为只读模式，请先点击页面顶部“编辑”再填写内容。
+    </view>
     <view wx:if="{{subjectOptions.length === 0}}" class="muted">暂无科目，请先在学生详情中添加科目</view>
     <view wx:if="{{activities.length === 0}}" class="muted" style="margin-top: 8rpx;">请选择科目添加活动</view>
     <block wx:for="{{activities}}" wx:key="index">
@@ -256,7 +259,7 @@
                   </view>
                   <checkbox-group class="score-cell" data-index="{{index}}" bindchange="onEssayCompletedToggle">
                     <label class="row">
-                      <checkbox value="done" checked="{{item.english.essay.completed}}" disabled="{{!isEditable}}" />
+                      <checkbox value="done" checked="{{item.english.essay ? item.english.essay.completed : false}}" disabled="{{!isEditable}}" />
                       <view class="muted">已完成</view>
                     </label>
                   </checkbox-group>
@@ -276,19 +279,19 @@
               </view>
               <block wx:if="{{task.uiExpanded}}">
                 <view class="english-section-body">
-                  <view class="row score-row" wx:if="{{task.fieldsUsed.indexOf('practiceCount') !== -1}}">
+                  <view class="row score-row" wx:if="{{task.fieldsUsed && task.fieldsUsed.indexOf('practiceCount') !== -1}}">
                     <view class="score-cell">
                       <view class="muted">练习数</view>
                       <input class="input score-input" type="number" value="{{task.practiceCount}}" data-index="{{index}}" data-task-index="{{taskIndex}}" bindinput="onCustomTaskCountInput" disabled="{{!isEditable}}" />
                     </view>
                   </view>
-                  <view class="row score-row" wx:if="{{task.fieldsUsed.indexOf('score') !== -1}}">
+                  <view class="row score-row" wx:if="{{task.fieldsUsed && task.fieldsUsed.indexOf('score') !== -1}}">
                     <view class="score-cell">
                       <view class="muted">分数</view>
                       <input class="input score-input" type="digit" value="{{task.score}}" data-index="{{index}}" data-task-index="{{taskIndex}}" bindinput="onCustomTaskScoreInput" disabled="{{!isEditable}}" />
                     </view>
                   </view>
-                  <textarea wx:if="{{task.fieldsUsed.indexOf('problems') !== -1}}" class="input" style="min-height: 120rpx; margin-top: 16rpx;" placeholder="出现的问题" value="{{task.problems}}" data-index="{{index}}" data-task-index="{{taskIndex}}" bindinput="onCustomTaskProblemsInput" disabled="{{!isEditable}}" />
+                  <textarea wx:if="{{task.fieldsUsed && task.fieldsUsed.indexOf('problems') !== -1}}" class="input" style="min-height: 120rpx; margin-top: 16rpx;" placeholder="出现的问题" value="{{task.problems}}" data-index="{{index}}" data-task-index="{{taskIndex}}" bindinput="onCustomTaskProblemsInput" disabled="{{!isEditable}}" />
                 </view>
               </block>
             </view>

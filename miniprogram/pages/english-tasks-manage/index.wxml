@@ -41,20 +41,44 @@
         <input class="input" type="number" value="{{item.weeklyTargetCount}}" data-index="{{index}}" bindinput="onWeeklyTargetInput" />
 
         <view class="field-label">填写字段</view>
-        <checkbox-group data-index="{{index}}" bindchange="onFieldChange">
-          <label wx:for="{{fieldOptions}}" wx:for-item="field" wx:key="value" class="row checkbox-row">
-            <checkbox value="{{field.value}}" checked="{{item.enabledFields.indexOf(field.value) !== -1}}" />
-            <view>{{field.label}}</view>
-          </label>
-        </checkbox-group>
+        <view class="field-chip-row">
+          <view
+            wx:for="{{fieldOptions}}"
+            wx:for-item="field"
+            wx:key="value"
+            class="field-chip {{item.enabledFields && item.enabledFields.indexOf(field.value) !== -1 ? 'field-chip-active' : ''}}"
+            data-index="{{index}}"
+            data-field="{{field.value}}"
+            bindtap="onFieldToggle"
+          >
+            {{field.label}}
+          </view>
+        </view>
       </view>
     </block>
   </view>
 
   <view class="row">
-    <button class="btn-outline" bindtap="addTask">添加任务</button>
+    <button class="btn-outline" bindtap="openAddTaskPicker">添加任务</button>
     <button class="btn-outline" bindtap="resetDefault">重置默认</button>
   </view>
 
   <button class="btn-primary" loading="{{saving}}" bindtap="save">保存配置</button>
+
+  <view wx:if="{{showPresetPicker}}" class="picker-mask" bindtap="closeAddTaskPicker"></view>
+  <view wx:if="{{showPresetPicker}}" class="picker-panel">
+    <view class="section-title">选择任务类型</view>
+    <scroll-view scroll-y class="picker-list">
+      <view
+        wx:for="{{presets}}"
+        wx:key="key"
+        class="picker-item"
+        data-index="{{index}}"
+        bindtap="pickPresetTask"
+      >
+        {{item.chineseName}} ({{item.englishName}})
+      </view>
+    </scroll-view>
+    <button class="btn-outline" bindtap="closeAddTaskPicker">取消</button>
+  </view>
 </view>

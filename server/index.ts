@@ -2847,13 +2847,25 @@ app.delete('/api/subject-levels/:id', authenticate, requireRole('teacher', 'admi
           return;
         }
         const usedSubjects = await db
-          .select({ id: subjectsTable.id })
+          .select({ id: subjectsTable.id, isActive: subjectsTable.isActive })
           .from(subjectsTable)
-          .where(eq(subjectsTable.levelId, id))
-          .limit(1);
-        if (usedSubjects.length) {
-          res.status(400).json({ error: 'Level has subjects and cannot be deleted' });
+          .where(eq(subjectsTable.levelId, id));
+        const activeSubjects = usedSubjects.filter((item) => item.isActive !== false);
+        if (activeSubjects.length) {
+          res.status(400).json({ error: 'Level has active subjects and cannot be deleted' });
           return;
+        }
+        if (usedSubjects.length) {
+          const defaultLevel = await ensureDefaultSubjectLevel();
+          await db
+            .update(subjectsTable)
+            .set({
+              levelId: defaultLevel.id,
+              level: defaultLevel.name,
+              updatedBy: req.user?.id || null,
+              updatedAt: new Date(),
+            })
+            .where(and(eq(subjectsTable.levelId, id), eq(subjectsTable.isActive, false)));
         }
         await db.delete(subjectLevelsTable).where(eq(subjectLevelsTable.id, id));
         res.json({ success: true });

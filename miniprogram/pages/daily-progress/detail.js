@@ -665,13 +665,25 @@ Page({
         decorated.uiTargetCount = toIntOrZero(configTask?.weeklyTargetCount);
         eng[code] = decorated;
       });
+      const rawCustomTasks = Array.isArray(a.customEnglishTasks) && a.customEnglishTasks.length
+        ? a.customEnglishTasks
+        : a.englishTasks;
       const customByKey = new Map();
-      normalizeCustomEnglishTasks(a.englishTasks).forEach((entry) => {
+      normalizeCustomEnglishTasks(rawCustomTasks).forEach((entry) => {
         customByKey.set(entry.key, entry);
+      });
+      const expandedByKey = new Map();
+      (Array.isArray(rawCustomTasks) ? rawCustomTasks : []).forEach((row) => {
+        if (!row || typeof row !== "object") return;
+        const key = String(row.key || "").trim().toLowerCase();
+        if (!key) return;
+        expandedByKey.set(key, row.uiExpanded === true);
       });
       const customEnglishTasks = customConfig.map((task) => {
         const current = customByKey.get(task.key) || {};
-        return normalizeEnglishTaskEntryForUi(current, task);
+        const normalized = normalizeEnglishTaskEntryForUi(current, task);
+        if (expandedByKey.has(task.key)) normalized.uiExpanded = expandedByKey.get(task.key);
+        return normalized;
       });
       return { ...a, english: eng, customEnglishTasks };
     });

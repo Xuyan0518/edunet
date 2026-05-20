@@ -25,8 +25,8 @@
         <block wx:for="{{filteredLevels}}" wx:key="id" wx:for-item="level">
           <view class="level-card">
             <view class="row-between">
-              <view class="level-title">{{level.name}}</view>
-              <view class="row" wx:if="{{canManageCatalog}}">
+              <view class="level-title" data-level-id="{{level.id}}" bindtap="toggleLevelActions">{{level.name}}</view>
+              <view class="row" wx:if="{{canManageCatalog && activeLevelId === level.id}}">
                 <button class="btn-outline" size="mini" data-level-id="{{level.id}}" bindtap="editLevel">改名</button>
                 <button class="btn-outline" size="mini" data-level-id="{{level.id}}" bindtap="deleteLevel">删除</button>
                 <button class="btn-outline" size="mini" data-level-id="{{level.id}}" bindtap="addSubject">加科目</button>
@@ -38,8 +38,8 @@
             </block>
 
             <block wx:for="{{level.subjects}}" wx:key="id" wx:for-item="subject">
-              <label class="list-item row-between {{subject.isSelected ? 'selected' : ''}}">
-                <view class="subject-text">
+              <view class="list-item row-between {{subject.isSelected ? 'selected' : ''}}">
+                <view class="subject-text" data-subject-id="{{subject.id}}" bindtap="toggleSubjectActions">
                   <view class="subject-name">{{subject.displayName ? subject.displayName : subject.name}}</view>
                   <view class="muted subject-meta">{{subject.code}} · {{level.name}}</view>
                 </view>
@@ -48,9 +48,9 @@
                   <view wx:if="{{subject.isSelected}}" class="chip chip-success">已选</view>
                   <checkbox value="{{subject.id}}" checked="{{subject.isSelected}}" disabled="{{subject.isRequired}}" />
                 </view>
-              </label>
+              </view>
 
-              <view class="row" wx:if="{{canManageCatalog}}" style="margin: 8rpx 0 10rpx 0;">
+              <view class="row" wx:if="{{canManageCatalog && activeSubjectId === subject.id}}" style="margin: 8rpx 0 10rpx 0;">
                 <button class="btn-outline" size="mini" data-level-id="{{level.id}}" data-subject-id="{{subject.id}}" bindtap="editSubject">编辑科目</button>
                 <button class="btn-outline" size="mini" data-subject-id="{{subject.id}}" bindtap="addTopic">加章节</button>
               </view>
@@ -59,8 +59,8 @@
                 <view class="topic-wrap">
                   <block wx:for="{{subject.topics}}" wx:key="id" wx:for-item="topic">
                     <view class="topic-row row-between">
-                      <view class="muted">{{topic.code}} {{topic.title}}</view>
-                      <view class="row" wx:if="{{canManageCatalog}}">
+                      <view class="muted" data-topic-id="{{topic.id}}" bindtap="toggleTopicActions">{{topic.code}} {{topic.title}}</view>
+                      <view class="row" wx:if="{{canManageCatalog && activeTopicId === topic.id}}">
                         <button class="btn-outline" size="mini" data-topic-id="{{topic.id}}" data-topic-code="{{topic.code}}" data-topic-title="{{topic.title}}" data-subject-id="{{subject.id}}" data-parent-topic-id="{{topic.parentTopicId}}" data-order-index="{{topic.orderIndex}}" bindtap="editTopic">改名</button>
                         <button class="btn-outline" size="mini" data-topic-id="{{topic.id}}" bindtap="deleteTopic">删除</button>
                       </view>

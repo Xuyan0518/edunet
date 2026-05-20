@@ -3304,13 +3304,32 @@ app.delete('/api/topics/:id', authenticate, requireRole('teacher', 'admin'), asy
           return;
         }
         const progress = await db
-          .select({ id: studentTopicProgressTable.id })
+          .select({
+            id: studentTopicProgressTable.id,
+            status: studentTopicProgressTable.status,
+            definitionRecited: studentTopicProgressTable.definitionRecited,
+            chapterExerciseCompleted: studentTopicProgressTable.chapterExerciseCompleted,
+          })
           .from(studentTopicProgressTable)
-          .where(eq(studentTopicProgressTable.topicId, id))
-          .limit(1);
+          .where(eq(studentTopicProgressTable.topicId, id));
         if (progress.length) {
-          res.status(400).json({ error: 'Topic has student progress and cannot be deleted directly' });
-          return;
+          const hasStartedProgress = progress.some((row) => {
+            const status = String(row.status || '').toLowerCase();
+            return (
+              row.definitionRecited === true ||
+              row.chapterExerciseCompleted === true ||
+              status !== 'not_started'
+            );
+          });
+          if (hasStartedProgress) {
+            res.status(400).json({ error: 'Topic has started student progress and cannot be deleted directly' });
+            return;
+          }
+          // Backward-compatible relaxation: allow deleting topics whose linked
+          // progress records are all still "not_started".
+          await db
+            .delete(studentTopicProgressTable)
+            .where(eq(studentTopicProgressTable.topicId, id));
         }
         await db.delete(topicsTable).where(eq(topicsTable.id, id));
         res.json({ success: true });

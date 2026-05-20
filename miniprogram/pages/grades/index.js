@@ -5,6 +5,20 @@ const { showConflictModal } = require("../../utils/conflict");
 const { showActionLockToast } = require("../../utils/actionLock");
 const { LIMITS, trimText, isYmd } = require("../../utils/validation");
 
+const canonicalSubjectKey = (name = "") => {
+  const raw = String(name || "").trim();
+  const lower = raw.toLowerCase();
+  if (
+    lower === "english" ||
+    lower.includes(" english") ||
+    lower.includes("英文") ||
+    lower.includes("英语")
+  ) {
+    return "__english__";
+  }
+  return lower;
+};
+
 Page({
   data: {
     student: {},
@@ -45,19 +59,20 @@ Page({
   fetchSubjects() {
     request({ url: `/students/${this.studentId}/subjects/full` })
       .then((data) => {
-        const subjects = (data || [])
+        const subjectNames = (data || [])
           .map((entry) => entry?.subject?.name)
           .filter(Boolean);
         const unique = [];
-        const seenDisplay = new Set(["英文"]);
-        subjects.forEach((name) => {
-          const display = formatSubjectName(name);
-          if (!seenDisplay.has(display)) {
-            seenDisplay.add(display);
+        const seenKeys = new Set();
+        subjectNames.forEach((name) => {
+          const key = canonicalSubjectKey(name);
+          if (!seenKeys.has(key)) {
+            seenKeys.add(key);
             unique.push(name);
           }
         });
-        const baseSubjects = ["英文", ...unique];
+        const hasEnglish = unique.some((name) => canonicalSubjectKey(name) === "__english__");
+        const baseSubjects = hasEnglish ? unique : ["英文", ...unique];
         this.setData({
           baseSubjects,
           examSubjects: baseSubjects.map((name) => ({
@@ -124,10 +139,12 @@ Page({
 
   buildExamSubjectsForExam(exam) {
     const baseSubjects = this.data.baseSubjects || ["英文"];
-    const map = new Map((exam?.subjects || []).map((s) => [s.name, s]));
+    const map = new Map(
+      (exam?.subjects || []).map((s) => [canonicalSubjectKey(s.name), s]),
+    );
     const trimDate = (v) => (typeof v === "string" ? v.slice(0, 10) : "");
     const list = baseSubjects.map((name) => {
-      const s = map.get(name);
+      const s = map.get(canonicalSubjectKey(name));
       return {
         name,
         displayName: formatSubjectName(name),
@@ -137,7 +154,9 @@ Page({
       };
     });
     (exam?.subjects || []).forEach((s) => {
-      if (!baseSubjects.includes(s.name)) {
+      const key = canonicalSubjectKey(s.name);
+      const existsInBase = baseSubjects.some((name) => canonicalSubjectKey(name) === key);
+      if (!existsInBase) {
         list.push({
           name: s.name,
           displayName: formatSubjectName(s.name),
@@ -197,7 +216,8 @@ Page({
       wx.showToast({ title: "请输入科目名称", icon: "none" });
       return;
     }
-    const exists = this.data.examSubjects.some((s) => s.name === name);
+    const key = canonicalSubjectKey(name);
+    const exists = this.data.examSubjects.some((s) => canonicalSubjectKey(s.name) === key);
     if (exists) {
       wx.showToast({ title: "科目已存在", icon: "none" });
       return;

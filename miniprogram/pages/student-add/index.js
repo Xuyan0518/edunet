@@ -2,6 +2,21 @@ const { request } = require("../../utils/api");
 const { formatSubjectName } = require("../../utils/displayName");
 const { LIMITS, trimText } = require("../../utils/validation");
 
+const canonicalSubjectKey = (subject = {}) => {
+  const name = String(subject.name || "").trim().toLowerCase();
+  const code = String(subject.code || "").trim().toLowerCase();
+  if (
+    name === "english" ||
+    name.includes(" english") ||
+    name.includes("英文") ||
+    name.includes("英语") ||
+    code.includes("eng")
+  ) {
+    return "__english__";
+  }
+  return `${code}::${name}`;
+};
+
 const isEnglishSubject = (subject = {}) => {
   const name = String(subject.name || "").toLowerCase();
   const code = String(subject.code || "").toLowerCase();
@@ -104,7 +119,15 @@ Page({
   fetchSubjects() {
     request({ url: "/subjects" })
       .then((data) => {
-        const subjects = (data || []).map((s) => ({
+        const unique = [];
+        const seen = new Set();
+        (data || []).forEach((s) => {
+          const key = canonicalSubjectKey(s);
+          if (seen.has(key)) return;
+          seen.add(key);
+          unique.push(s);
+        });
+        const subjects = unique.map((s) => ({
           ...s,
           isRequired: isEnglishSubject(s),
           displayName: formatSubjectName(s.name),

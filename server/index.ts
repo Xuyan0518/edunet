@@ -2648,9 +2648,10 @@ app.get('/api/students/:studentId/report-export', authenticate, verifyParentStud
 
 // ====== SUBJECT & TOPIC ROUTES ======
 // List all subjects
-app.get('/api/subjects', async (_, res) => {
+app.get('/api/subjects', async (req, res) => {
   try {
     const defaultLevel = await ensureDefaultSubjectLevel();
+    const includeInactive = parseBooleanLike(req.query?.includeInactive) === true;
     const subjects = await db
       .select({
         id: subjectsTable.id,
@@ -2668,6 +2669,7 @@ app.get('/api/subjects', async (_, res) => {
       })
       .from(subjectsTable)
       .leftJoin(subjectLevelsTable, eq(subjectsTable.levelId, subjectLevelsTable.id))
+      .where(includeInactive ? undefined : eq(subjectsTable.isActive, true))
       .orderBy(subjectsTable.name);
     res.json(
       subjects.map((s) => ({
@@ -3353,7 +3355,8 @@ app.get('/api/students/:studentId/subjects', authenticate, requireRole('teacher'
     const records = await db
       .select({ subjectId: studentSubjectsTable.subjectId })
       .from(studentSubjectsTable)
-      .where(eq(studentSubjectsTable.studentId, studentId));
+      .innerJoin(subjectsTable, eq(studentSubjectsTable.subjectId, subjectsTable.id))
+      .where(and(eq(studentSubjectsTable.studentId, studentId), eq(subjectsTable.isActive, true)));
     res.json(records.map(r => r.subjectId));
   } catch (err) {
     res.status(500).json({ error: 'Database error' });
@@ -3481,7 +3484,7 @@ app.post('/api/students/:studentId/subjects/sync-catalog', authenticate, require
           })
           .from(studentSubjectsTable)
           .innerJoin(subjectsTable, eq(studentSubjectsTable.subjectId, subjectsTable.id))
-          .where(eq(studentSubjectsTable.studentId, studentId));
+          .where(and(eq(studentSubjectsTable.studentId, studentId), eq(subjectsTable.isActive, true)));
 
         const summary = await syncCatalogForStudentSubjects(subjects);
         res.json(summary);
@@ -3526,7 +3529,7 @@ app.get('/api/students/:studentId/subjects/full', authenticate, verifyParentStud
         chapterExerciseCompleted: studentTopicProgressTable.chapterExerciseCompleted,
       })
       .from(studentSubjectsTable)
-      .where(eq(studentSubjectsTable.studentId, studentId))
+      .where(and(eq(studentSubjectsTable.studentId, studentId), eq(subjectsTable.isActive, true)))
       .leftJoin(subjectsTable, eq(studentSubjectsTable.subjectId, subjectsTable.id))
       .leftJoin(subjectLevelsTable, eq(subjectsTable.levelId, subjectLevelsTable.id))
       .leftJoin(topicsTable, eq(topicsTable.subjectId, subjectsTable.id))

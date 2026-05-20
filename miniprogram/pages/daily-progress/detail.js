@@ -4,6 +4,15 @@ const { formatChinaDate, formatChinaDateTime } = require("../../utils/chinaDate"
 const { showConflictModal } = require("../../utils/conflict");
 const { showActionLockToast } = require("../../utils/actionLock");
 const { LIMITS, trimText, clampIntInput } = require("../../utils/validation");
+const {
+  DEFAULT_ENGLISH_TASKS,
+  normalizeEnglishTaskConfig,
+  getCanonicalTaskKeys,
+} = require("../../utils/englishTasks");
+const {
+  makeDailyProgressDraftKey,
+  buildDailyProgressDraftPayload,
+} = require("../../utils/dailyProgressDraft");
 
 const attendanceMap = [
   { value: "present", label: "出席" },
@@ -256,6 +265,116 @@ const buildEnglishFields = (input = {}) => ({
   essay: toV2Field(input.essay, "essay"),
 });
 
+const canonicalEnglishTaskKeys = getCanonicalTaskKeys();
+
+const makeDraftKey = ({ studentId, date, userId }) =>
+  makeDailyProgressDraftKey({ studentId, date, userId });
+
+const normalizeCustomEnglishTasks = (raw) => {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((row, index) => {
+      if (!row || typeof row !== "object") return null;
+      const task = row;
+      const key = String(task.key || "").trim().toLowerCase() || `custom_${index + 1}`;
+      const id = String(task.taskId || task.id || key || `task_${index + 1}`).trim();
+      const displayName = String(task.displayName || task.chineseName || task.englishName || key).trim();
+      if (!displayName) return null;
+      const fieldsUsed = Array.isArray(task.fieldsUsed)
+        ? task.fieldsUsed.filter((f) => ["practiceCount", "score", "problems"].includes(f))
+        : ["practiceCount", "score", "problems"];
+      return {
+        taskId: id,
+        key,
+        displayName,
+        chineseName: String(task.chineseName || "").trim(),
+        englishName: String(task.englishName || "").trim(),
+        practiceCount: toIntOrZero(task.practiceCount),
+        score: toScoreOrNull(task.score),
+        maxScore: toScoreOrNull(task.maxScore),
+        problems: String(task.problems || "").trim(),
+        completed: task.completed === true,
+        targetCount: toIntOrZero(task.targetCount),
+        fieldsUsed: fieldsUsed.length ? fieldsUsed : ["practiceCount", "score", "problems"],
+      };
+    })
+    .filter(Boolean);
+};
+
+const summarizeEnglishProblems = (block = {}) => {
+  const exercises = Array.isArray(block.exercises) ? block.exercises : [];
+  const collected = exercises
+    .map((ex) => String(ex?.problems || "").trim())
+    .filter(Boolean)
+    .slice(0, 3);
+  return collected.join("；");
+};
+
+const canonicalTaskSnapshot = (key, block = {}, meta = {}) => {
+  let practiceCount = 0;
+  let score = null;
+  let problems = "";
+  let completed = false;
+  if (key === "editing" || key === "grammar") {
+    practiceCount = toIntOrZero(block.exerciseCount);
+    score = toScoreOrNull(block.score);
+    problems = summarizeEnglishProblems(block);
+    completed = practiceCount > 0;
+  } else if (key === "reading") {
+    practiceCount = toIntOrZero(block.articleCount);
+    score = toScoreOrNull(block.score);
+    problems = summarizeEnglishProblems(block);
+    completed = practiceCount > 0;
+  } else if (key === "vocab") {
+    practiceCount = toIntOrZero(block.vocabularyWordCount) + toIntOrZero(block.vocabularySentenceCount);
+    completed = practiceCount > 0;
+  } else if (key === "recitation") {
+    practiceCount = trimText(block.text).length > 0 ? 1 : 0;
+    problems = trimText(block.text);
+    completed = practiceCount > 0;
+  } else if (key === "essay") {
+    practiceCount = block.completed ? 1 : 0;
+    score = toScoreOrNull(block.score);
+    problems = trimText(block.text);
+    completed = block.completed === true;
+  }
+  return {
+    taskId: meta.id || key,
+    key: meta.key || key,
+    displayName: meta.displayName || key,
+    chineseName: meta.chineseName || "",
+    englishName: meta.englishName || "",
+    practiceCount,
+    score,
+    maxScore: toScoreOrNull(block.totalScore),
+    problems,
+    completed,
+    targetCount: toIntOrZero(meta.weeklyTargetCount),
+    fieldsUsed: Array.isArray(meta.enabledFields) ? meta.enabledFields : ["practiceCount", "score", "problems"],
+  };
+};
+
+const normalizeEnglishTaskEntryForUi = (entry = {}, configTask = {}) => {
+  const enabledFields = Array.isArray(configTask.enabledFields)
+    ? configTask.enabledFields
+    : (Array.isArray(entry.fieldsUsed) ? entry.fieldsUsed : ["practiceCount", "score", "problems"]);
+  return {
+    taskId: entry.taskId || configTask.id || configTask.key || "",
+    key: entry.key || configTask.key || "",
+    displayName: configTask.displayName || entry.displayName || configTask.key || "",
+    chineseName: configTask.chineseName || entry.chineseName || "",
+    englishName: configTask.englishName || entry.englishName || "",
+    practiceCount: toIntOrZero(entry.practiceCount),
+    score: toScoreOrNull(entry.score),
+    maxScore: toScoreOrNull(entry.maxScore),
+    problems: trimText(entry.problems || ""),
+    completed: entry.completed === true,
+    targetCount: toIntOrZero(configTask.weeklyTargetCount || entry.targetCount),
+    fieldsUsed: enabledFields,
+    uiExpanded: entry.uiExpanded === true,
+  };
+};
+
 const isEnglishSubject = (subject = {}) => {
   const name = String(subject.name || subject.subjectName || subject.subject || "").toLowerCase();
   const code = String(subject.code || subject.subjectCode || "").toLowerCase();
@@ -273,6 +392,7 @@ const buildEnglishActivity = (input = {}) => ({
   subjectDisplayName: formatSubjectName(input.subjectName || "英文"),
   type: "english",
   english: buildEnglishFields(input),
+  englishTasks: normalizeCustomEnglishTasks(input.englishTasks),
   taskSummary: input.taskSummary || input.practiceProgress || input.description || "",
   strengths: input.strengths || "",
   improvements: input.improvements || "",
@@ -298,6 +418,7 @@ const normalizeActivity = (activity = {}) => {
       subjectDisplayName: formatSubjectName(subjectName || "英文"),
       type: "english",
       english: buildEnglishFields({ ...english, ...activity }),
+      englishTasks: normalizeCustomEnglishTasks(activity.englishTasks),
       taskSummary: activity.taskSummary || activity.practiceProgress || activity.description || "",
       strengths: activity.strengths || "",
       improvements: activity.improvements || "",
@@ -395,11 +516,21 @@ Page({
     topicProgressSubjects: [],
     topicProgressExpandedSubjects: {},
     topicProgressExpandedTopics: {},
+    englishTaskConfig: DEFAULT_ENGLISH_TASKS,
+    englishTaskIsDefault: true,
+    hasDraft: false,
+    draftUpdatedAtText: "",
+    draftStorageKey: "",
+    publishing: false,
+    draftSaving: false,
+    canManageEnglishTasks: false,
   },
 
   onLoad(query) {
     const user = wx.getStorageSync("user");
-    const isTeacher = user?.role === "teacher";
+    const isTeacher = user?.role === "teacher" || user?.role === "admin";
+    const isManager = user?.role === "teacher" || user?.role === "admin";
+    this.currentUser = user || {};
     this.studentId = query.studentId;
     const date = query.date || this.today();
 
@@ -414,8 +545,15 @@ Page({
       selectedDate: date,
       isEditing: !query.date && isTeacher,
       isEditable: !query.date && isTeacher,
+      draftStorageKey: makeDraftKey({
+        studentId: this.studentId,
+        date,
+        userId: this.currentUser?.id || "",
+      }),
+      canManageEnglishTasks: isManager,
     });
 
+    this.fetchEnglishTaskConfig();
     this.fetchStudent();
     this.fetchSubjects();
     this.fetchPaperTypes();
@@ -423,6 +561,14 @@ Page({
     this.fetchLossPointCatalog();
     this.fetchTopicProgress();
     this.fetchProgress();
+  },
+
+  onShow() {
+    if (!this.studentId) return;
+    if (this.shouldRefreshEnglishTaskConfig) {
+      this.shouldRefreshEnglishTaskConfig = false;
+      this.fetchEnglishTaskConfig();
+    }
   },
 
   fetchLossPointCatalog() {
@@ -441,16 +587,46 @@ Page({
       });
   },
 
+  fetchEnglishTaskConfig() {
+    if (!this.studentId) return;
+    request({ url: `/students/${this.studentId}/english-tasks` })
+      .then((data) => {
+        const config = normalizeEnglishTaskConfig(data?.tasks || DEFAULT_ENGLISH_TASKS);
+        this.setData(
+          {
+            englishTaskConfig: config,
+            englishTaskIsDefault: !!data?.isDefault,
+          },
+          () => this.refreshActivityChips()
+        );
+      })
+      .catch(() => {
+        this.setData({ englishTaskConfig: DEFAULT_ENGLISH_TASKS, englishTaskIsDefault: true }, () =>
+          this.refreshActivityChips()
+        );
+      });
+  },
+
+  openEnglishTaskManage() {
+    if (!this.data.canManageEnglishTasks || !this.studentId) return;
+    this.shouldRefreshEnglishTaskConfig = true;
+    wx.navigateTo({ url: `/pages/english-tasks-manage/index?studentId=${this.studentId}` });
+  },
+
   // Recompute chip selections on every activities update so WXML can render
   // them declaratively (WeChat WXML can't filter inside templates).
   decorateActivities(activities) {
     const catalog = this.data.lossPointCatalog || {};
+    const taskConfig = normalizeEnglishTaskConfig(this.data.englishTaskConfig || DEFAULT_ENGLISH_TASKS);
+    const taskMap = new Map(taskConfig.map((task) => [task.key, task]));
+    const customConfig = taskConfig.filter((task) => !canonicalEnglishTaskKeys.includes(task.key) && task.enabled !== false);
     const sections = ["editing", "reading", "grammar", "vocab", "recitation", "essay"];
     return (activities || []).map((a) => {
       if (!a || a.type !== "english" || !a.english) return a;
       const eng = { ...a.english };
       sections.forEach((code) => {
         const block = eng[code] || {};
+        const configTask = taskMap.get(code) || taskMap.get(code === "vocab" ? "vocabulary" : code) || null;
         let decorated = { ...block };
 
         if (code === "editing" || code === "reading" || code === "grammar") {
@@ -481,9 +657,23 @@ Page({
         // Auto-expand sections that already have data when the page first
         // renders. Once the user toggles, the explicit value sticks.
         decorated.uiExpanded = block.uiExpanded === undefined ? decorated.uiHasData : block.uiExpanded;
+        decorated.uiEnabled = configTask ? configTask.enabled !== false : true;
+        decorated.uiLabel = configTask?.displayName || block.uiLabel || "";
+        decorated.uiFieldsUsed = Array.isArray(configTask?.enabledFields)
+          ? configTask.enabledFields
+          : ["practiceCount", "score", "problems"];
+        decorated.uiTargetCount = toIntOrZero(configTask?.weeklyTargetCount);
         eng[code] = decorated;
       });
-      return { ...a, english: eng };
+      const customByKey = new Map();
+      normalizeCustomEnglishTasks(a.englishTasks).forEach((entry) => {
+        customByKey.set(entry.key, entry);
+      });
+      const customEnglishTasks = customConfig.map((task) => {
+        const current = customByKey.get(task.key) || {};
+        return normalizeEnglishTaskEntryForUi(current, task);
+      });
+      return { ...a, english: eng, customEnglishTasks };
     });
   },
 
@@ -501,6 +691,141 @@ Page({
 
   today() {
     return formatChinaDate(new Date());
+  },
+
+  buildDraftStorageKey(date = this.data.selectedDate) {
+    return makeDraftKey({
+      studentId: this.studentId,
+      date,
+      userId: this.currentUser?.id || "",
+    });
+  },
+
+  snapshotEditableState() {
+    return {
+      selectedDate: this.data.selectedDate,
+      attendance: this.data.attendance,
+      attendanceStart: this.data.attendanceStart,
+      attendanceEnd: this.data.attendanceEnd,
+      summary: this.data.summary || "",
+      activities: JSON.parse(JSON.stringify(this.data.activities || [])),
+    };
+  },
+
+  hasUnsavedChanges() {
+    const base = this.editBaseline || null;
+    if (!base) return false;
+    const current = this.snapshotEditableState();
+    try {
+      return JSON.stringify(base) !== JSON.stringify(current);
+    } catch (_) {
+      return false;
+    }
+  },
+
+  refreshEditBaseline() {
+    this.editBaseline = this.snapshotEditableState();
+  },
+
+  saveDraftMeta(updatedAt = new Date().toISOString()) {
+    const date = this.data.selectedDate;
+    const storageKey = this.buildDraftStorageKey(date);
+    this.setData({
+      draftStorageKey: storageKey,
+      hasDraft: true,
+      draftUpdatedAtText: formatChinaDateTime(new Date(updatedAt)),
+    });
+  },
+
+  clearDraftMeta() {
+    this.setData({
+      hasDraft: false,
+      draftUpdatedAtText: "",
+    });
+  },
+
+  applyDraftPayload(draft) {
+    const attendanceLabel =
+      attendanceMap.find((a) => a.value === draft.attendance)?.label || "出席";
+    const activities = ensureEnglishActivity((draft.activities || []).map((a) => normalizeActivity(a)));
+    this.setData({
+      selectedDate: draft.date || this.data.selectedDate,
+      attendance: draft.attendance || "present",
+      attendanceLabel,
+      attendanceStart: draft.attendanceStart || "18:00",
+      attendanceEnd: draft.attendanceEnd || "21:00",
+      summary: draft.summary || "",
+      activities: this.decorateActivities(activities.length ? activities : [buildEnglishActivity()]),
+      isEditing: true,
+      isEditable: true,
+      editingId: this.data.existingId || null,
+    });
+    this.refreshEditBaseline();
+  },
+
+  checkAndPromptDraft() {
+    if (!this.data.isTeacher || !this.data.isEditable) return;
+    const key = this.buildDraftStorageKey(this.data.selectedDate);
+    const draft = wx.getStorageSync(key);
+    if (!draft || typeof draft !== "object") {
+      this.clearDraftMeta();
+      return;
+    }
+    if (draft.studentId !== this.studentId || draft.date !== this.data.selectedDate) {
+      this.clearDraftMeta();
+      return;
+    }
+    this.saveDraftMeta(draft.updatedAt || new Date().toISOString());
+    wx.showModal({
+      title: "检测到暂存",
+      content: "检测到未发表的暂存内容，是否继续编辑？",
+      success: (res) => {
+        if (!res.confirm) return;
+        this.applyDraftPayload(draft);
+        wx.showToast({ title: "已恢复暂存", icon: "none" });
+      },
+    });
+  },
+
+  clearLocalDraft() {
+    const key = this.buildDraftStorageKey(this.data.selectedDate);
+    wx.removeStorageSync(key);
+    this.clearDraftMeta();
+  },
+
+  clearDraftConfirm() {
+    if (!this.data.hasDraft) return;
+    wx.showModal({
+      title: "清除暂存？",
+      content: "清除后将无法恢复未发表内容。",
+      success: (res) => {
+        if (!res.confirm) return;
+        this.clearLocalDraft();
+        wx.showToast({ title: "已清除暂存", icon: "none" });
+      },
+    });
+  },
+
+  saveLocalDraft() {
+    if (!this.data.isEditable || this.data.draftSaving) return;
+    const key = this.buildDraftStorageKey(this.data.selectedDate);
+    const payload = buildDailyProgressDraftPayload({
+      studentId: this.studentId,
+      date: this.data.selectedDate,
+      userId: this.currentUser?.id || "",
+      formData: this.snapshotEditableState(),
+    });
+    this.setData({ draftSaving: true });
+    try {
+      wx.setStorageSync(key, payload);
+      this.saveDraftMeta(payload.updatedAt);
+      this.refreshEditBaseline();
+      wx.showToast({ title: "已暂存到本机", icon: "success" });
+    } catch (err) {
+      wx.showToast({ title: "暂存失败", icon: "none" });
+    } finally {
+      this.setData({ draftSaving: false });
+    }
   },
 
   fetchStudent() {
@@ -650,6 +975,9 @@ Page({
               lastUpdatedAt: "",
               lastUpdatedBy: "",
               lastUpdatedAtText: "",
+            }, () => {
+              this.refreshEditBaseline();
+              this.checkAndPromptDraft();
             });
           }
           this.fetchPapersForDate();
@@ -679,6 +1007,9 @@ Page({
             lastUpdatedAt: entry.updatedAt || "",
             lastUpdatedBy: entry.updatedByName || "",
             lastUpdatedAtText: updatedAtText,
+          }, () => {
+            this.refreshEditBaseline();
+            this.clearDraftMeta();
           });
           this.fetchPapersForDate();
         } else {
@@ -695,6 +1026,7 @@ Page({
     // Changing date should load existing record if available; otherwise start a new blank record.
     this.setData({
       selectedDate: nextDate,
+      draftStorageKey: this.buildDraftStorageKey(nextDate),
       existingId: null,
       editingId: null,
       isEditing: false,
@@ -712,6 +1044,7 @@ Page({
       papersUpdatedBy: "",
       papersUpdatedAtText: "",
     });
+    this.clearDraftMeta();
     this.fetchProgress();
   },
 
@@ -1000,6 +1333,52 @@ Page({
     this.updateEnglishBlock(idx, "essay", { title: e.detail.value });
   },
 
+  updateCustomEnglishTask(index, taskIndex, patch) {
+    const activities = [...this.data.activities];
+    const activity = activities[index];
+    if (!activity || activity.type !== "english") return;
+    const custom = Array.isArray(activity.customEnglishTasks)
+      ? activity.customEnglishTasks.map((item) => ({ ...item }))
+      : [];
+    if (!custom[taskIndex]) return;
+    custom[taskIndex] = { ...custom[taskIndex], ...patch };
+    activities[index] = { ...activity, customEnglishTasks: custom };
+    this.setData({ activities: this.decorateActivities(activities) });
+  },
+
+  toggleCustomEnglishTask(e) {
+    const idx = Number(e.currentTarget.dataset.index);
+    const taskIndex = Number(e.currentTarget.dataset.taskIndex);
+    const activity = this.data.activities[idx];
+    const task = activity?.customEnglishTasks?.[taskIndex];
+    if (!task) return;
+    this.updateCustomEnglishTask(idx, taskIndex, { uiExpanded: !task.uiExpanded });
+  },
+
+  onCustomTaskCountInput(e) {
+    if (!this.data.isEditable) return;
+    const idx = Number(e.currentTarget.dataset.index);
+    const taskIndex = Number(e.currentTarget.dataset.taskIndex);
+    const value = clampIntInput(e.detail.value, 0, LIMITS.englishVocabMax);
+    this.updateCustomEnglishTask(idx, taskIndex, { practiceCount: value, completed: value > 0 });
+  },
+
+  onCustomTaskScoreInput(e) {
+    if (!this.data.isEditable) return;
+    const idx = Number(e.currentTarget.dataset.index);
+    const taskIndex = Number(e.currentTarget.dataset.taskIndex);
+    this.updateCustomEnglishTask(idx, taskIndex, {
+      score: toBoundedScore(e.detail.value),
+    });
+  },
+
+  onCustomTaskProblemsInput(e) {
+    if (!this.data.isEditable) return;
+    const idx = Number(e.currentTarget.dataset.index);
+    const taskIndex = Number(e.currentTarget.dataset.taskIndex);
+    this.updateCustomEnglishTask(idx, taskIndex, { problems: e.detail.value || "" });
+  },
+
   syncPaperPickers() {
     const { paperTypes, paperSchools } = this.data;
     const activities = (this.data.activities || []).map((a) => {
@@ -1181,34 +1560,56 @@ Page({
         activities: JSON.parse(JSON.stringify(this.data.activities)),
         existingId: this.data.existingId,
       },
+    }, () => {
+      this.refreshEditBaseline();
+      this.checkAndPromptDraft();
     });
   },
 
   cancelEdit() {
-    if (!this.data.existingId && !this.data.backup) {
-      wx.navigateBack();
+    const discard = () => {
+      if (!this.data.existingId && !this.data.backup) {
+        wx.navigateBack();
+        return;
+      }
+      const backup = this.data.backup;
+      if (!backup) {
+        this.setData({ isEditing: false, isEditable: false });
+        return;
+      }
+      this.setData({
+        selectedDate: backup.selectedDate,
+        attendance: backup.attendance,
+        attendanceLabel: backup.attendanceLabel,
+        attendanceStart: backup.attendanceStart || "",
+        attendanceEnd: backup.attendanceEnd || "",
+        summary: backup.summary || "",
+        activities: backup.activities,
+        existingId: backup.existingId,
+        editingId: null,
+        isEditing: false,
+        isEditable: false,
+        backup: null,
+      });
+      this.fetchProgress();
+    };
+
+    if (!this.hasUnsavedChanges()) {
+      discard();
       return;
     }
-    const backup = this.data.backup;
-    if (!backup) {
-      this.setData({ isEditing: false, isEditable: false });
-      return;
-    }
-    this.setData({
-      selectedDate: backup.selectedDate,
-      attendance: backup.attendance,
-      attendanceLabel: backup.attendanceLabel,
-      attendanceStart: backup.attendanceStart || "",
-      attendanceEnd: backup.attendanceEnd || "",
-      summary: backup.summary || "",
-      activities: backup.activities,
-      existingId: backup.existingId,
-      editingId: null,
-      isEditing: false,
-      isEditable: false,
-      backup: null,
+
+    wx.showModal({
+      title: "放弃修改？",
+      content: this.data.hasDraft
+        ? "当前有未发表内容，确定放弃本次修改并清除暂存吗？"
+        : "当前有未保存修改，确定放弃吗？",
+      success: (res) => {
+        if (!res.confirm) return;
+        if (this.data.hasDraft) this.clearLocalDraft();
+        discard();
+      },
     });
-    this.fetchProgress();
   },
 
   deleteEntry() {
@@ -1234,7 +1635,12 @@ Page({
   },
 
   save() {
+    this.publish();
+  },
+
+  publish() {
     if (!this.data.isEditable) return;
+    if (this.data.publishing) return;
     if (!this.data.selectedDate) {
       wx.showToast({ title: "请选择日期", icon: "none" });
       return;
@@ -1429,6 +1835,8 @@ Page({
     };
     const stripChips = stripDerived;
 
+    const taskConfig = normalizeEnglishTaskConfig(this.data.englishTaskConfig || DEFAULT_ENGLISH_TASKS);
+    const taskConfigMap = new Map(taskConfig.map((task) => [task.key, task]));
     const cleaned = ensureEnglishActivity(this.data.activities).map((a) => {
       const type = a.type || (a.english ? "english" : "generic");
       const payload = {
@@ -1444,7 +1852,30 @@ Page({
         comment: a.comment || "",
       };
       if (type === "english") {
-        payload.english = stripChips(a.english || buildEnglishFields());
+        const strippedEnglish = stripChips(a.english || buildEnglishFields());
+        payload.english = strippedEnglish;
+        const customTasks = normalizeCustomEnglishTasks(a.customEnglishTasks);
+        const canonicalSnapshots = canonicalEnglishTaskKeys
+          .map((key) => {
+            const configTask = taskConfigMap.get(key);
+            if (!configTask || configTask.enabled === false) return null;
+            return canonicalTaskSnapshot(key, strippedEnglish[key] || {}, configTask);
+          })
+          .filter(Boolean);
+        payload.englishTasks = [...canonicalSnapshots, ...customTasks].map((task) => ({
+          taskId: task.taskId || task.id || task.key,
+          key: task.key,
+          displayName: task.displayName,
+          chineseName: task.chineseName || "",
+          englishName: task.englishName || "",
+          practiceCount: toIntOrZero(task.practiceCount),
+          score: toScoreOrNull(task.score),
+          maxScore: toScoreOrNull(task.maxScore),
+          problems: trimText(task.problems || ""),
+          completed: task.completed === true,
+          targetCount: toIntOrZero(task.targetCount),
+          fieldsUsed: Array.isArray(task.fieldsUsed) ? task.fieldsUsed : ["practiceCount", "score", "problems"],
+        }));
       }
       return payload;
     });
@@ -1464,6 +1895,7 @@ Page({
       ? { url: `/progress/${updateId}`, method: "PUT", data: { ...payload, updatedAt: this.data.lastUpdatedAt } }
       : { url: "/progress", method: "POST", data: payload };
 
+    this.setData({ publishing: true });
     request(requestConfig)
       .then((data) => {
         const paperPayloads = [];
@@ -1494,7 +1926,8 @@ Page({
         }).then(() => data);
       })
       .then((data) => {
-        wx.showToast({ title: "已保存", icon: "success" });
+        this.clearLocalDraft();
+        wx.showToast({ title: "已发表", icon: "success" });
         const updatedAtText = data?.updatedAt
           ? formatChinaDateTime(new Date(data.updatedAt))
           : this.data.lastUpdatedAtText;
@@ -1545,7 +1978,10 @@ Page({
           wx.showToast({ title: "该日期已有记录", icon: "none" });
           return;
         }
-        wx.showToast({ title: "保存失败", icon: "error" });
+        wx.showToast({ title: "发表失败", icon: "error" });
+      })
+      .finally(() => {
+        this.setData({ publishing: false });
       });
   },
 });

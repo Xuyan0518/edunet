@@ -69,6 +69,16 @@ type EnglishScorePoint = {
   title: string | null;
 };
 
+type CustomEnglishTaskLike = {
+  key: string;
+  displayName: string;
+  practiceCount: number;
+  score: number | null;
+  maxScore: number | null;
+  problems: string;
+  completed: boolean;
+};
+
 export type StudentReportAnalytics = {
   reportMeta: {
     reportType: ReportType;
@@ -469,6 +479,32 @@ const collectTextFields = (obj: Record<string, unknown>, keys: string[]) =>
     .map((v) => v.trim())
     .filter(Boolean);
 
+const normalizeCustomEnglishTasks = (raw: unknown): CustomEnglishTaskLike[] => {
+  if (!Array.isArray(raw)) return [];
+  const tasks: CustomEnglishTaskLike[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+    const row = item as Record<string, unknown>;
+    const key = String(row.key || '').trim().toLowerCase();
+    const displayName = String(row.displayName || row.chineseName || row.englishName || row.key || '').trim();
+    if (!key && !displayName) continue;
+    const practiceCount = Number(row.practiceCount ?? 0);
+    const parsed = parseScoreAndMax(row.score, row.maxScore);
+    const problems = String(row.problems || '').trim();
+    const completed = row.completed === true;
+    tasks.push({
+      key: key || displayName.toLowerCase().replace(/\s+/g, '_'),
+      displayName,
+      practiceCount: Number.isFinite(practiceCount) && practiceCount > 0 ? Math.floor(practiceCount) : 0,
+      score: parsed.score,
+      maxScore: parsed.maxScore,
+      problems,
+      completed,
+    });
+  }
+  return tasks;
+};
+
 const extractCountFromPatterns = (textRaw: unknown, patterns: RegExp[]): number | null => {
   const text = String(textRaw || '');
   if (!text.trim()) return null;
@@ -834,6 +870,61 @@ export function buildStudentReportAnalytics(params: BuildParams): StudentReportA
             evidence: evidenceBase || clipEvidence(section.textualHint || section.title),
           });
           countedSkillRecords.add(section.key);
+        }
+
+        const customTasks = normalizeCustomEnglishTasks(activity.englishTasks);
+        for (const task of customTasks) {
+          const taskEvidence = clipEvidence(
+            [task.displayName, task.problems, evidenceBase].filter(Boolean).join(' | '),
+            90,
+          );
+          const taskSkills = classifyEnglishActivity(`${task.key} ${task.displayName} ${task.problems}`);
+          const primarySkill = taskSkills[0] || null;
+          if (primarySkill) activitySkills.add(primarySkill);
+          const parsedScore = parseScoreAndMax(task.score, task.maxScore);
+          const pct = calcPercentage(parsedScore.score, parsedScore.maxScore);
+          const scorePoint =
+            parsedScore.score !== null
+              ? {
+                  date,
+                  score: parsedScore.score,
+                  maxScore: parsedScore.maxScore,
+                  percentage: pct.percentage,
+                  source: 'dailyProgress' as const,
+                  title: task.displayName || 'English Task',
+                }
+              : null;
+          if (scorePoint) overallEnglishPoints.push(scorePoint);
+          if (primarySkill) {
+            observeEnglishSkill(primarySkill, {
+              activityDelta: task.practiceCount > 0 ? task.practiceCount : task.completed ? 1 : 0,
+              recordHit: true,
+              scorePoint,
+              evidence: taskEvidence || evidenceBase,
+            });
+            countedSkillRecords.add(primarySkill);
+          } else if (task.practiceCount > 0 || task.completed || task.problems || scorePoint) {
+            // No exact skill match: still mark a generic English activity.
+            observeEnglishSkill('composition', {
+              activityDelta: task.practiceCount > 0 ? task.practiceCount : task.completed ? 1 : 0,
+              recordHit: true,
+              scorePoint,
+              evidence: taskEvidence || evidenceBase,
+            });
+            countedSkillRecords.add('composition');
+          }
+          if (taskSkills.includes('vocabulary') && task.practiceCount > 0) {
+            hasExplicitVocabularyCount = true;
+            vocabularyItemsCount += task.practiceCount;
+            recordsWithVocabulary += 1;
+            addVocabularyEvidence(`词汇记录 ${date}：约 ${task.practiceCount} 项`);
+          }
+          if (taskSkills.includes('sentences') && task.practiceCount > 0) {
+            hasExplicitSentenceCount = true;
+            sentenceItemsCount += task.practiceCount;
+            recordsWithSentences += 1;
+            addVocabularyEvidence(`句子记录 ${date}：约 ${task.practiceCount} 项`);
+          }
         }
 
         const vocabCount = Number(english.vocab.vocabularyWordCount || 0);

@@ -2,28 +2,36 @@ const { request } = require("../../utils/api");
 const { formatSubjectName } = require("../../utils/displayName");
 const { showActionLockToast } = require("../../utils/actionLock");
 
-const isEnglishSubject = (subject = {}) => {
-  const name = String(subject.name || "").toLowerCase();
-  const code = String(subject.code || "").toLowerCase();
-  return (
-    name.includes("english") ||
-    name.includes("英文") ||
-    name.includes("英语") ||
-    code.includes("eng")
-  );
+const trimText = (value, max = 120) => String(value == null ? "" : value).trim().slice(0, max);
+
+const buildSubjectDisplay = (subject = {}) => {
+  const zh = trimText(subject.chineseName || "", 120);
+  const en = trimText(subject.englishName || "", 120);
+  const fallback = trimText(subject.name || "", 200);
+  const displayName = zh && en ? `${zh} (${en})` : (zh || en || fallback);
+  return {
+    ...subject,
+    displayName: formatSubjectName(displayName || fallback || subject.code || "未命名科目"),
+    metaName: displayName || fallback || subject.code || "",
+  };
 };
 
 Page({
   data: {
     loading: true,
-    subjects: [],
-    filtered: [],
+    saving: false,
+    levels: [],
+    filteredLevels: [],
     selectedIds: [],
     query: "",
+    canManageCatalog: false,
+    editLevelNames: [],
   },
 
   onLoad(query) {
     this.studentId = query.studentId;
+    const user = wx.getStorageSync("user") || {};
+    this.setData({ canManageCatalog: user.role === "teacher" || user.role === "admin" });
     this.fetchAll();
   },
 
@@ -31,65 +39,95 @@ Page({
     if (!this.studentId) return;
     this.setData({ loading: true });
     Promise.all([
-      request({ url: "/subjects" }),
+      request({ url: "/subjects/hierarchy" }),
       request({ url: `/students/${this.studentId}/subjects` }),
     ])
-      .then(([subjects, assigned]) => {
-        const ids = (assigned || [])
-          .map((s) => (typeof s === "string" ? s : s.subjectId))
-          .filter(Boolean);
-        const merged = (subjects || []).map((s) => ({
-          ...s,
-          isRequired: isEnglishSubject(s),
-          displayName: formatSubjectName(s.name),
-          isSelected: ids.includes(s.id),
+      .then(([hierarchy, assigned]) => {
+        const selectedIds = Array.isArray(assigned)
+          ? assigned.map((item) => (typeof item === "string" ? item : item?.subjectId)).filter(Boolean)
+          : [];
+        const levels = (hierarchy?.levels || []).map((level) => ({
+          ...level,
+          subjects: (level.subjects || [])
+            .map(buildSubjectDisplay)
+            .map((subject) => ({
+              ...subject,
+              isSelected: selectedIds.includes(subject.id),
+              isRequired: !!subject.isRequired,
+              topics: Array.isArray(subject.topics) ? subject.topics : [],
+            })),
         }));
-        const english = merged.find((s) => s.isRequired);
-        const selectedIds = english && !ids.includes(english.id) ? [english.id, ...ids] : ids;
-        const finalMerged = merged.map((s) => ({
-          ...s,
-          isSelected: selectedIds.includes(s.id),
-        }));
+        const required = [];
+        levels.forEach((level) => {
+          level.subjects.forEach((subject) => {
+            if (subject.isRequired && !selectedIds.includes(subject.id)) required.push(subject.id);
+          });
+        });
+        const nextSelected = Array.from(new Set([...required, ...selectedIds]));
+        levels.forEach((level) => {
+          level.subjects = level.subjects.map((subject) => ({
+            ...subject,
+            isSelected: nextSelected.includes(subject.id),
+          }));
+        });
         this.setData({
-          subjects: finalMerged,
-          filtered: finalMerged,
-          selectedIds,
+          levels,
+          filteredLevels: levels,
+          selectedIds: nextSelected,
+          editLevelNames: levels.map((level) => level.name),
         });
       })
-      .catch(() => wx.showToast({ title: "获取科目失败", icon: "error" }))
+      .catch((err) => {
+        wx.showToast({ title: err?.error || "获取科目失败", icon: "none" });
+      })
       .finally(() => this.setData({ loading: false }));
   },
 
+  buildFilteredLevels() {
+    const query = trimText(this.data.query).toLowerCase();
+    if (!query) return this.data.levels;
+    return this.data.levels
+      .map((level) => ({
+        ...level,
+        subjects: (level.subjects || []).filter((subject) => {
+          const text = `${subject.metaName || ""} ${subject.code || ""} ${subject.levelName || ""}`.toLowerCase();
+          return text.includes(query);
+        }),
+      }))
+      .filter((level) => level.subjects.length || String(level.name || "").toLowerCase().includes(query));
+  },
+
   onSearch(e) {
-    const query = (e.detail.value || "").trim().toLowerCase();
-    const filtered = this.data.subjects.filter(
-      (s) =>
-        s.name.toLowerCase().includes(query) ||
-        (s.displayName || "").toLowerCase().includes(query) ||
-        s.code.toLowerCase().includes(query) ||
-        s.level.toLowerCase().includes(query)
-    );
-    this.setData({ query, filtered });
+    this.setData({ query: e.detail.value || "" }, () => {
+      this.setData({ filteredLevels: this.buildFilteredLevels() });
+    });
   },
 
   onCheckChange(e) {
-    let selectedIds = e.detail.value;
-    const english = this.data.subjects.find((s) => s.isRequired);
-    if (english && !selectedIds.includes(english.id)) {
-      selectedIds = [english.id, ...selectedIds];
-    }
-    const subjects = this.data.subjects.map((s) => ({
-      ...s,
-      isSelected: selectedIds.includes(s.id),
+    let selectedIds = Array.isArray(e.detail.value) ? e.detail.value : [];
+    const requiredIds = [];
+    this.data.levels.forEach((level) => {
+      level.subjects.forEach((subject) => {
+        if (subject.isRequired) requiredIds.push(subject.id);
+      });
+    });
+    selectedIds = Array.from(new Set([...requiredIds, ...selectedIds]));
+
+    const levels = this.data.levels.map((level) => ({
+      ...level,
+      subjects: level.subjects.map((subject) => ({
+        ...subject,
+        isSelected: selectedIds.includes(subject.id),
+      })),
     }));
-    const filtered = this.data.filtered.map((s) => ({
-      ...s,
-      isSelected: selectedIds.includes(s.id),
-    }));
-    this.setData({ selectedIds, subjects, filtered });
+    this.setData({ selectedIds, levels }, () => {
+      this.setData({ filteredLevels: this.buildFilteredLevels() });
+    });
   },
 
   save() {
+    if (this.data.saving) return;
+    this.setData({ saving: true });
     request({
       url: `/students/${this.studentId}/subjects`,
       method: "PUT",
@@ -101,7 +139,374 @@ Page({
       })
       .catch((err) => {
         if (showActionLockToast(err)) return;
-        wx.showToast({ title: err?.message || "保存失败", icon: "error" });
-      });
+        wx.showToast({ title: err?.error || err?.message || "保存失败", icon: "none" });
+      })
+      .finally(() => this.setData({ saving: false }));
+  },
+
+  addLevel() {
+    if (!this.data.canManageCatalog) return;
+    wx.showModal({
+      title: "新增层级",
+      editable: true,
+      placeholderText: "例如：Sec 1 / O-Level / IB",
+      success: (res) => {
+        if (!res.confirm) return;
+        const name = trimText(res.content, 64);
+        if (!name) {
+          wx.showToast({ title: "层级名称不能为空", icon: "none" });
+          return;
+        }
+        request({
+          url: "/subject-levels",
+          method: "POST",
+          data: { name },
+        })
+          .then(() => {
+            wx.showToast({ title: "层级已新增", icon: "success" });
+            this.fetchAll();
+          })
+          .catch((err) => {
+            if (showActionLockToast(err)) return;
+            wx.showToast({ title: err?.error || "新增失败", icon: "none" });
+          });
+      },
+    });
+  },
+
+  editLevel(e) {
+    if (!this.data.canManageCatalog) return;
+    const levelId = e.currentTarget.dataset.levelId;
+    const level = this.data.levels.find((item) => item.id === levelId);
+    if (!level) return;
+    wx.showModal({
+      title: "修改层级名称",
+      editable: true,
+      placeholderText: "请输入层级名称",
+      content: level.name,
+      success: (res) => {
+        if (!res.confirm) return;
+        const name = trimText(res.content, 64);
+        if (!name) {
+          wx.showToast({ title: "层级名称不能为空", icon: "none" });
+          return;
+        }
+        request({
+          url: `/subject-levels/${levelId}`,
+          method: "PUT",
+          data: {
+            name,
+            description: level.description || "",
+            sortOrder: Number(level.sortOrder || 0),
+            isActive: true,
+          },
+        })
+          .then(() => {
+            wx.showToast({ title: "已更新", icon: "success" });
+            this.fetchAll();
+          })
+          .catch((err) => {
+            if (showActionLockToast(err)) return;
+            wx.showToast({ title: err?.error || "更新失败", icon: "none" });
+          });
+      },
+    });
+  },
+
+  deleteLevel(e) {
+    if (!this.data.canManageCatalog) return;
+    const levelId = e.currentTarget.dataset.levelId;
+    wx.showModal({
+      title: "删除层级",
+      content: "仅可删除空层级，是否继续？",
+      success: (res) => {
+        if (!res.confirm) return;
+        request({
+          url: `/subject-levels/${levelId}`,
+          method: "DELETE",
+        })
+          .then(() => {
+            wx.showToast({ title: "已删除", icon: "success" });
+            this.fetchAll();
+          })
+          .catch((err) => {
+            if (showActionLockToast(err)) return;
+            wx.showToast({ title: err?.error || "删除失败", icon: "none" });
+          });
+      },
+    });
+  },
+
+  addSubject(e) {
+    if (!this.data.canManageCatalog) return;
+    const levelId = e.currentTarget.dataset.levelId;
+    wx.showModal({
+      title: "新增科目",
+      editable: true,
+      placeholderText: "中文名，例如：化学",
+      success: (res) => {
+        if (!res.confirm) return;
+        const chineseName = trimText(res.content, 120);
+        if (!chineseName) {
+          wx.showToast({ title: "科目名称不能为空", icon: "none" });
+          return;
+        }
+        wx.showModal({
+          title: "英文名（可选）",
+          editable: true,
+          placeholderText: "例如：Chemistry",
+          success: (resEn) => {
+            const englishName = resEn.confirm ? trimText(resEn.content, 120) : "";
+            const code = trimText((englishName || chineseName).toUpperCase().replace(/[^A-Z0-9]+/g, "_"), 64);
+            request({
+              url: "/subjects",
+              method: "POST",
+              data: {
+                code: code || `SUB_${Date.now()}`,
+                name: chineseName,
+                chineseName,
+                englishName,
+                levelId,
+                level: "O-Level",
+                isRequired: false,
+                sortOrder: 0,
+                isActive: true,
+              },
+            })
+              .then(() => {
+                wx.showToast({ title: "科目已新增", icon: "success" });
+                this.fetchAll();
+              })
+              .catch((err) => {
+                if (showActionLockToast(err)) return;
+                wx.showToast({ title: err?.error || "新增失败", icon: "none" });
+              });
+          },
+        });
+      },
+    });
+  },
+
+  editSubject(e) {
+    if (!this.data.canManageCatalog) return;
+    const levelId = e.currentTarget.dataset.levelId;
+    const subjectId = e.currentTarget.dataset.subjectId;
+    const level = this.data.levels.find((item) => item.id === levelId);
+    const subject = (level?.subjects || []).find((item) => item.id === subjectId);
+    if (!subject) return;
+
+    const levelNames = this.data.levels.map((item) => item.name || "");
+    const levelIndex = this.data.levels.findIndex((item) => item.id === subject.levelId);
+
+    wx.showActionSheet({
+      itemList: ["编辑名称/Code", "移动到其他层级", subject.isActive === false ? "启用科目" : "停用科目"],
+      success: (sheet) => {
+        if (sheet.tapIndex === 0) {
+          wx.showModal({
+            title: "修改中文名",
+            editable: true,
+            content: subject.chineseName || subject.name || "",
+            success: (resZh) => {
+              if (!resZh.confirm) return;
+              const chineseName = trimText(resZh.content, 120);
+              if (!chineseName) {
+                wx.showToast({ title: "名称不能为空", icon: "none" });
+                return;
+              }
+              wx.showModal({
+                title: "修改英文名（可选）",
+                editable: true,
+                content: subject.englishName || "",
+                success: (resEn) => {
+                  const englishName = resEn.confirm ? trimText(resEn.content, 120) : (subject.englishName || "");
+                  const code = trimText((englishName || chineseName).toUpperCase().replace(/[^A-Z0-9]+/g, "_"), 64) || subject.code;
+                  request({
+                    url: `/subjects/${subject.id}`,
+                    method: "PUT",
+                    data: {
+                      code,
+                      name: chineseName,
+                      chineseName,
+                      englishName,
+                      levelId: subject.levelId,
+                      level: subject.level || "O-Level",
+                      isRequired: !!subject.isRequired,
+                      sortOrder: Number(subject.sortOrder || 0),
+                      isActive: subject.isActive !== false,
+                    },
+                  })
+                    .then(() => {
+                      wx.showToast({ title: "已更新", icon: "success" });
+                      this.fetchAll();
+                    })
+                    .catch((err) => {
+                      if (showActionLockToast(err)) return;
+                      wx.showToast({ title: err?.error || "更新失败", icon: "none" });
+                    });
+                },
+              });
+            },
+          });
+        } else if (sheet.tapIndex === 1) {
+          wx.showActionSheet({
+            itemList: levelNames,
+            success: (pick) => {
+              const targetLevel = this.data.levels[pick.tapIndex];
+              if (!targetLevel) return;
+              request({
+                url: `/subjects/${subject.id}`,
+                method: "PUT",
+                data: {
+                  code: subject.code,
+                  name: subject.name,
+                  chineseName: subject.chineseName || subject.name,
+                  englishName: subject.englishName || "",
+                  levelId: targetLevel.id,
+                  level: targetLevel.name || "O-Level",
+                  isRequired: !!subject.isRequired,
+                  sortOrder: Number(subject.sortOrder || 0),
+                  isActive: subject.isActive !== false,
+                },
+              })
+                .then(() => {
+                  wx.showToast({ title: "已移动", icon: "success" });
+                  this.fetchAll();
+                })
+                .catch((err) => {
+                  if (showActionLockToast(err)) return;
+                  wx.showToast({ title: err?.error || "移动失败", icon: "none" });
+                });
+            },
+          });
+        } else if (sheet.tapIndex === 2) {
+          request({
+            url: `/subjects/${subject.id}`,
+            method: "PUT",
+            data: {
+              code: subject.code,
+              name: subject.name,
+              chineseName: subject.chineseName || subject.name,
+              englishName: subject.englishName || "",
+              levelId: subject.levelId,
+              level: subject.level || "O-Level",
+              isRequired: !!subject.isRequired,
+              sortOrder: Number(subject.sortOrder || 0),
+              isActive: subject.isActive === false,
+            },
+          })
+            .then(() => {
+              wx.showToast({ title: "已更新", icon: "success" });
+              this.fetchAll();
+            })
+            .catch((err) => {
+              if (showActionLockToast(err)) return;
+              wx.showToast({ title: err?.error || "更新失败", icon: "none" });
+            });
+        }
+      },
+    });
+  },
+
+  addTopic(e) {
+    if (!this.data.canManageCatalog) return;
+    const subjectId = e.currentTarget.dataset.subjectId;
+    wx.showModal({
+      title: "新增章节",
+      editable: true,
+      placeholderText: "章节名称",
+      success: (res) => {
+        if (!res.confirm) return;
+        const title = trimText(res.content, 256);
+        if (!title) {
+          wx.showToast({ title: "章节名称不能为空", icon: "none" });
+          return;
+        }
+        const code = trimText(title.toUpperCase().replace(/[^A-Z0-9]+/g, "_"), 64) || `TOPIC_${Date.now()}`;
+        request({
+          url: `/subjects/${subjectId}/topics`,
+          method: "POST",
+          data: {
+            code,
+            title,
+            orderIndex: code,
+            parentTopicId: null,
+          },
+        })
+          .then(() => {
+            wx.showToast({ title: "章节已新增", icon: "success" });
+            this.fetchAll();
+          })
+          .catch((err) => {
+            if (showActionLockToast(err)) return;
+            wx.showToast({ title: err?.error || "新增失败", icon: "none" });
+          });
+      },
+    });
+  },
+
+  editTopic(e) {
+    if (!this.data.canManageCatalog) return;
+    const topicId = e.currentTarget.dataset.topicId;
+    const code = e.currentTarget.dataset.topicCode;
+    const title = e.currentTarget.dataset.topicTitle;
+    const subjectId = e.currentTarget.dataset.subjectId;
+    const parentTopicId = e.currentTarget.dataset.parentTopicId || null;
+    const orderIndex = e.currentTarget.dataset.orderIndex || code;
+    wx.showModal({
+      title: "修改章节名称",
+      editable: true,
+      content: title || "",
+      success: (res) => {
+        if (!res.confirm) return;
+        const nextTitle = trimText(res.content, 256);
+        if (!nextTitle) {
+          wx.showToast({ title: "章节名称不能为空", icon: "none" });
+          return;
+        }
+        request({
+          url: `/topics/${topicId}`,
+          method: "PUT",
+          data: {
+            code,
+            title: nextTitle,
+            orderIndex,
+            parentTopicId,
+            subjectId,
+          },
+        })
+          .then(() => {
+            wx.showToast({ title: "已更新", icon: "success" });
+            this.fetchAll();
+          })
+          .catch((err) => {
+            if (showActionLockToast(err)) return;
+            wx.showToast({ title: err?.error || "更新失败", icon: "none" });
+          });
+      },
+    });
+  },
+
+  deleteTopic(e) {
+    if (!this.data.canManageCatalog) return;
+    const topicId = e.currentTarget.dataset.topicId;
+    wx.showModal({
+      title: "删除章节",
+      content: "如果该章节已有学习进度或子章节，将无法删除。",
+      success: (res) => {
+        if (!res.confirm) return;
+        request({
+          url: `/topics/${topicId}`,
+          method: "DELETE",
+        })
+          .then(() => {
+            wx.showToast({ title: "已删除", icon: "success" });
+            this.fetchAll();
+          })
+          .catch((err) => {
+            if (showActionLockToast(err)) return;
+            wx.showToast({ title: err?.error || "删除失败", icon: "none" });
+          });
+      },
+    });
   },
 });

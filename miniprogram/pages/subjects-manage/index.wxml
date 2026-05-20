@@ -1,35 +1,79 @@
 <view class="container">
   <view class="hero">
     <view class="title">管理科目</view>
-    <view class="subtitle">勾选要分配给学生的科目</view>
+    <view class="subtitle">按层级管理科目，并勾选分配给当前学生</view>
     <input class="input" placeholder="搜索科目..." bindinput="onSearch" />
+  </view>
+
+  <view class="section card" wx:if="{{canManageCatalog}}">
+    <view class="row-between">
+      <view class="section-title">层级与科目库</view>
+      <button class="btn-outline" size="mini" bindtap="addLevel">新增层级</button>
+    </view>
+    <view class="muted">可新增/改名/删除空层级，并新增或编辑科目与章节。</view>
   </view>
 
   <view class="card">
     <block wx:if="{{loading}}">
       <view class="list-item muted">加载中...</view>
     </block>
-    <block wx:elif="{{filtered.length === 0}}">
-      <view class="list-item muted">没有可选科目</view>
+    <block wx:elif="{{levels.length === 0}}">
+      <view class="list-item muted">没有可用层级</view>
     </block>
     <block wx:else>
       <checkbox-group bindchange="onCheckChange">
-        <block wx:for="{{filtered}}" wx:key="id">
-          <label class="list-item row-between {{item.isSelected ? 'selected' : ''}}">
-            <view class="subject-text">
-            <view class="subject-name">{{item.displayName || item.name}}</view>
-              <view class="muted subject-meta">{{item.code}} · {{item.level}}</view>
+        <block wx:for="{{filteredLevels}}" wx:key="id" wx:for-item="level">
+          <view class="level-card">
+            <view class="row-between">
+              <view class="level-title">{{level.name}}</view>
+              <view class="row" wx:if="{{canManageCatalog}}">
+                <button class="btn-outline" size="mini" data-level-id="{{level.id}}" bindtap="editLevel">改名</button>
+                <button class="btn-outline" size="mini" data-level-id="{{level.id}}" bindtap="deleteLevel">删除</button>
+                <button class="btn-outline" size="mini" data-level-id="{{level.id}}" bindtap="addSubject">加科目</button>
+              </view>
             </view>
-            <view class="row">
-              <view wx:if="{{item.isRequired}}" class="chip chip-success">必选</view>
-              <view wx:if="{{item.isSelected}}" class="chip chip-success">已选</view>
-              <checkbox value="{{item.id}}" checked="{{item.isSelected}}" disabled="{{item.isRequired}}" />
-            </view>
-          </label>
+
+            <block wx:if="{{level.subjects.length === 0}}">
+              <view class="muted" style="margin-top: 8rpx;">暂无科目</view>
+            </block>
+
+            <block wx:for="{{level.subjects}}" wx:key="id" wx:for-item="subject">
+              <label class="list-item row-between {{subject.isSelected ? 'selected' : ''}}">
+                <view class="subject-text">
+                  <view class="subject-name">{{subject.displayName ? subject.displayName : subject.name}}</view>
+                  <view class="muted subject-meta">{{subject.code}} · {{level.name}}</view>
+                </view>
+                <view class="row">
+                  <view wx:if="{{subject.isRequired}}" class="chip chip-success">必选</view>
+                  <view wx:if="{{subject.isSelected}}" class="chip chip-success">已选</view>
+                  <checkbox value="{{subject.id}}" checked="{{subject.isSelected}}" disabled="{{subject.isRequired}}" />
+                </view>
+              </label>
+
+              <view class="row" wx:if="{{canManageCatalog}}" style="margin: 8rpx 0 10rpx 0;">
+                <button class="btn-outline" size="mini" data-level-id="{{level.id}}" data-subject-id="{{subject.id}}" bindtap="editSubject">编辑科目</button>
+                <button class="btn-outline" size="mini" data-subject-id="{{subject.id}}" bindtap="addTopic">加章节</button>
+              </view>
+
+              <block wx:if="{{subject.topics.length}}">
+                <view class="topic-wrap">
+                  <block wx:for="{{subject.topics}}" wx:key="id" wx:for-item="topic">
+                    <view class="topic-row row-between">
+                      <view class="muted">{{topic.code}} {{topic.title}}</view>
+                      <view class="row" wx:if="{{canManageCatalog}}">
+                        <button class="btn-outline" size="mini" data-topic-id="{{topic.id}}" data-topic-code="{{topic.code}}" data-topic-title="{{topic.title}}" data-subject-id="{{subject.id}}" data-parent-topic-id="{{topic.parentTopicId}}" data-order-index="{{topic.orderIndex}}" bindtap="editTopic">改名</button>
+                        <button class="btn-outline" size="mini" data-topic-id="{{topic.id}}" bindtap="deleteTopic">删除</button>
+                      </view>
+                    </view>
+                  </block>
+                </view>
+              </block>
+            </block>
+          </view>
         </block>
       </checkbox-group>
     </block>
   </view>
 
-  <button class="btn-primary" bindtap="save">保存修改</button>
+  <button class="btn-primary" loading="{{saving}}" bindtap="save">保存学生选科</button>
 </view>

@@ -224,4 +224,36 @@ describe('buildStudentReportAnalytics', () => {
     expect(out.englishAnalytics.skillBreakdown.composition.trend).toBe('insufficient_data');
     expect(out.englishAnalytics.overallEnglishScoreTrend.points.length).toBeGreaterThan(0);
   });
+
+  it('handles custom englishTasks records without breaking legacy analytics', () => {
+    const out = buildStudentReportAnalytics({
+      ...baseInput,
+      dailyProgress: [
+        {
+          date: '2026-01-04',
+          activities: [
+            {
+              subjectName: 'English',
+              englishTasks: [
+                {
+                  taskId: 'listening-1',
+                  key: 'listening',
+                  displayName: 'Listening',
+                  practiceCount: 3,
+                  score: 78,
+                  maxScore: 100,
+                  problems: 'careless mistakes',
+                  completed: true,
+                  fieldsUsed: ['practiceCount', 'score', 'problems'],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    expect(out.englishAnalytics.hasEnglishData).toBe(true);
+    expect(out.englishAnalytics.overallEnglishScoreTrend.points.length).toBeGreaterThan(0);
+    expect(out.subjectStats.some((s) => s.subjectName === 'English')).toBe(true);
+  });
 });

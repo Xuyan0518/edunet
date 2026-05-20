@@ -1,0 +1,60 @@
+<view class="container">
+  <view class="hero">
+    <view class="title">管理英文项目</view>
+    <view class="subtitle">{{studentName || '当前学生'}} · 自定义每日进度 English 项目</view>
+  </view>
+
+  <view class="section card" wx:if="{{loading}}">
+    <view class="muted">加载中...</view>
+  </view>
+
+  <view class="section card" wx:elif="{{tasks.length === 0}}">
+    <view class="muted">暂无任务</view>
+  </view>
+
+  <view class="section card" wx:else>
+    <view class="row-between">
+      <view class="section-title">任务列表</view>
+      <view class="chip">{{isDefault ? '默认配置' : '自定义配置'}}</view>
+    </view>
+    <block wx:for="{{tasks}}" wx:key="id">
+      <view class="task-card">
+        <view class="row-between">
+          <view class="field-label">{{item.displayName}}</view>
+          <view class="row">
+            <view class="chip {{item.enabled ? 'chip-success' : ''}}" data-index="{{index}}" bindtap="onToggleEnabled">
+              {{item.enabled ? '已启用' : '已禁用'}}
+            </view>
+            <button class="btn-outline" size="mini" data-index="{{index}}" data-direction="up" bindtap="moveTask">上移</button>
+            <button class="btn-outline" size="mini" data-index="{{index}}" data-direction="down" bindtap="moveTask">下移</button>
+            <button class="btn-outline" size="mini" data-index="{{index}}" bindtap="removeTask">删除</button>
+          </view>
+        </view>
+
+        <view class="field-label">中文名</view>
+        <input class="input" value="{{item.chineseName}}" data-index="{{index}}" bindinput="onChineseNameInput" />
+
+        <view class="field-label">英文名</view>
+        <input class="input" value="{{item.englishName}}" data-index="{{index}}" bindinput="onEnglishNameInput" />
+
+        <view class="field-label">本周目标次数</view>
+        <input class="input" type="number" value="{{item.weeklyTargetCount}}" data-index="{{index}}" bindinput="onWeeklyTargetInput" />
+
+        <view class="field-label">填写字段</view>
+        <checkbox-group data-index="{{index}}" bindchange="onFieldChange">
+          <label wx:for="{{fieldOptions}}" wx:for-item="field" wx:key="value" class="row checkbox-row">
+            <checkbox value="{{field.value}}" checked="{{item.enabledFields.indexOf(field.value) !== -1}}" />
+            <view>{{field.label}}</view>
+          </label>
+        </checkbox-group>
+      </view>
+    </block>
+  </view>
+
+  <view class="row">
+    <button class="btn-outline" bindtap="addTask">添加任务</button>
+    <button class="btn-outline" bindtap="resetDefault">重置默认</button>
+  </view>
+
+  <button class="btn-primary" loading="{{saving}}" bindtap="save">保存配置</button>
+</view>

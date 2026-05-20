@@ -275,6 +275,29 @@ export const SubjectSchema = z.object({
   code: z.string().max(64),
   name: z.string().max(200),
   level: z.string().max(64),
+  chineseName: z.string().max(120).optional().nullable(),
+  englishName: z.string().max(120).optional().nullable(),
+  sortOrder: z.number().int().min(0).max(9999).optional().default(0),
+  isRequired: z.boolean().optional().default(false),
+  levelId: z.string().uuid().optional().nullable(),
+  isActive: z.boolean().optional().default(true),
+});
+
+export const SubjectLevelSchema = z.object({
+  id: z.string().uuid().optional(),
+  name: z.string().min(1).max(64),
+  description: z.string().max(240).optional().nullable(),
+  sortOrder: z.number().int().min(0).max(9999).optional().default(0),
+  isDefault: z.boolean().optional().default(false),
+  isActive: z.boolean().optional().default(true),
+});
+
+export const StudentEnglishTaskConfigSchema = z.object({
+  id: z.string().uuid().optional(),
+  studentId: z.string().uuid(),
+  tasksJson: z.unknown(),
+  createdBy: z.string().max(64).optional().nullable(),
+  updatedBy: z.string().max(64).optional().nullable(),
 });
 
 export const TopicSchema = z.object({
@@ -513,12 +536,33 @@ export const actionLocksTable = pgTable('action_locks', {
 }));
 
 // ====== New tables for subjects and topics ======
+export const subjectLevelsTable = pgTable('subject_levels', {
+  id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
+  name: varchar('name', { length: 64 }).notNull(),
+  description: text('description'),
+  sortOrder: integer('sort_order').notNull().default(0),
+  isDefault: boolean('is_default').notNull().default(false),
+  isActive: boolean('is_active').notNull().default(true),
+  createdBy: varchar('created_by', { length: 64 }),
+  updatedBy: varchar('updated_by', { length: 64 }),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (table) => ({
+  uqSubjectLevelsName: uniqueIndex('uq_subject_levels_name').on(table.name),
+}));
+
 // Subjects (e.g. "Secondary 3/4 Pure Physics")
 export const subjectsTable = pgTable('subjects', {
   id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
   code: varchar('code', { length: 64 }).notNull().unique(),
   name: varchar('name', { length: 200 }).notNull(),
+  chineseName: varchar('chinese_name', { length: 120 }),
+  englishName: varchar('english_name', { length: 120 }),
   level: varchar('level', { length: 64 }).notNull(),
+  sortOrder: integer('sort_order').notNull().default(0),
+  isRequired: boolean('is_required').notNull().default(false),
+  levelId: uuid('level_id').references(() => subjectLevelsTable.id),
+  isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -588,6 +632,18 @@ export const studentPapersTable = pgTable('student_papers', {
   updatedAt: timestamp('updated_at').defaultNow(),
   updatedByName: varchar('updated_by_name', { length: 100 }),
 });
+
+export const studentEnglishTaskConfigsTable = pgTable('student_english_task_configs', {
+  id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
+  studentId: uuid('student_id').references(() => studentsTable.id).notNull(),
+  tasksJson: jsonb('tasks_json').$type<Record<string, unknown>[]>().notNull().default([]),
+  createdBy: varchar('created_by', { length: 64 }),
+  updatedBy: varchar('updated_by', { length: 64 }),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (table) => ({
+  uqStudentEnglishTaskConfigStudent: uniqueIndex('uq_student_english_task_config_student').on(table.studentId),
+}));
 
 // ====== Weekly study cycles & per-student weekly task targets (Part 3) ======
 // Cycles default to Sunday → Thursday but are stored explicitly so teachers

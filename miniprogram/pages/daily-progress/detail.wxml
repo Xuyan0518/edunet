@@ -7,6 +7,13 @@
     </view>
   </view>
 
+  <view wx:if="{{isEditable && hasDraft}}" class="section card">
+    <view class="row-between">
+      <view class="muted">有未发表暂存 · {{draftUpdatedAtText}}</view>
+      <button class="btn-outline" size="mini" bindtap="clearDraftConfirm">清除暂存</button>
+    </view>
+  </view>
+
   <view class="section card">
     <view class="section-title">基本信息</view>
     <view class="row-between">
@@ -59,13 +66,16 @@
       <view class="activity-card">
         <view class="row-between">
           <view class="field-label">{{item.subjectDisplayName || item.subjectName || "科目"}}</view>
-          <button wx:if="{{isEditable && !item.locked}}" class="btn-outline" size="mini" data-index="{{index}}" bindtap="removeActivity">删除</button>
+          <view class="row">
+            <button wx:if="{{item.type === 'english' && canManageEnglishTasks}}" class="btn-outline" size="mini" bindtap="openEnglishTaskManage">管理英文项目</button>
+            <button wx:if="{{isEditable && !item.locked}}" class="btn-outline" size="mini" data-index="{{index}}" bindtap="removeActivity">删除</button>
+          </view>
         </view>
         <block wx:if="{{item.type === 'english'}}">
           <!-- Editing -->
-          <view class="english-section">
+          <view class="english-section" wx:if="{{item.english.editing.uiEnabled}}">
             <view class="english-section-header" data-index="{{index}}" data-subfield="editing" bindtap="toggleEnglishSection">
-              <view class="english-section-title">改错 (Editing)</view>
+              <view class="english-section-title">{{item.english.editing.uiLabel || '改错 (Editing)'}}</view>
               <view class="english-section-meta">
                 <view class="english-section-summary">{{item.english.editing.uiSummary}}</view>
                 <view class="english-section-toggle">{{item.english.editing.uiExpanded ? '收起 ▾' : '展开 ▸'}}</view>
@@ -73,7 +83,7 @@
             </view>
             <block wx:if="{{item.english.editing.uiExpanded}}">
               <view class="english-section-body">
-                <view class="row score-row">
+                <view class="row score-row" wx:if="{{item.english.editing.uiFieldsUsed.indexOf('practiceCount') !== -1}}">
                   <view class="score-cell">
                     <view class="muted">练习数</view>
                     <input class="input score-input" type="number" placeholder="0" value="{{item.english.editing.exerciseCount}}" data-index="{{index}}" data-subfield="editing" data-key="exerciseCount" bindinput="onEnglishCountChange" disabled="{{!isEditable}}" />
@@ -82,14 +92,14 @@
                 <block wx:for="{{item.english.editing.exercises}}" wx:for-item="ex" wx:for-index="exIdx" wx:key="exIdx">
                   <view class="exercise-block" style="margin-top: 10rpx; padding: 8rpx 0;">
                     <view class="muted">练习 {{exIdx + 1}}</view>
-                    <view class="row score-row">
+                    <view class="row score-row" wx:if="{{item.english.editing.uiFieldsUsed.indexOf('score') !== -1}}">
                       <view class="score-cell">
                         <view class="muted">得分</view>
                         <input class="input score-input" type="digit" placeholder="-" value="{{ex.score}}" data-index="{{index}}" data-subfield="editing" data-exercise-index="{{exIdx}}" bindinput="onExerciseScoreChange" disabled="{{!isEditable}}" />
                         <view class="muted">%</view>
                       </view>
                     </view>
-                    <textarea wx:if="{{ex.showProblems}}" class="input" style="min-height: 120rpx; margin-top: 16rpx;" placeholder="出现的问题" value="{{ex.problems}}" data-index="{{index}}" data-subfield="editing" data-exercise-index="{{exIdx}}" bindinput="onExerciseProblemsChange" disabled="{{!isEditable}}" />
+                    <textarea wx:if="{{ex.showProblems && item.english.editing.uiFieldsUsed.indexOf('problems') !== -1}}" class="input" style="min-height: 120rpx; margin-top: 16rpx;" placeholder="出现的问题" value="{{ex.problems}}" data-index="{{index}}" data-subfield="editing" data-exercise-index="{{exIdx}}" bindinput="onExerciseProblemsChange" disabled="{{!isEditable}}" />
                   </view>
                 </block>
                 <view wx:if="{{item.english.editing.anyImperfect}}">
@@ -104,9 +114,9 @@
           </view>
 
           <!-- Reading -->
-          <view class="english-section">
+          <view class="english-section" wx:if="{{item.english.reading.uiEnabled}}">
             <view class="english-section-header" data-index="{{index}}" data-subfield="reading" bindtap="toggleEnglishSection">
-              <view class="english-section-title">阅读理解 (Reading)</view>
+              <view class="english-section-title">{{item.english.reading.uiLabel || '阅读理解 (Reading)'}}</view>
               <view class="english-section-meta">
                 <view class="english-section-summary">{{item.english.reading.uiSummary}}</view>
                 <view class="english-section-toggle">{{item.english.reading.uiExpanded ? '收起 ▾' : '展开 ▸'}}</view>
@@ -114,7 +124,7 @@
             </view>
             <block wx:if="{{item.english.reading.uiExpanded}}">
               <view class="english-section-body">
-                <view class="row score-row">
+                <view class="row score-row" wx:if="{{item.english.reading.uiFieldsUsed.indexOf('practiceCount') !== -1}}">
                   <view class="score-cell">
                     <view class="muted">文章数</view>
                     <input class="input score-input" type="number" placeholder="0" value="{{item.english.reading.articleCount}}" data-index="{{index}}" data-subfield="reading" data-key="articleCount" bindinput="onEnglishCountChange" disabled="{{!isEditable}}" />
@@ -123,14 +133,14 @@
                 <block wx:for="{{item.english.reading.exercises}}" wx:for-item="ex" wx:for-index="exIdx" wx:key="exIdx">
                   <view class="exercise-block" style="margin-top: 10rpx; padding: 8rpx 0;">
                     <view class="muted">文章 {{exIdx + 1}}</view>
-                    <view class="row score-row">
+                    <view class="row score-row" wx:if="{{item.english.reading.uiFieldsUsed.indexOf('score') !== -1}}">
                       <view class="score-cell">
                         <view class="muted">得分</view>
                         <input class="input score-input" type="digit" placeholder="-" value="{{ex.score}}" data-index="{{index}}" data-subfield="reading" data-exercise-index="{{exIdx}}" bindinput="onExerciseScoreChange" disabled="{{!isEditable}}" />
                         <view class="muted">%</view>
                       </view>
                     </view>
-                    <textarea wx:if="{{ex.showProblems}}" class="input" style="min-height: 120rpx; margin-top: 16rpx;" placeholder="出现的问题" value="{{ex.problems}}" data-index="{{index}}" data-subfield="reading" data-exercise-index="{{exIdx}}" bindinput="onExerciseProblemsChange" disabled="{{!isEditable}}" />
+                    <textarea wx:if="{{ex.showProblems && item.english.reading.uiFieldsUsed.indexOf('problems') !== -1}}" class="input" style="min-height: 120rpx; margin-top: 16rpx;" placeholder="出现的问题" value="{{ex.problems}}" data-index="{{index}}" data-subfield="reading" data-exercise-index="{{exIdx}}" bindinput="onExerciseProblemsChange" disabled="{{!isEditable}}" />
                   </view>
                 </block>
                 <view wx:if="{{item.english.reading.anyImperfect}}">
@@ -145,9 +155,9 @@
           </view>
 
           <!-- Grammar -->
-          <view class="english-section">
+          <view class="english-section" wx:if="{{item.english.grammar.uiEnabled}}">
             <view class="english-section-header" data-index="{{index}}" data-subfield="grammar" bindtap="toggleEnglishSection">
-              <view class="english-section-title">语法 (Grammar)</view>
+              <view class="english-section-title">{{item.english.grammar.uiLabel || '语法 (Grammar)'}}</view>
               <view class="english-section-meta">
                 <view class="english-section-summary">{{item.english.grammar.uiSummary}}</view>
                 <view class="english-section-toggle">{{item.english.grammar.uiExpanded ? '收起 ▾' : '展开 ▸'}}</view>
@@ -155,7 +165,7 @@
             </view>
             <block wx:if="{{item.english.grammar.uiExpanded}}">
               <view class="english-section-body">
-                <view class="row score-row">
+                <view class="row score-row" wx:if="{{item.english.grammar.uiFieldsUsed.indexOf('practiceCount') !== -1}}">
                   <view class="score-cell">
                     <view class="muted">练习数</view>
                     <input class="input score-input" type="number" placeholder="0" value="{{item.english.grammar.exerciseCount}}" data-index="{{index}}" data-subfield="grammar" data-key="exerciseCount" bindinput="onEnglishCountChange" disabled="{{!isEditable}}" />
@@ -164,14 +174,14 @@
                 <block wx:for="{{item.english.grammar.exercises}}" wx:for-item="ex" wx:for-index="exIdx" wx:key="exIdx">
                   <view class="exercise-block" style="margin-top: 10rpx; padding: 8rpx 0;">
                     <view class="muted">练习 {{exIdx + 1}}</view>
-                    <view class="row score-row">
+                    <view class="row score-row" wx:if="{{item.english.grammar.uiFieldsUsed.indexOf('score') !== -1}}">
                       <view class="score-cell">
                         <view class="muted">得分</view>
                         <input class="input score-input" type="digit" placeholder="-" value="{{ex.score}}" data-index="{{index}}" data-subfield="grammar" data-exercise-index="{{exIdx}}" bindinput="onExerciseScoreChange" disabled="{{!isEditable}}" />
                         <view class="muted">%</view>
                       </view>
                     </view>
-                    <textarea wx:if="{{ex.showProblems}}" class="input" style="min-height: 120rpx; margin-top: 16rpx;" placeholder="出现的问题" value="{{ex.problems}}" data-index="{{index}}" data-subfield="grammar" data-exercise-index="{{exIdx}}" bindinput="onExerciseProblemsChange" disabled="{{!isEditable}}" />
+                    <textarea wx:if="{{ex.showProblems && item.english.grammar.uiFieldsUsed.indexOf('problems') !== -1}}" class="input" style="min-height: 120rpx; margin-top: 16rpx;" placeholder="出现的问题" value="{{ex.problems}}" data-index="{{index}}" data-subfield="grammar" data-exercise-index="{{exIdx}}" bindinput="onExerciseProblemsChange" disabled="{{!isEditable}}" />
                   </view>
                 </block>
                 <view wx:if="{{item.english.grammar.anyImperfect}}">
@@ -186,9 +196,9 @@
           </view>
 
           <!-- Vocab -->
-          <view class="english-section">
+          <view class="english-section" wx:if="{{item.english.vocab.uiEnabled}}">
             <view class="english-section-header" data-index="{{index}}" data-subfield="vocab" bindtap="toggleEnglishSection">
-              <view class="english-section-title">词汇 (Vocab)</view>
+              <view class="english-section-title">{{item.english.vocab.uiLabel || '词汇 (Vocab)'}}</view>
               <view class="english-section-meta">
                 <view class="english-section-summary">{{item.english.vocab.uiSummary}}</view>
                 <view class="english-section-toggle">{{item.english.vocab.uiExpanded ? '收起 ▾' : '展开 ▸'}}</view>
@@ -196,7 +206,7 @@
             </view>
             <block wx:if="{{item.english.vocab.uiExpanded}}">
               <view class="english-section-body">
-                <view class="row score-row">
+                <view class="row score-row" wx:if="{{item.english.vocab.uiFieldsUsed.indexOf('practiceCount') !== -1}}">
                   <view class="score-cell">
                     <view class="muted">单词数</view>
                     <input class="input score-input" type="number" placeholder="0" value="{{item.english.vocab.vocabularyWordCount}}" data-index="{{index}}" data-subfield="vocab" data-key="vocabularyWordCount" bindinput="onEnglishCountChange" disabled="{{!isEditable}}" />
@@ -211,9 +221,9 @@
           </view>
 
           <!-- Recitation -->
-          <view class="english-section">
+          <view class="english-section" wx:if="{{item.english.recitation.uiEnabled}}">
             <view class="english-section-header" data-index="{{index}}" data-subfield="recitation" bindtap="toggleEnglishSection">
-              <view class="english-section-title">单词句子背诵 (Recitation)</view>
+              <view class="english-section-title">{{item.english.recitation.uiLabel || '单词句子背诵 (Recitation)'}}</view>
               <view class="english-section-meta">
                 <view class="english-section-summary">{{item.english.recitation.uiSummary}}</view>
                 <view class="english-section-toggle">{{item.english.recitation.uiExpanded ? '收起 ▾' : '展开 ▸'}}</view>
@@ -221,15 +231,15 @@
             </view>
             <block wx:if="{{item.english.recitation.uiExpanded}}">
               <view class="english-section-body">
-                <input class="input" placeholder="背诵说明" value="{{item.english.recitation.text}}" data-index="{{index}}" data-subfield="recitation" bindinput="onEnglishTextChange" disabled="{{!isEditable}}" />
+                <input wx:if="{{item.english.recitation.uiFieldsUsed.indexOf('problems') !== -1}}" class="input" placeholder="背诵说明" value="{{item.english.recitation.text}}" data-index="{{index}}" data-subfield="recitation" bindinput="onEnglishTextChange" disabled="{{!isEditable}}" />
               </view>
             </block>
           </view>
 
           <!-- Essay -->
-          <view class="english-section">
+          <view class="english-section" wx:if="{{item.english.essay.uiEnabled}}">
             <view class="english-section-header" data-index="{{index}}" data-subfield="essay" bindtap="toggleEnglishSection">
-              <view class="english-section-title">作文 (Essay)</view>
+              <view class="english-section-title">{{item.english.essay.uiLabel || '作文 (Essay)'}}</view>
               <view class="english-section-meta">
                 <view class="english-section-summary">{{item.english.essay.uiSummary}}</view>
                 <view class="english-section-toggle">{{item.english.essay.uiExpanded ? '收起 ▾' : '展开 ▸'}}</view>
@@ -237,9 +247,9 @@
             </view>
             <block wx:if="{{item.english.essay.uiExpanded}}">
               <view class="english-section-body">
-                <input class="input" placeholder="题目" value="{{item.english.essay.title}}" data-index="{{index}}" bindinput="onEssayTitleChange" disabled="{{!isEditable}}" />
-                <input class="input" placeholder="作文评价" value="{{item.english.essay.text}}" data-index="{{index}}" data-subfield="essay" bindinput="onEnglishTextChange" disabled="{{!isEditable}}" />
-                <view class="row score-row">
+                <input wx:if="{{item.english.essay.uiFieldsUsed.indexOf('problems') !== -1}}" class="input" placeholder="题目" value="{{item.english.essay.title}}" data-index="{{index}}" bindinput="onEssayTitleChange" disabled="{{!isEditable}}" />
+                <input wx:if="{{item.english.essay.uiFieldsUsed.indexOf('problems') !== -1}}" class="input" placeholder="作文评价" value="{{item.english.essay.text}}" data-index="{{index}}" data-subfield="essay" bindinput="onEnglishTextChange" disabled="{{!isEditable}}" />
+                <view class="row score-row" wx:if="{{item.english.essay.uiFieldsUsed.indexOf('score') !== -1}}">
                   <view class="score-cell">
                     <view class="muted">得分</view>
                     <input class="input score-input" type="digit" placeholder="-" value="{{item.english.essay.score}}" data-index="{{index}}" data-subfield="essay" bindinput="onEnglishScoreChange" disabled="{{!isEditable}}" />
@@ -254,6 +264,35 @@
               </view>
             </block>
           </view>
+
+          <block wx:for="{{item.customEnglishTasks}}" wx:for-item="task" wx:for-index="taskIndex" wx:key="taskId">
+            <view class="english-section">
+              <view class="english-section-header" data-index="{{index}}" data-task-index="{{taskIndex}}" bindtap="toggleCustomEnglishTask">
+                <view class="english-section-title">{{task.displayName}}</view>
+                <view class="english-section-meta">
+                  <view class="english-section-summary">目标 {{task.targetCount}} 次</view>
+                  <view class="english-section-toggle">{{task.uiExpanded ? '收起 ▾' : '展开 ▸'}}</view>
+                </view>
+              </view>
+              <block wx:if="{{task.uiExpanded}}">
+                <view class="english-section-body">
+                  <view class="row score-row" wx:if="{{task.fieldsUsed.indexOf('practiceCount') !== -1}}">
+                    <view class="score-cell">
+                      <view class="muted">练习数</view>
+                      <input class="input score-input" type="number" value="{{task.practiceCount}}" data-index="{{index}}" data-task-index="{{taskIndex}}" bindinput="onCustomTaskCountInput" disabled="{{!isEditable}}" />
+                    </view>
+                  </view>
+                  <view class="row score-row" wx:if="{{task.fieldsUsed.indexOf('score') !== -1}}">
+                    <view class="score-cell">
+                      <view class="muted">分数</view>
+                      <input class="input score-input" type="digit" value="{{task.score}}" data-index="{{index}}" data-task-index="{{taskIndex}}" bindinput="onCustomTaskScoreInput" disabled="{{!isEditable}}" />
+                    </view>
+                  </view>
+                  <textarea wx:if="{{task.fieldsUsed.indexOf('problems') !== -1}}" class="input" style="min-height: 120rpx; margin-top: 16rpx;" placeholder="出现的问题" value="{{task.problems}}" data-index="{{index}}" data-task-index="{{taskIndex}}" bindinput="onCustomTaskProblemsInput" disabled="{{!isEditable}}" />
+                </view>
+              </block>
+            </view>
+          </block>
 
           <view class="field-label">试卷练习</view>
           <block wx:if="{{item.papers.length === 0}}">
@@ -462,7 +501,8 @@
 
   <view class="row">
     <button wx:if="{{isEditable}}" class="btn-outline" bindtap="cancelEdit">取消</button>
-    <button wx:if="{{isEditable}}" class="btn-primary" bindtap="save">保存</button>
+    <button wx:if="{{isEditable}}" class="btn-outline" loading="{{draftSaving}}" disabled="{{draftSaving || publishing}}" bindtap="saveLocalDraft">暂存</button>
+    <button wx:if="{{isEditable}}" class="btn-primary" loading="{{publishing}}" disabled="{{publishing}}" bindtap="publish">发表</button>
   </view>
 
   <button wx:if="{{existingId && isTeacher}}" class="btn-outline" bindtap="deleteEntry">删除记录</button>

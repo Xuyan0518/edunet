@@ -21,6 +21,7 @@ export const INPUT_LIMITS = {
   englishExerciseMax: 30,
   englishVocabCountMax: 500,
   englishSentenceCountMax: 500,
+  englishTaskConfigMax: 30,
   englishScoreMin: 0,
   englishScoreMax: 100,
   scoreMin: 0,
@@ -138,6 +139,42 @@ export const validateDailyProgressExtremes = (activitiesRaw: unknown): Validatio
     issues.push(...validateActivityTextFields(activity, path));
 
     const english = safeObject(activity.english);
+    const englishTasks = Array.isArray(activity.englishTasks) ? activity.englishTasks : [];
+    if (englishTasks.length > INPUT_LIMITS.englishTaskConfigMax) {
+      issues.push({ field: `${path}.englishTasks`, message: `英文任务数量过多（最多 ${INPUT_LIMITS.englishTaskConfigMax} 条）` });
+    }
+    englishTasks.forEach((entry, taskIndex) => {
+      const task = safeObject(entry);
+      if (textTooLong(task.displayName, INPUT_LIMITS.shortTextMax)) {
+        issues.push({
+          field: `${path}.englishTasks[${taskIndex}].displayName`,
+          message: `任务名称过长（最多 ${INPUT_LIMITS.shortTextMax} 字）`,
+        });
+      }
+      const practiceIssue = validateNumberRange({
+        field: `${path}.englishTasks[${taskIndex}].practiceCount`,
+        value: task.practiceCount,
+        min: 0,
+        max: INPUT_LIMITS.englishVocabCountMax,
+        integer: true,
+      });
+      if (practiceIssue) issues.push(practiceIssue);
+      const scoreIssue = validateNumberRange({
+        field: `${path}.englishTasks[${taskIndex}].score`,
+        value: task.score,
+        min: INPUT_LIMITS.englishScoreMin,
+        max: INPUT_LIMITS.englishScoreMax,
+        integer: false,
+      });
+      if (scoreIssue) issues.push(scoreIssue);
+      if (textTooLong(task.problems, INPUT_LIMITS.activityTextMax)) {
+        issues.push({
+          field: `${path}.englishTasks[${taskIndex}].problems`,
+          message: `文本过长（最多 ${INPUT_LIMITS.activityTextMax} 字）`,
+        });
+      }
+    });
+
     const editing = safeObject(english.editing);
     const reading = safeObject(english.reading);
     const grammar = safeObject(english.grammar);

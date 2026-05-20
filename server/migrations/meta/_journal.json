@@ -209,6 +209,13 @@
       "when": 1779007132420,
       "tag": "0029_rename_grades_chu_to_zhong",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1779100000000,
+      "tag": "0030_add_english_task_config_and_subject_levels",
+      "breakpoints": true
     }
   ]
 }

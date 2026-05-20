@@ -6,6 +6,7 @@
     "pages/student-detail/index",
     "pages/daily-progress/index",
     "pages/daily-progress/detail",
+    "pages/english-tasks-manage/index",
     "pages/weekly-feedback/index",
     "pages/weekly-feedback/detail",
     "pages/grades/index",

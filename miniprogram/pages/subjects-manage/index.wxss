@@ -30,3 +30,28 @@ button.btn-primary {
   border-radius: 12rpx;
   padding: 16rpx;
 }
+
+.level-card {
+  border: 1rpx solid #dbeafe;
+  border-radius: 16rpx;
+  padding: 14rpx;
+  margin-bottom: 14rpx;
+  background: #fff;
+}
+
+.level-title {
+  font-size: 30rpx;
+  font-weight: 700;
+}
+
+.topic-wrap {
+  margin: 8rpx 0 14rpx 0;
+  padding: 8rpx 14rpx;
+  border-left: 4rpx solid #dbeafe;
+  background: #f8fafc;
+  border-radius: 12rpx;
+}
+
+.topic-row {
+  padding: 6rpx 0;
+}

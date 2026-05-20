@@ -167,15 +167,24 @@ import {
   studentPapersTable,
   SubjectSchema,
   TopicSchema,
-  StudentSubjectSchema,
   StudentTopicProgressSchema,
-  TOPIC_STATUS
+  TOPIC_STATUS,
+  subjectLevelsTable,
+  studentEnglishTaskConfigsTable,
 } from './schema';
 
 import { generateToken } from './utils/auth';
 import { authenticate, requireTeacher, requireParent, requireAdmin, requireRole } from './middleware/auth';
 import { verifyParentStudentAccess } from './middleware/parentStudent';
 import { syncCatalogForStudentSubjects } from './utils/catalogSync';
+import { DEFAULT_ENGLISH_TASKS, hasCustomEnglishTaskConfig, normalizeEnglishTaskConfig } from './utils/englishTasks';
+import {
+  DEFAULT_SUBJECT_LEVEL_NAME,
+  ensureDefaultSubjectLevel,
+  sanitizeLevelDescription,
+  sanitizeLevelName,
+  sanitizeSortOrder,
+} from './utils/subjectLevels';
 import { sendWeChatSubscribeMessage } from './utils/wechatNotify';
 import { DEFAULT_USER_NAME, pickDisplayName, toPublicUser } from './auth/userIdentity';
 
@@ -214,6 +223,16 @@ const withLockActor = (req: express.Request) => ({
   actorUserId: req.user?.id || 'unknown-user',
   actorName: req.user?.name || null,
 });
+
+const parseBooleanInput = (value: unknown, fallback: boolean) => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true') return true;
+    if (normalized === 'false') return false;
+  }
+  return fallback;
+};
 
 type TopicStatusValue = (typeof TOPIC_STATUS)[number];
 
@@ -1048,6 +1067,149 @@ app.delete('/api/students/:id', authenticate, requireTeacher, async (req, res) =
     res.json({ message: 'Student deleted successfully' });
   } catch (err) {
     console.error('Error deleting student:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// ====== STUDENT ENGLISH TASK CONFIG ======
+app.get('/api/students/:studentId/english-tasks', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
+  const { studentId } = req.params;
+  if (!enforceReviewerScope(req, res, studentId)) return;
+  try {
+    const student = await getStudentById(studentId);
+    if (!student) {
+      return res.status(404).json({ error: 'Student not found' });
+    }
+    const rows = await db
+      .select()
+      .from(studentEnglishTaskConfigsTable)
+      .where(eq(studentEnglishTaskConfigsTable.studentId, studentId))
+      .limit(1);
+    const row = rows[0];
+    const tasks = normalizeEnglishTaskConfig(row?.tasksJson ?? DEFAULT_ENGLISH_TASKS);
+    res.json({
+      studentId,
+      isDefault: !row || !hasCustomEnglishTaskConfig(row.tasksJson),
+      tasks,
+      updatedAt: row?.updatedAt || null,
+      updatedBy: row?.updatedBy || null,
+    });
+  } catch (err) {
+    console.error('Error fetching english task config:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.put('/api/students/:studentId/english-tasks', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
+  const { studentId } = req.params;
+  if (!enforceReviewerScope(req, res, studentId)) return;
+  const rawTasks = Array.isArray(req.body?.tasks) ? req.body.tasks : null;
+  if (!rawTasks) {
+    return res.status(400).json({ error: 'tasks must be an array' });
+  }
+  const normalizedTasks = normalizeEnglishTaskConfig(rawTasks);
+  if (normalizedTasks.length > 30) {
+    return invalidInput(res, [{ field: 'tasks', message: '任务数量过多（最多 30 项）' }]);
+  }
+  for (let i = 0; i < normalizedTasks.length; i += 1) {
+    const task = normalizedTasks[i];
+    if (!trimString(task.displayName)) {
+      return invalidInput(res, [{ field: `tasks[${i}].displayName`, message: '任务名称不能为空' }]);
+    }
+    if (task.weeklyTargetCount < 0 || task.weeklyTargetCount > INPUT_LIMITS.englishVocabCountMax) {
+      return invalidInput(res, [{ field: `tasks[${i}].weeklyTargetCount`, message: '每周目标超出范围' }]);
+    }
+  }
+
+  try {
+    await withActionLock(
+      {
+        lockKey: studentWriteLockKey(studentId),
+        actionType: '更新学生英文任务配置',
+        ttlMs: ACTION_LOCK_TTL.studentWriteMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/students/:studentId/english-tasks' },
+      },
+      async () => {
+        const student = await getStudentById(studentId);
+        if (!student) {
+          res.status(404).json({ error: 'Student not found' });
+          return;
+        }
+        const existing = await db
+          .select()
+          .from(studentEnglishTaskConfigsTable)
+          .where(eq(studentEnglishTaskConfigsTable.studentId, studentId))
+          .limit(1);
+        const now = new Date();
+        const actorId = req.user?.id || null;
+        if (!existing.length) {
+          await db.insert(studentEnglishTaskConfigsTable).values({
+            studentId,
+            tasksJson: normalizedTasks as unknown as Record<string, unknown>[],
+            createdBy: actorId,
+            updatedBy: actorId,
+            createdAt: now,
+            updatedAt: now,
+          });
+        } else {
+          await db
+            .update(studentEnglishTaskConfigsTable)
+            .set({
+              tasksJson: normalizedTasks as unknown as Record<string, unknown>[],
+              updatedBy: actorId,
+              updatedAt: now,
+            })
+            .where(eq(studentEnglishTaskConfigsTable.studentId, studentId));
+        }
+        res.json({
+          studentId,
+          isDefault: false,
+          tasks: normalizedTasks,
+          updatedAt: now,
+          updatedBy: actorId,
+        });
+      },
+    );
+    return;
+  } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
+    console.error('Error saving english task config:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.post('/api/students/:studentId/english-tasks/reset', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
+  const { studentId } = req.params;
+  if (!enforceReviewerScope(req, res, studentId)) return;
+  try {
+    await withActionLock(
+      {
+        lockKey: studentWriteLockKey(studentId),
+        actionType: '重置学生英文任务配置',
+        ttlMs: ACTION_LOCK_TTL.studentWriteMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/students/:studentId/english-tasks/reset' },
+      },
+      async () => {
+        await db
+          .delete(studentEnglishTaskConfigsTable)
+          .where(eq(studentEnglishTaskConfigsTable.studentId, studentId));
+        res.json({
+          studentId,
+          isDefault: true,
+          tasks: DEFAULT_ENGLISH_TASKS,
+        });
+      },
+    );
+    return;
+  } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
+    console.error('Error resetting english task config:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -2488,15 +2650,672 @@ app.get('/api/students/:studentId/report-export', authenticate, verifyParentStud
 // List all subjects
 app.get('/api/subjects', async (_, res) => {
   try {
-    const subjects = await db.select().from(subjectsTable);
-    res.json(subjects);
+    const defaultLevel = await ensureDefaultSubjectLevel();
+    const subjects = await db
+      .select({
+        id: subjectsTable.id,
+        code: subjectsTable.code,
+        name: subjectsTable.name,
+        chineseName: subjectsTable.chineseName,
+        englishName: subjectsTable.englishName,
+        level: subjectsTable.level,
+        sortOrder: subjectsTable.sortOrder,
+        isRequired: subjectsTable.isRequired,
+        levelId: subjectsTable.levelId,
+        isActive: subjectsTable.isActive,
+        createdAt: subjectsTable.createdAt,
+        levelName: subjectLevelsTable.name,
+      })
+      .from(subjectsTable)
+      .leftJoin(subjectLevelsTable, eq(subjectsTable.levelId, subjectLevelsTable.id))
+      .orderBy(subjectsTable.name);
+    res.json(
+      subjects.map((s) => ({
+        ...s,
+        levelId: s.levelId || defaultLevel.id,
+        levelName: s.levelName || DEFAULT_SUBJECT_LEVEL_NAME,
+      })),
+    );
   } catch (err) {
     res.status(500).json({ error: 'Database error' });
   }
 });
 
+app.get('/api/subject-levels', authenticate, requireRole('teacher', 'admin'), async (_, res) => {
+  try {
+    const defaultLevel = await ensureDefaultSubjectLevel();
+    const levels = await db
+      .select()
+      .from(subjectLevelsTable)
+      .where(eq(subjectLevelsTable.isActive, true))
+      .orderBy(subjectLevelsTable.sortOrder, subjectLevelsTable.name);
+    const hasDefault = levels.some((l) => l.id === defaultLevel.id);
+    const out = hasDefault ? levels : [defaultLevel, ...levels];
+    res.json(out);
+  } catch (err) {
+    console.error('Error listing subject levels:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.post('/api/subject-levels', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
+  if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot manage subject levels' });
+  const name = sanitizeLevelName(req.body?.name);
+  const description = sanitizeLevelDescription(req.body?.description);
+  const sortOrder = sanitizeSortOrder(req.body?.sortOrder, 0);
+  if (!name) {
+    return invalidInput(res, [{ field: 'name', message: '层级名称不能为空' }]);
+  }
+  try {
+    await withActionLock(
+      {
+        lockKey: subjectCatalogWriteLockKey(),
+        actionType: '新增科目层级',
+        ttlMs: ACTION_LOCK_TTL.subjectCatalogMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/subject-levels' },
+      },
+      async () => {
+        const existed = await db
+          .select({ id: subjectLevelsTable.id })
+          .from(subjectLevelsTable)
+          .where(eq(subjectLevelsTable.name, name))
+          .limit(1);
+        if (existed.length) {
+          res.status(409).json({ error: 'Level name already exists' });
+          return;
+        }
+        const now = new Date();
+        const created = await db
+          .insert(subjectLevelsTable)
+          .values({
+            name,
+            description,
+            sortOrder,
+            isDefault: false,
+            isActive: true,
+            createdBy: req.user?.id || null,
+            updatedBy: req.user?.id || null,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .returning();
+        res.status(201).json(created[0]);
+      },
+    );
+    return;
+  } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
+    console.error('Error creating subject level:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.put('/api/subject-levels/:id', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
+  if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot manage subject levels' });
+  const id = req.params.id;
+  const name = sanitizeLevelName(req.body?.name);
+  const description = sanitizeLevelDescription(req.body?.description);
+  const sortOrder = sanitizeSortOrder(req.body?.sortOrder, 0);
+  const isActive = parseBooleanInput(req.body?.isActive, true);
+  if (!name) {
+    return invalidInput(res, [{ field: 'name', message: '层级名称不能为空' }]);
+  }
+  try {
+    await withActionLock(
+      {
+        lockKey: subjectCatalogWriteLockKey(),
+        actionType: '更新科目层级',
+        ttlMs: ACTION_LOCK_TTL.subjectCatalogMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/subject-levels/:id', id },
+      },
+      async () => {
+        const existing = await db
+          .select()
+          .from(subjectLevelsTable)
+          .where(eq(subjectLevelsTable.id, id))
+          .limit(1);
+        if (!existing.length) {
+          res.status(404).json({ error: 'Level not found' });
+          return;
+        }
+        if (existing[0].isDefault && !isActive) {
+          res.status(400).json({ error: 'Default level cannot be disabled' });
+          return;
+        }
+        const duplicate = await db
+          .select({ id: subjectLevelsTable.id })
+          .from(subjectLevelsTable)
+          .where(eq(subjectLevelsTable.name, name))
+          .limit(1);
+        if (duplicate.length && duplicate[0].id !== id) {
+          res.status(409).json({ error: 'Level name already exists' });
+          return;
+        }
+        const updated = await db
+          .update(subjectLevelsTable)
+          .set({
+            name,
+            description,
+            sortOrder,
+            isActive,
+            updatedBy: req.user?.id || null,
+            updatedAt: new Date(),
+          })
+          .where(eq(subjectLevelsTable.id, id))
+          .returning();
+        res.json(updated[0]);
+      },
+    );
+    return;
+  } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
+    console.error('Error updating subject level:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.delete('/api/subject-levels/:id', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
+  if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot manage subject levels' });
+  const id = req.params.id;
+  try {
+    await withActionLock(
+      {
+        lockKey: subjectCatalogWriteLockKey(),
+        actionType: '删除科目层级',
+        ttlMs: ACTION_LOCK_TTL.subjectCatalogMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/subject-levels/:id', id },
+      },
+      async () => {
+        const existing = await db
+          .select()
+          .from(subjectLevelsTable)
+          .where(eq(subjectLevelsTable.id, id))
+          .limit(1);
+        if (!existing.length) {
+          res.status(404).json({ error: 'Level not found' });
+          return;
+        }
+        if (existing[0].isDefault) {
+          res.status(400).json({ error: 'Default level cannot be deleted' });
+          return;
+        }
+        const usedSubjects = await db
+          .select({ id: subjectsTable.id })
+          .from(subjectsTable)
+          .where(eq(subjectsTable.levelId, id))
+          .limit(1);
+        if (usedSubjects.length) {
+          res.status(400).json({ error: 'Level has subjects and cannot be deleted' });
+          return;
+        }
+        await db.delete(subjectLevelsTable).where(eq(subjectLevelsTable.id, id));
+        res.json({ success: true });
+      },
+    );
+    return;
+  } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
+    console.error('Error deleting subject level:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.get('/api/subjects/hierarchy', authenticate, requireRole('teacher', 'admin'), async (_, res) => {
+  try {
+    const defaultLevel = await ensureDefaultSubjectLevel();
+    const levels = await db
+      .select()
+      .from(subjectLevelsTable)
+      .where(eq(subjectLevelsTable.isActive, true))
+      .orderBy(subjectLevelsTable.sortOrder, subjectLevelsTable.name);
+    const subjectRows = await db
+      .select({
+        id: subjectsTable.id,
+        code: subjectsTable.code,
+        name: subjectsTable.name,
+        chineseName: subjectsTable.chineseName,
+        englishName: subjectsTable.englishName,
+        level: subjectsTable.level,
+        levelId: subjectsTable.levelId,
+        isRequired: subjectsTable.isRequired,
+        sortOrder: subjectsTable.sortOrder,
+        isActive: subjectsTable.isActive,
+      })
+      .from(subjectsTable)
+      .where(eq(subjectsTable.isActive, true))
+      .orderBy(subjectsTable.sortOrder, subjectsTable.name);
+    const topicRows = await db
+      .select({
+        id: topicsTable.id,
+        subjectId: topicsTable.subjectId,
+        code: topicsTable.code,
+        title: topicsTable.title,
+        parentTopicId: topicsTable.parentTopicId,
+        orderIndex: topicsTable.orderIndex,
+      })
+      .from(topicsTable)
+      .orderBy(topicsTable.orderIndex, topicsTable.code);
+
+    const levelMap = new Map<string, any>();
+    [...levels, defaultLevel].forEach((level) => {
+      levelMap.set(level.id, {
+        ...level,
+        subjects: [],
+      });
+    });
+    const subjectMap = new Map<string, any>();
+    for (const subject of subjectRows) {
+      const resolvedLevelId = subject.levelId || defaultLevel.id;
+      const level = levelMap.get(resolvedLevelId) || levelMap.get(defaultLevel.id);
+      const subjectNode = { ...subject, levelId: resolvedLevelId, topics: [] as any[] };
+      subjectMap.set(subject.id, subjectNode);
+      if (level) level.subjects.push(subjectNode);
+    }
+    const topicById = new Map<string, any>();
+    for (const topic of topicRows) {
+      const node = { ...topic, children: [] as any[] };
+      topicById.set(topic.id, node);
+    }
+    for (const topic of topicById.values()) {
+      if (topic.parentTopicId && topicById.has(topic.parentTopicId)) {
+        topicById.get(topic.parentTopicId).children.push(topic);
+      } else if (subjectMap.has(topic.subjectId)) {
+        subjectMap.get(topic.subjectId).topics.push(topic);
+      }
+    }
+    const normalizedLevels = Array.from(levelMap.values())
+      .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0) || String(a.name).localeCompare(String(b.name)))
+      .map((level) => ({
+        ...level,
+        subjects: (level.subjects || []).sort(
+          (a: any, b: any) => (a.sortOrder || 0) - (b.sortOrder || 0) || String(a.name).localeCompare(String(b.name)),
+        ),
+      }));
+    res.json({ levels: normalizedLevels, defaultLevelId: defaultLevel.id });
+  } catch (err) {
+    console.error('Error fetching subject hierarchy:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.post('/api/subjects', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
+  if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot manage subjects' });
+  const code = trimString(req.body?.code).toUpperCase().slice(0, 64);
+  const chineseName = trimString(req.body?.chineseName).slice(0, 120);
+  const englishName = trimString(req.body?.englishName).slice(0, 120);
+  const fallbackName = trimString(req.body?.name).slice(0, 200);
+  const name = fallbackName || chineseName || englishName;
+  const levelNameFallback = trimString(req.body?.level).slice(0, 64) || DEFAULT_SUBJECT_LEVEL_NAME;
+  const sortOrder = sanitizeSortOrder(req.body?.sortOrder, 0);
+  const isRequired = parseBooleanInput(req.body?.isRequired, false);
+  const isActive = parseBooleanInput(req.body?.isActive, true);
+  if (!code) return invalidInput(res, [{ field: 'code', message: '科目 code 不能为空' }]);
+  if (!name) return invalidInput(res, [{ field: 'name', message: '科目名称不能为空' }]);
+  try {
+    await withActionLock(
+      {
+        lockKey: subjectCatalogWriteLockKey(),
+        actionType: '新增科目',
+        ttlMs: ACTION_LOCK_TTL.subjectCatalogMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/subjects', code },
+      },
+      async () => {
+        const defaultLevel = await ensureDefaultSubjectLevel();
+        const levelIdInput = trimString(req.body?.levelId);
+        const levelId = levelIdInput || defaultLevel.id;
+        if (levelIdInput) {
+          const level = await db
+            .select({ id: subjectLevelsTable.id, name: subjectLevelsTable.name })
+            .from(subjectLevelsTable)
+            .where(eq(subjectLevelsTable.id, levelIdInput))
+            .limit(1);
+          if (!level.length) {
+            res.status(400).json({ error: 'Invalid levelId' });
+            return;
+          }
+        }
+        const parsed = SubjectSchema.safeParse({
+          code,
+          name,
+          level: levelNameFallback,
+          chineseName: chineseName || null,
+          englishName: englishName || null,
+          sortOrder,
+          isRequired,
+          levelId,
+          isActive,
+        });
+        if (!parsed.success) {
+          res.status(400).json({ error: parsed.error.flatten() });
+          return;
+        }
+        const exists = await db
+          .select({ id: subjectsTable.id })
+          .from(subjectsTable)
+          .where(eq(subjectsTable.code, code))
+          .limit(1);
+        if (exists.length) {
+          res.status(409).json({ error: 'Subject code already exists' });
+          return;
+        }
+        const created = await db
+          .insert(subjectsTable)
+          .values({
+            code,
+            name,
+            chineseName: chineseName || null,
+            englishName: englishName || null,
+            level: levelNameFallback,
+            sortOrder,
+            isRequired,
+            levelId,
+            isActive,
+            createdAt: new Date(),
+          })
+          .returning();
+        res.status(201).json(created[0]);
+      },
+    );
+    return;
+  } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
+    console.error('Error creating subject:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.put('/api/subjects/:id', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
+  if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot manage subjects' });
+  const id = req.params.id;
+  const code = trimString(req.body?.code).toUpperCase().slice(0, 64);
+  const chineseName = trimString(req.body?.chineseName).slice(0, 120);
+  const englishName = trimString(req.body?.englishName).slice(0, 120);
+  const fallbackName = trimString(req.body?.name).slice(0, 200);
+  const name = fallbackName || chineseName || englishName;
+  const levelNameFallback = trimString(req.body?.level).slice(0, 64) || DEFAULT_SUBJECT_LEVEL_NAME;
+  const sortOrder = sanitizeSortOrder(req.body?.sortOrder, 0);
+  const isRequired = parseBooleanInput(req.body?.isRequired, false);
+  const isActive = parseBooleanInput(req.body?.isActive, true);
+  if (!code) return invalidInput(res, [{ field: 'code', message: '科目 code 不能为空' }]);
+  if (!name) return invalidInput(res, [{ field: 'name', message: '科目名称不能为空' }]);
+  try {
+    await withActionLock(
+      {
+        lockKey: subjectCatalogWriteLockKey(),
+        actionType: '更新科目',
+        ttlMs: ACTION_LOCK_TTL.subjectCatalogMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/subjects/:id', id },
+      },
+      async () => {
+        const existing = await db
+          .select()
+          .from(subjectsTable)
+          .where(eq(subjectsTable.id, id))
+          .limit(1);
+        if (!existing.length) {
+          res.status(404).json({ error: 'Subject not found' });
+          return;
+        }
+        const defaultLevel = await ensureDefaultSubjectLevel();
+        const levelIdInput = trimString(req.body?.levelId);
+        const levelId = levelIdInput || existing[0].levelId || defaultLevel.id;
+        if (levelIdInput) {
+          const level = await db
+            .select({ id: subjectLevelsTable.id })
+            .from(subjectLevelsTable)
+            .where(eq(subjectLevelsTable.id, levelIdInput))
+            .limit(1);
+          if (!level.length) {
+            res.status(400).json({ error: 'Invalid levelId' });
+            return;
+          }
+        }
+        const duplicate = await db
+          .select({ id: subjectsTable.id })
+          .from(subjectsTable)
+          .where(eq(subjectsTable.code, code))
+          .limit(1);
+        if (duplicate.length && duplicate[0].id !== id) {
+          res.status(409).json({ error: 'Subject code already exists' });
+          return;
+        }
+        const parsed = SubjectSchema.safeParse({
+          code,
+          name,
+          level: levelNameFallback,
+          chineseName: chineseName || null,
+          englishName: englishName || null,
+          sortOrder,
+          isRequired,
+          levelId,
+          isActive,
+        });
+        if (!parsed.success) {
+          res.status(400).json({ error: parsed.error.flatten() });
+          return;
+        }
+        const updated = await db
+          .update(subjectsTable)
+          .set({
+            code,
+            name,
+            chineseName: chineseName || null,
+            englishName: englishName || null,
+            level: levelNameFallback,
+            sortOrder,
+            isRequired,
+            levelId,
+            isActive,
+          })
+          .where(eq(subjectsTable.id, id))
+          .returning();
+        res.json(updated[0]);
+      },
+    );
+    return;
+  } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
+    console.error('Error updating subject:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.post('/api/subjects/:subjectId/topics', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
+  if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot manage topics' });
+  const { subjectId } = req.params;
+  const code = trimString(req.body?.code).slice(0, 64);
+  const title = trimString(req.body?.title).slice(0, 256);
+  const orderIndex = trimString(req.body?.orderIndex).slice(0, 32);
+  const parentTopicId = trimString(req.body?.parentTopicId) || null;
+  if (!code) return invalidInput(res, [{ field: 'code', message: '章节 code 不能为空' }]);
+  if (!title) return invalidInput(res, [{ field: 'title', message: '章节名称不能为空' }]);
+  try {
+    await withActionLock(
+      {
+        lockKey: subjectCatalogWriteLockKey(),
+        actionType: '新增章节',
+        ttlMs: ACTION_LOCK_TTL.subjectCatalogMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/subjects/:subjectId/topics', subjectId },
+      },
+      async () => {
+        const subject = await db
+          .select({ id: subjectsTable.id })
+          .from(subjectsTable)
+          .where(eq(subjectsTable.id, subjectId))
+          .limit(1);
+        if (!subject.length) {
+          res.status(404).json({ error: 'Subject not found' });
+          return;
+        }
+        const parsed = TopicSchema.safeParse({
+          subjectId,
+          code,
+          title,
+          parentTopicId,
+          orderIndex: orderIndex || code,
+        });
+        if (!parsed.success) {
+          res.status(400).json({ error: parsed.error.flatten() });
+          return;
+        }
+        const created = await db
+          .insert(topicsTable)
+          .values({
+            subjectId,
+            code,
+            title,
+            parentTopicId,
+            orderIndex: orderIndex || code,
+            createdAt: new Date(),
+          })
+          .returning();
+        res.status(201).json(created[0]);
+      },
+    );
+    return;
+  } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
+    console.error('Error creating topic:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.put('/api/topics/:id', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
+  if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot manage topics' });
+  const id = req.params.id;
+  const code = trimString(req.body?.code).slice(0, 64);
+  const title = trimString(req.body?.title).slice(0, 256);
+  const orderIndex = trimString(req.body?.orderIndex).slice(0, 32);
+  const parentTopicId = trimString(req.body?.parentTopicId) || null;
+  if (!code) return invalidInput(res, [{ field: 'code', message: '章节 code 不能为空' }]);
+  if (!title) return invalidInput(res, [{ field: 'title', message: '章节名称不能为空' }]);
+  try {
+    await withActionLock(
+      {
+        lockKey: subjectCatalogWriteLockKey(),
+        actionType: '更新章节',
+        ttlMs: ACTION_LOCK_TTL.subjectCatalogMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/topics/:id', id },
+      },
+      async () => {
+        const existing = await db
+          .select()
+          .from(topicsTable)
+          .where(eq(topicsTable.id, id))
+          .limit(1);
+        if (!existing.length) {
+          res.status(404).json({ error: 'Topic not found' });
+          return;
+        }
+        const parsed = TopicSchema.safeParse({
+          subjectId: existing[0].subjectId,
+          code,
+          title,
+          parentTopicId,
+          orderIndex: orderIndex || existing[0].orderIndex || code,
+        });
+        if (!parsed.success) {
+          res.status(400).json({ error: parsed.error.flatten() });
+          return;
+        }
+        const updated = await db
+          .update(topicsTable)
+          .set({
+            code,
+            title,
+            parentTopicId,
+            orderIndex: orderIndex || existing[0].orderIndex || code,
+          })
+          .where(eq(topicsTable.id, id))
+          .returning();
+        res.json(updated[0]);
+      },
+    );
+    return;
+  } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
+    console.error('Error updating topic:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.delete('/api/topics/:id', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
+  if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot manage topics' });
+  const id = req.params.id;
+  try {
+    await withActionLock(
+      {
+        lockKey: subjectCatalogWriteLockKey(),
+        actionType: '删除章节',
+        ttlMs: ACTION_LOCK_TTL.subjectCatalogMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/topics/:id', id },
+      },
+      async () => {
+        const existing = await db
+          .select()
+          .from(topicsTable)
+          .where(eq(topicsTable.id, id))
+          .limit(1);
+        if (!existing.length) {
+          res.status(404).json({ error: 'Topic not found' });
+          return;
+        }
+        const children = await db
+          .select({ id: topicsTable.id })
+          .from(topicsTable)
+          .where(eq(topicsTable.parentTopicId, id))
+          .limit(1);
+        if (children.length) {
+          res.status(400).json({ error: 'Topic has child topics and cannot be deleted directly' });
+          return;
+        }
+        const progress = await db
+          .select({ id: studentTopicProgressTable.id })
+          .from(studentTopicProgressTable)
+          .where(eq(studentTopicProgressTable.topicId, id))
+          .limit(1);
+        if (progress.length) {
+          res.status(400).json({ error: 'Topic has student progress and cannot be deleted directly' });
+          return;
+        }
+        await db.delete(topicsTable).where(eq(topicsTable.id, id));
+        res.json({ success: true });
+      },
+    );
+    return;
+  } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
+    console.error('Error deleting topic:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
 // Get list of subject IDs a student is enrolled in
-app.get('/api/students/:studentId/subjects', authenticate, requireTeacher, async (req, res) => {
+app.get('/api/students/:studentId/subjects', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
   const { studentId } = req.params;
   if (!enforceReviewerScope(req, res, studentId)) return;
   try {
@@ -2511,7 +3330,7 @@ app.get('/api/students/:studentId/subjects', authenticate, requireTeacher, async
 });
 
 // Assign subjects to a student (replaces existing assignments)
-app.put('/api/students/:studentId/subjects', authenticate, requireTeacher, async (req, res) => {
+app.put('/api/students/:studentId/subjects', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
   const { studentId } = req.params;
   if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot change subject assignments' });
   const { subjectIds, resetProgress } = req.body as {
@@ -2611,7 +3430,7 @@ app.put('/api/students/:studentId/subjects', authenticate, requireTeacher, async
 });
 
 // Sync topics from subjectCatalogs.json for a student's assigned subjects
-app.post('/api/students/:studentId/subjects/sync-catalog', authenticate, requireTeacher, async (req, res) => {
+app.post('/api/students/:studentId/subjects/sync-catalog', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
   const { studentId } = req.params;
   if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot sync catalog' });
   try {
@@ -2652,12 +3471,20 @@ app.post('/api/students/:studentId/subjects/sync-catalog', authenticate, require
 app.get('/api/students/:studentId/subjects/full', authenticate, verifyParentStudentAccess, async (req, res) => {
   const { studentId } = req.params;
   try {
+    const defaultLevel = await ensureDefaultSubjectLevel();
     const rows = await db
       .select({
         subjectId: subjectsTable.id,
         subjectCode: subjectsTable.code,
         subjectName: subjectsTable.name,
+        subjectChineseName: subjectsTable.chineseName,
+        subjectEnglishName: subjectsTable.englishName,
         subjectLevel: subjectsTable.level,
+        subjectLevelId: subjectsTable.levelId,
+        subjectSortOrder: subjectsTable.sortOrder,
+        subjectIsRequired: subjectsTable.isRequired,
+        subjectIsActive: subjectsTable.isActive,
+        subjectLevelName: subjectLevelsTable.name,
         topicId: topicsTable.id,
         topicCode: topicsTable.code,
         topicTitle: topicsTable.title,
@@ -2670,6 +3497,7 @@ app.get('/api/students/:studentId/subjects/full', authenticate, verifyParentStud
       .from(studentSubjectsTable)
       .where(eq(studentSubjectsTable.studentId, studentId))
       .leftJoin(subjectsTable, eq(studentSubjectsTable.subjectId, subjectsTable.id))
+      .leftJoin(subjectLevelsTable, eq(subjectsTable.levelId, subjectLevelsTable.id))
       .leftJoin(topicsTable, eq(topicsTable.subjectId, subjectsTable.id))
       .leftJoin(
         studentTopicProgressTable,
@@ -2678,7 +3506,7 @@ app.get('/api/students/:studentId/subjects/full', authenticate, verifyParentStud
           eq(studentTopicProgressTable.topicId, topicsTable.id)
         )
       )
-      .orderBy(subjectsTable.name, topicsTable.orderIndex);
+      .orderBy(subjectsTable.sortOrder, subjectsTable.name, topicsTable.orderIndex);
     // Organise results into subject -> topics tree
     type SubjectWithTopicsRow = typeof rows[number];
     type TopicNode = {
@@ -2692,14 +3520,21 @@ app.get('/api/students/:studentId/subjects/full', authenticate, verifyParentStud
       children: TopicNode[];
     };
     type SubjectEntry = {
-      subject: {
-        id: string;
-        code: string | null;
-        name: string | null;
-        level: string | null;
+        subject: {
+          id: string;
+          code: string | null;
+          name: string | null;
+          chineseName: string | null;
+          englishName: string | null;
+          level: string | null;
+          levelId: string | null;
+          levelName: string | null;
+          sortOrder: number | null;
+          isRequired: boolean;
+          isActive: boolean;
+        };
+        topics: TopicNode[];
       };
-      topics: TopicNode[];
-    };
 
     const subjectMap: Record<string, SubjectEntry> = {};
     const topicMap: Record<string, TopicNode> = {};
@@ -2712,7 +3547,14 @@ app.get('/api/students/:studentId/subjects/full', authenticate, verifyParentStud
             id: sid,
             code: r.subjectCode,
             name: r.subjectName,
-            level: r.subjectLevel
+            chineseName: r.subjectChineseName,
+            englishName: r.subjectEnglishName,
+            level: r.subjectLevel,
+            levelId: r.subjectLevelId || defaultLevel.id,
+            levelName: r.subjectLevelName || DEFAULT_SUBJECT_LEVEL_NAME,
+            sortOrder: r.subjectSortOrder,
+            isRequired: r.subjectIsRequired ?? false,
+            isActive: r.subjectIsActive ?? true,
           },
           topics: []
         };

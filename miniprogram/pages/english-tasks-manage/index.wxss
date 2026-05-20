@@ -1,0 +1,12 @@
+.task-card {
+  border: 1rpx solid #e2e8f0;
+  border-radius: 16rpx;
+  padding: 16rpx;
+  margin-bottom: 16rpx;
+  background: #fff;
+}
+
+.checkbox-row {
+  margin-top: 8rpx;
+  gap: 10rpx;
+}

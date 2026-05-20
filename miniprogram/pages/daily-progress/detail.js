@@ -418,7 +418,7 @@ const normalizeActivity = (activity = {}) => {
       subjectDisplayName: formatSubjectName(subjectName || "英文"),
       type: "english",
       english: buildEnglishFields({ ...english, ...activity }),
-      englishTasks: normalizeCustomEnglishTasks(activity.englishTasks),
+      englishTasks: normalizeCustomEnglishTasks(activity.customEnglishTasks || activity.englishTasks),
       taskSummary: activity.taskSummary || activity.practiceProgress || activity.description || "",
       strengths: activity.strengths || "",
       improvements: activity.improvements || "",

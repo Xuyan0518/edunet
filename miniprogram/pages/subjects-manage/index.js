@@ -38,6 +38,13 @@ Page({
     this.fetchAll();
   },
 
+  onShow() {
+    if (this.shouldRefreshAfterEditor) {
+      this.shouldRefreshAfterEditor = false;
+      this.fetchAll();
+    }
+  },
+
   fetchAll() {
     if (!this.studentId) return;
     this.setData({ loading: true });
@@ -268,165 +275,16 @@ Page({
   addSubject(e) {
     if (!this.data.canManageCatalog) return;
     const levelId = e.currentTarget.dataset.levelId;
-    const level = this.data.levels.find((item) => item.id === levelId);
-    wx.showModal({
-      title: "新增科目",
-      editable: true,
-      placeholderText: "中文名，例如：化学",
-      success: (res) => {
-        if (!res.confirm) return;
-        const chineseName = trimText(res.content, 120);
-        if (!chineseName) {
-          wx.showToast({ title: "科目名称不能为空", icon: "none" });
-          return;
-        }
-        wx.showModal({
-          title: "英文名（可选）",
-          editable: true,
-          placeholderText: "例如：Chemistry",
-          success: (resEn) => {
-            const englishName = resEn.confirm ? trimText(resEn.content, 120) : "";
-            const code = trimText((englishName || chineseName).toUpperCase().replace(/[^A-Z0-9]+/g, "_"), 64);
-            request({
-              url: "/subjects",
-              method: "POST",
-              data: {
-                code: code || `SUB_${Date.now()}`,
-                name: chineseName,
-                chineseName,
-                englishName,
-                levelId,
-                level: level?.name || "O-Level",
-                isRequired: false,
-                sortOrder: 0,
-                isActive: true,
-              },
-            })
-              .then(() => {
-                wx.showToast({ title: "科目已新增", icon: "success" });
-                this.fetchAll();
-              })
-              .catch((err) => {
-                if (showActionLockToast(err)) return;
-                wx.showToast({ title: err?.error || "新增失败", icon: "none" });
-              });
-          },
-        });
-      },
-    });
+    this.shouldRefreshAfterEditor = true;
+    wx.navigateTo({ url: `/pages/subject-editor/index?mode=create&levelId=${levelId}` });
   },
 
   editSubject(e) {
     if (!this.data.canManageCatalog) return;
-    const levelId = e.currentTarget.dataset.levelId;
     const subjectId = e.currentTarget.dataset.subjectId;
-    const level = this.data.levels.find((item) => item.id === levelId);
-    const subject = (level?.subjects || []).find((item) => item.id === subjectId);
-    if (!subject) return;
-
-    const levelNames = this.data.levels.map((item) => item.name || "");
-
-    wx.showActionSheet({
-      itemList: ["编辑名称/Code", "移动到其他层级", "删除科目"],
-      success: (sheet) => {
-        if (sheet.tapIndex === 0) {
-          wx.showModal({
-            title: "修改中文名",
-            editable: true,
-            content: subject.chineseName || subject.name || "",
-            success: (resZh) => {
-              if (!resZh.confirm) return;
-              const chineseName = trimText(resZh.content, 120);
-              if (!chineseName) {
-                wx.showToast({ title: "名称不能为空", icon: "none" });
-                return;
-              }
-              wx.showModal({
-                title: "修改英文名（可选）",
-                editable: true,
-                content: subject.englishName || "",
-                success: (resEn) => {
-                  const englishName = resEn.confirm ? trimText(resEn.content, 120) : (subject.englishName || "");
-                  const code = trimText((englishName || chineseName).toUpperCase().replace(/[^A-Z0-9]+/g, "_"), 64) || subject.code;
-                  request({
-                    url: `/subjects/${subject.id}`,
-                    method: "PUT",
-                    data: {
-                      code,
-                      name: chineseName,
-                      chineseName,
-                      englishName,
-                      levelId: subject.levelId,
-                      isRequired: !!subject.isRequired,
-                      sortOrder: Number(subject.sortOrder || 0),
-                      isActive: true,
-                    },
-                  })
-                    .then(() => {
-                      wx.showToast({ title: "已更新", icon: "success" });
-                      this.fetchAll();
-                    })
-                    .catch((err) => {
-                      if (showActionLockToast(err)) return;
-                      wx.showToast({ title: err?.error || "更新失败", icon: "none" });
-                    });
-                },
-              });
-            },
-          });
-        } else if (sheet.tapIndex === 1) {
-          wx.showActionSheet({
-            itemList: levelNames,
-            success: (pick) => {
-              const targetLevel = this.data.levels[pick.tapIndex];
-              if (!targetLevel) return;
-              request({
-                url: `/subjects/${subject.id}`,
-                method: "PUT",
-                data: {
-                  code: subject.code,
-                  name: subject.name,
-                  chineseName: subject.chineseName || subject.name,
-                  englishName: subject.englishName || "",
-                  levelId: targetLevel.id,
-                  isRequired: !!subject.isRequired,
-                  sortOrder: Number(subject.sortOrder || 0),
-                  isActive: true,
-                },
-              })
-                .then(() => {
-                  wx.showToast({ title: "已移动", icon: "success" });
-                  this.fetchAll();
-                })
-                .catch((err) => {
-                  if (showActionLockToast(err)) return;
-                  wx.showToast({ title: err?.error || "移动失败", icon: "none" });
-                });
-            },
-          });
-        } else if (sheet.tapIndex === 2) {
-          wx.showModal({
-            title: "删除科目",
-            content: "删除后该科目将从全局列表隐藏，并从所有学生选科中移除。",
-            success: (confirmRes) => {
-              if (!confirmRes.confirm) return;
-              request({
-                url: `/subjects/${subject.id}`,
-                method: "DELETE",
-              })
-                .then(() => {
-                  wx.showToast({ title: "已删除", icon: "success" });
-                  this.fetchAll();
-                })
-                .catch((err) => {
-                  if (showActionLockToast(err)) return;
-                  wx.showToast({ title: err?.error || "删除失败", icon: "none" });
-                });
-            },
-          });
-        }
-      },
-    });
+    if (!subjectId) return;
+    this.shouldRefreshAfterEditor = true;
+    wx.navigateTo({ url: `/pages/subject-editor/index?mode=edit&subjectId=${subjectId}` });
   },
 
   addTopic(e) {

@@ -1,0 +1,14 @@
+.topic-card {
+  margin-top: 12rpx;
+  padding: 14rpx;
+  border: 1rpx solid #dbeafe;
+  border-radius: 14rpx;
+  background: #f8fbff;
+}
+
+button.danger {
+  margin-top: 16rpx;
+  color: #b91c1c;
+  border-color: #fecaca;
+  background: #fff;
+}

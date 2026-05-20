@@ -2849,25 +2849,12 @@ app.delete('/api/subject-levels/:id', authenticate, requireRole('teacher', 'admi
           return;
         }
         const usedSubjects = await db
-          .select({ id: subjectsTable.id, isActive: subjectsTable.isActive })
+          .select({ id: subjectsTable.id })
           .from(subjectsTable)
           .where(eq(subjectsTable.levelId, id));
-        const activeSubjects = usedSubjects.filter((item) => item.isActive !== false);
-        if (activeSubjects.length) {
-          res.status(400).json({ error: 'Level has active subjects and cannot be deleted' });
-          return;
-        }
         if (usedSubjects.length) {
-          const defaultLevel = await ensureDefaultSubjectLevel();
-          await db
-            .update(subjectsTable)
-            .set({
-              levelId: defaultLevel.id,
-              level: defaultLevel.name,
-              updatedBy: req.user?.id || null,
-              updatedAt: new Date(),
-            })
-            .where(and(eq(subjectsTable.levelId, id), eq(subjectsTable.isActive, false)));
+          res.status(400).json({ error: 'Level has subjects and cannot be deleted' });
+          return;
         }
         await db.delete(subjectLevelsTable).where(eq(subjectLevelsTable.id, id));
         res.json({ success: true });
@@ -3206,15 +3193,22 @@ app.delete('/api/subjects/:id', authenticate, requireRole('teacher', 'admin'), a
           res.status(400).json({ error: 'Core required subject cannot be deleted' });
           return;
         }
-        await db
-          .update(subjectsTable)
-          .set({
-            isActive: false,
-            updatedBy: req.user?.id || null,
-            updatedAt: new Date(),
-          })
-          .where(eq(subjectsTable.id, id));
+        const topicRows = await db
+          .select({ id: topicsTable.id })
+          .from(topicsTable)
+          .where(eq(topicsTable.subjectId, id));
+        const topicIds = topicRows.map((row) => row.id);
+
+        if (topicIds.length) {
+          await db
+            .delete(studentTopicProgressTable)
+            .where(inArray(studentTopicProgressTable.topicId, topicIds));
+          await db.delete(topicsTable).where(eq(topicsTable.subjectId, id));
+        }
+
         await db.delete(studentSubjectsTable).where(eq(studentSubjectsTable.subjectId, id));
+        await db.delete(studentPapersTable).where(eq(studentPapersTable.subjectId, id));
+        await db.delete(subjectsTable).where(eq(subjectsTable.id, id));
         res.json({ success: true });
       },
     );

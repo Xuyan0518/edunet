@@ -51,19 +51,14 @@
               </view>
 
               <view class="row" wx:if="{{canManageCatalog && activeSubjectId === subject.id}}" style="margin: 8rpx 0 10rpx 0;">
-                <button class="btn-outline" size="mini" data-level-id="{{level.id}}" data-subject-id="{{subject.id}}" bindtap="editSubject">编辑科目</button>
-                <button class="btn-outline" size="mini" data-subject-id="{{subject.id}}" bindtap="addTopic">加章节</button>
+                <button class="btn-outline" size="mini" data-level-id="{{level.id}}" data-subject-id="{{subject.id}}" bindtap="editSubject">编辑科目/章节</button>
               </view>
 
               <block wx:if="{{subject.topics.length}}">
                 <view class="topic-wrap">
                   <block wx:for="{{subject.topics}}" wx:key="id" wx:for-item="topic">
                     <view class="topic-row row-between">
-                      <view class="muted" data-topic-id="{{topic.id}}" bindtap="toggleTopicActions">{{topic.code}} {{topic.title}}</view>
-                      <view class="row" wx:if="{{canManageCatalog && activeTopicId === topic.id}}">
-                        <button class="btn-outline" size="mini" data-topic-id="{{topic.id}}" data-topic-code="{{topic.code}}" data-topic-title="{{topic.title}}" data-subject-id="{{subject.id}}" data-parent-topic-id="{{topic.parentTopicId}}" data-order-index="{{topic.orderIndex}}" bindtap="editTopic">改名</button>
-                        <button class="btn-outline" size="mini" data-topic-id="{{topic.id}}" bindtap="deleteTopic">删除</button>
-                      </view>
+                      <view class="muted">{{topic.code}} {{topic.title}}</view>
                     </view>
                   </block>
                 </view>

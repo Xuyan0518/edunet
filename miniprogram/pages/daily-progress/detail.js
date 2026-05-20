@@ -883,6 +883,7 @@ Page({
         const subjects = (data || []).map((entry) => {
           const topics = (entry?.topics || []).map(decorateTopic);
           return {
+            subjectId: entry?.subject?.id || "",
             subject: entry?.subject
               ? { ...entry.subject, displayName: formatSubjectName(entry.subject.name) }
               : entry.subject,

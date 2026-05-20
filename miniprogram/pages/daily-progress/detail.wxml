@@ -415,7 +415,7 @@
     <block wx:if="{{topicProgressSubjects.length === 0}}">
       <view class="muted">暂无章节数据，请先在学生档案中同步科目与主题</view>
     </block>
-    <block wx:for="{{topicProgressSubjects}}" wx:key="subject.id">
+    <block wx:for="{{topicProgressSubjects}}" wx:key="subjectId">
       <view class="topic-subject-card">
         <view class="row-between subject-header" bindtap="toggleTopicProgressSubject" data-id="{{item.subject.id}}">
           <view class="subject-text">

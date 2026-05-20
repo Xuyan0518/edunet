@@ -156,6 +156,7 @@ Page({
             ? { ...entry.subject, displayName: formatSubjectName(entry.subject.name) }
             : entry.subject;
           return {
+            subjectId: subject?.id || "",
             subject,
             topics,
             mainCount: topics.length,

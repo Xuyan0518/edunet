@@ -50,7 +50,7 @@
       <view class="list-item muted">暂无科目</view>
     </block>
 
-    <block wx:for="{{subjects}}" wx:key="subject.id">
+    <block wx:for="{{subjects}}" wx:key="subjectId">
       <view class="card subject-card">
         <view class="row-between subject-header" bindtap="toggleSubject" data-id="{{item.subject.id}}">
           <view class="subject-text">

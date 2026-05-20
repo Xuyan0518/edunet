@@ -18,7 +18,7 @@ const withEnglishLine = (zhName, rawName) => {
   if (!zh) return raw || "未命名科目";
   if (!raw || zh === raw) return zh;
   if (!hasLatin(raw)) return zh;
-  return `${zh}\n${raw}`;
+  return zh;
 };
 
 const resolveFromNormalized = (normalized) => {

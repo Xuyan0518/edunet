@@ -43,8 +43,36 @@
             <view class="activity-card">
               <view class="field-label">{{activity.subjectDisplayName || activity.subjectName || "科目"}}</view>
               <view class="activity-summary">{{activity.summaryLine || "已记录"}}</view>
-              <block wx:for="{{activity.detailLines}}" wx:for-item="line" wx:key="index">
-                <view class="muted">- {{line.label}}：{{line.value}}</view>
+              <block wx:for="{{activity.sections}}" wx:for-item="section" wx:key="index">
+                <view class="section-block">
+                  <view class="section-block-title">{{section.title}}</view>
+                  <block wx:if="{{section.kind === 'scored'}}">
+                    <view class="mini-meta">
+                      <view>{{section.countLabel}}：{{section.countValue}}</view>
+                    </view>
+                    <block wx:for="{{section.list}}" wx:for-item="exercise" wx:key="index">
+                      <view class="exercise-row">
+                        <view class="exercise-head">
+                          <view class="muted">{{exercise.title}}</view>
+                          <view class="score-pill">得分 {{exercise.scoreText}}</view>
+                        </view>
+                        <view wx:if="{{exercise.problems}}" class="exercise-note">
+                          <view class="exercise-note-label">出现的问题/失分点</view>
+                          <view>{{exercise.problems}}</view>
+                        </view>
+                      </view>
+                    </block>
+                  </block>
+                  <block wx:if="{{section.kind === 'kv'}}">
+                    <block wx:for="{{section.rows}}" wx:for-item="row" wx:key="index">
+                      <view class="narrative-item">
+                        <view class="narrative-label">{{row.label}}</view>
+                        <view class="narrative-value">{{row.value}}</view>
+                      </view>
+                    </block>
+                  </block>
+                  <view wx:if="{{section.note}}" class="section-note">{{section.note}}</view>
+                </view>
               </block>
               <block wx:if="{{activity.papers && activity.papers.length}}">
                 <view class="paper-title">试卷 / 测验</view>

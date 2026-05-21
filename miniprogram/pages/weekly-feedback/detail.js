@@ -27,27 +27,281 @@ const asText = (value) => {
   return "";
 };
 
+const toNumberOrNull = (value) => {
+  if (value === "" || value == null) return null;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+};
+
+const toInt = (value) => {
+  const n = toNumberOrNull(value);
+  if (n == null) return 0;
+  return Math.max(0, Math.floor(n));
+};
+
+const formatPercent = (value) => {
+  const n = toNumberOrNull(value);
+  if (n == null) return "";
+  return `${Math.round(n)}%`;
+};
+
+const formatScorePair = (score, total) => {
+  const s = toNumberOrNull(score);
+  if (s == null) return "";
+  const t = toNumberOrNull(total);
+  if (t == null) return String(s);
+  return `${s}/${t}`;
+};
+
+const uniqText = (arr = []) =>
+  [...new Set((Array.isArray(arr) ? arr : []).map((item) => asText(item)).filter(Boolean))];
+
+const isPlainObject = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
+
+const normalizeExercises = (raw, count, fallbackScore, fallbackText) => {
+  const incoming = Array.isArray(raw) ? raw : [];
+  const list = incoming.map((ex) => {
+    if (!isPlainObject(ex)) return { score: null, problems: "" };
+    return {
+      score: toNumberOrNull(ex.score),
+      problems: asText(ex.problems),
+    };
+  });
+  if (!list.length && (fallbackScore != null || fallbackText)) {
+    list.push({ score: fallbackScore, problems: fallbackText });
+  }
+  const total = Math.max(toInt(count), list.length);
+  while (list.length < total) {
+    list.push({ score: null, problems: "" });
+  }
+  return list;
+};
+
+const normalizeScoredBlock = (raw, countKey) => {
+  const source = isPlainObject(raw) ? raw : {};
+  const text = asText(source.text || raw);
+  const score = toNumberOrNull(source.score);
+  const count = toInt(source[countKey]);
+  const exercises = normalizeExercises(source.exercises, count, score, text);
+  return {
+    text,
+    score,
+    totalScore: toNumberOrNull(source.totalScore),
+    [countKey]: Math.max(count, exercises.length),
+    exercises,
+    lossPointIds: Array.isArray(source.lossPointIds) ? source.lossPointIds : [],
+    lossPointLabelsSnapshot: Array.isArray(source.lossPointLabelsSnapshot)
+      ? source.lossPointLabelsSnapshot
+      : [],
+    otherLossPointText: asText(source.otherLossPointText),
+  };
+};
+
+const normalizeSimpleBlock = (raw) => {
+  const source = isPlainObject(raw) ? raw : {};
+  return {
+    text: asText(source.text || raw),
+  };
+};
+
+const normalizeVocabBlock = (raw) => {
+  const source = isPlainObject(raw) ? raw : {};
+  return {
+    text: asText(source.text || raw),
+    vocabularyWordCount: toInt(source.vocabularyWordCount),
+    vocabularySentenceCount: toInt(source.vocabularySentenceCount),
+  };
+};
+
+const normalizeEssayBlock = (raw) => {
+  const source = isPlainObject(raw) ? raw : {};
+  return {
+    text: asText(source.text || raw),
+    title: asText(source.title),
+    completed: source.completed === true,
+    score: toNumberOrNull(source.score),
+    totalScore: toNumberOrNull(source.totalScore),
+    lossPointIds: Array.isArray(source.lossPointIds) ? source.lossPointIds : [],
+    lossPointLabelsSnapshot: Array.isArray(source.lossPointLabelsSnapshot)
+      ? source.lossPointLabelsSnapshot
+      : [],
+    otherLossPointText: asText(source.otherLossPointText),
+  };
+};
+
 const summarizeExercises = (block = {}, label = "练习") => {
   const list = Array.isArray(block.exercises) ? block.exercises : [];
   const scored = list.filter((ex) => ex && ex.score !== null && ex.score !== undefined && ex.score !== "");
   if (!list.length && !scored.length) return "";
-  const avg =
-    scored.length > 0
-      ? Math.round(
-          scored.reduce((sum, ex) => sum + Number(ex.score || 0), 0) / scored.length
-        )
-      : null;
-  if (avg === null) return `${label}${list.length || scored.length}次`;
-  return `${label}${list.length || scored.length}次，平均${avg}%`;
+  return `${label}${list.length || scored.length}次`;
+};
+
+const buildScoredSection = ({ title, countLabel, countKey, unitLabel, block }) => {
+  const source = block || {};
+  const configuredCount = toInt(source[countKey]);
+  const exercises = Array.isArray(source.exercises) ? source.exercises : [];
+  const totalCount = Math.max(configuredCount, exercises.length);
+  const list = [];
+  for (let i = 0; i < totalCount; i++) {
+    const ex = exercises[i] || {};
+    const scoreText = formatPercent(ex.score);
+    const problems = asText(ex.problems);
+    list.push({
+      title: `${unitLabel} ${i + 1}`,
+      scoreText: scoreText || "--",
+      problems,
+    });
+  }
+  const lossPointLabels = uniqText([...(source.lossPointLabelsSnapshot || []), ...(source.lossPointIds || [])]);
+  const otherLossPointText = asText(source.otherLossPointText);
+  const note = asText(source.text);
+  const hasData = totalCount > 0 || !!lossPointLabels.length || !!otherLossPointText || !!note || !!formatPercent(source.score);
+  if (!hasData) return null;
+  return {
+    title,
+    kind: "scored",
+    countLabel,
+    countValue: String(totalCount),
+    list,
+    note,
+    lossPointLabels,
+    lossPointText: lossPointLabels.join("、"),
+    otherLossPointText,
+  };
+};
+
+const buildEnglishSections = (english = {}, activity = {}) => {
+  const sections = [];
+  const editing = buildScoredSection({
+    title: "改错 (Editing)",
+    countLabel: "练习数",
+    countKey: "exerciseCount",
+    unitLabel: "练习",
+    block: english.editing,
+  });
+  if (editing) sections.push(editing);
+
+  const reading = buildScoredSection({
+    title: "阅读理解 (Reading)",
+    countLabel: "文章数",
+    countKey: "articleCount",
+    unitLabel: "文章",
+    block: english.reading,
+  });
+  if (reading) sections.push(reading);
+
+  const grammar = buildScoredSection({
+    title: "语法 (Grammar)",
+    countLabel: "练习数",
+    countKey: "exerciseCount",
+    unitLabel: "练习",
+    block: english.grammar,
+  });
+  if (grammar) sections.push(grammar);
+
+  const vocab = english.vocab || english.vocabulary || {};
+  const vocabularyWordCount = toInt(vocab.vocabularyWordCount);
+  const vocabularySentenceCount = toInt(vocab.vocabularySentenceCount);
+  if (vocabularyWordCount || vocabularySentenceCount || asText(vocab)) {
+    sections.push({
+      title: "词汇 (Vocab)",
+      kind: "kv",
+      rows: [
+        { label: "单词数", value: String(vocabularyWordCount) },
+        { label: "句子数", value: String(vocabularySentenceCount) },
+      ],
+      note: asText(vocab),
+    });
+  }
+
+  const recitation = english.recitation || english.memory || {};
+  const recitationText = asText(recitation);
+  if (recitationText) {
+    sections.push({
+      title: "单词句子背诵 (Recitation)",
+      kind: "note",
+      note: recitationText,
+    });
+  }
+
+  const essay = english.essay || {};
+  const essayTitle = asText(essay.title);
+  const essayText = asText(essay.text || essay);
+  const essayScore = formatScorePair(essay.score, essay.totalScore);
+  const essayCompleted = essay.completed === true ? "已完成" : "未标记完成";
+  const essayLossPointLabels = uniqText([...(essay.lossPointLabelsSnapshot || []), ...(essay.lossPointIds || [])]);
+  const essayOtherLoss = asText(essay.otherLossPointText);
+  if (essayTitle || essayText || essayScore || essay.completed === true || essayLossPointLabels.length || essayOtherLoss) {
+    const rows = [];
+    if (essayTitle) rows.push({ label: "题目", value: essayTitle });
+    if (essayScore) rows.push({ label: "得分", value: essayScore });
+    rows.push({ label: "完成状态", value: essayCompleted });
+    sections.push({
+      title: "作文 (Essay)",
+      kind: "kv",
+      rows,
+      note: essayText,
+      lossPointLabels: essayLossPointLabels,
+      lossPointText: essayLossPointLabels.join("、"),
+      otherLossPointText: essayOtherLoss,
+    });
+  }
+
+  const canonicalKeys = new Set(["editing", "reading", "grammar", "vocab", "recitation", "essay"]);
+  const customTasks = Array.isArray(activity.customEnglishTasks || activity.englishTasks)
+    ? (activity.customEnglishTasks || activity.englishTasks)
+    : [];
+  customTasks.forEach((task) => {
+    const taskKey = asText(task.key).toLowerCase();
+    if (canonicalKeys.has(taskKey)) return;
+    const displayName = asText(task.displayName || task.chineseName || task.englishName || task.key || "自定义项目");
+    const fieldsUsed = Array.isArray(task.fieldsUsed)
+      ? task.fieldsUsed
+      : ["practiceCount", "score", "problems"];
+    const rows = [];
+    if (fieldsUsed.includes("practiceCount")) rows.push({ label: "练习数", value: String(toInt(task.practiceCount)) });
+    if (fieldsUsed.includes("score")) {
+      const scorePair = formatScorePair(task.score, task.maxScore);
+      rows.push({ label: "分数", value: scorePair || "--" });
+    }
+    if (toInt(task.targetCount)) rows.push({ label: "目标次数", value: String(toInt(task.targetCount)) });
+    const problems = asText(task.problems);
+    if (rows.length || problems) {
+      sections.push({
+        title: displayName,
+        kind: "kv",
+        rows,
+        note: problems,
+      });
+    }
+  });
+
+  return sections;
+};
+
+const buildGenericRows = (activity = {}) => {
+  const rows = [];
+  const taskSummary = asText(activity.taskSummary || activity.practiceProgress || activity.description);
+  const strengths = asText(activity.strengths);
+  const improvements = asText(activity.improvements);
+  const comment = asText(activity.comment);
+  const definitionRecitation = asText(activity.definitionRecitation || activity.notes);
+  if (taskSummary) rows.push({ label: "学生具体做了什么", value: taskSummary });
+  if (strengths) rows.push({ label: "做得好的地方", value: strengths });
+  if (improvements) rows.push({ label: "需要进步的地方", value: improvements });
+  if (definitionRecitation) rows.push({ label: "定义背诵/笔记", value: definitionRecitation });
+  if (comment) rows.push({ label: "补充备注", value: comment });
+  return rows;
 };
 
 const buildEnglishFields = (input = {}) => {
-  const editing = input.editing || {};
-  const reading = input.reading || {};
-  const grammar = input.grammar || {};
-  const vocab = input.vocab || input.vocabulary || {};
-  const recitation = input.recitation || input.memory || {};
-  const essay = input.essay || {};
+  const editing = normalizeScoredBlock(input.editing, "exerciseCount");
+  const reading = normalizeScoredBlock(input.reading, "articleCount");
+  const grammar = normalizeScoredBlock(input.grammar, "exerciseCount");
+  const vocab = normalizeVocabBlock(input.vocab || input.vocabulary);
+  const recitation = normalizeSimpleBlock(input.recitation || input.memory);
+  const essay = normalizeEssayBlock(input.essay);
 
   const details = [];
   const editingSummary = summarizeExercises(editing, "改错");
@@ -83,7 +337,7 @@ const buildEnglishFields = (input = {}) => {
   }
 
   const summary = details.slice(0, 3).map((d) => d.value).join("；") || "已记录英文学习";
-  return { summary, details };
+  return { summary, details, editing, reading, grammar, vocab, recitation, essay };
 };
 
 const normalizePaper = (paper = {}) => {
@@ -139,6 +393,7 @@ const normalizeActivity = (activity = {}) => {
   const papers = (activity.papers || []).map((p) => normalizePaper(p));
   if (isEnglish) {
     const englishView = buildEnglishFields({ ...english, ...activity });
+    const sections = buildEnglishSections(englishView, activity);
     return {
       subjectId,
       subjectName,
@@ -146,26 +401,26 @@ const normalizeActivity = (activity = {}) => {
       type: "english",
       summaryLine: englishView.summary,
       detailLines: englishView.details,
+      sections,
       papers,
     };
   }
-  const taskSummary = activity.taskSummary || activity.practiceProgress || activity.description || "";
-  const strengths = activity.strengths || "";
-  const improvements = activity.improvements || "";
-  const detailLines = [];
-  if (taskSummary) detailLines.push({ label: "学生具体做了什么", value: taskSummary });
-  if (strengths) detailLines.push({ label: "做得好的地方", value: strengths });
-  if (improvements) detailLines.push({ label: "需要进步的地方", value: improvements });
-  if (!detailLines.length && activity.practiceProgress) {
-    detailLines.push({ label: "练习进度", value: activity.practiceProgress });
-  }
+  const detailLines = buildGenericRows(activity);
   return {
     subjectId,
     subjectName,
     subjectDisplayName: formatSubjectName(subjectName),
     type: "generic",
-    summaryLine: taskSummary || strengths || improvements || "已记录",
+    summaryLine: asText(activity.taskSummary || activity.practiceProgress || activity.description || activity.strengths || activity.improvements) || "已记录",
     detailLines,
+    sections: detailLines.length
+      ? [{
+          title: "学习明细",
+          kind: "kv",
+          rows: detailLines,
+          note: "",
+        }]
+      : [],
     papers,
   };
 };

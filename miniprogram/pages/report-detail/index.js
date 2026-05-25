@@ -43,6 +43,83 @@ const isEnglishSubject = (name = '') => {
   const text = String(name || '').toLowerCase();
   return text.includes('english') || String(name || '').includes('英文') || String(name || '').includes('英语');
 };
+const normalizeMatch = (value = '') =>
+  String(value || '')
+    .toLowerCase()
+    .replace(/[_-]/g, ' ')
+    .replace(/[()]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const SUBJECT_ENGLISH_BY_ZH = {
+  化学: 'Chemistry',
+  物理: 'Physics',
+  生物: 'Biology',
+  数学: 'Mathematics',
+  高等数学: 'Additional Mathematics',
+  华文: 'Chinese',
+  英文: 'English',
+  历史: 'History',
+  地理: 'Geography',
+  会计: 'Accounting',
+  经济: 'Economics',
+  计算机: 'Computer Science',
+  社会研究: 'Social Studies',
+  科学: 'Science',
+  文学: 'Literature',
+};
+
+const subjectEnglishFromRaw = (rawName = '') => {
+  const raw = String(rawName || '').trim();
+  const normalized = normalizeMatch(raw);
+  if (
+    normalized.includes('additional mathematics') ||
+    normalized.includes('amath') ||
+    raw.includes('高数') ||
+    raw.includes('附加数学')
+  ) return 'Additional Mathematics';
+  if (normalized.includes('mathematics') || normalized.includes(' math')) return 'Mathematics';
+  if (normalized.includes('chemistry') || raw.includes('化学')) return 'Chemistry';
+  if (normalized.includes('physics') || raw.includes('物理')) return 'Physics';
+  if (normalized.includes('biology') || raw.includes('生物')) return 'Biology';
+  if (normalized.includes('english') || raw.includes('英文') || raw.includes('英语')) return 'English';
+  if (normalized.includes('chinese') || raw.includes('中文') || raw.includes('华文')) return 'Chinese';
+  if (normalized.includes('history') || raw.includes('历史')) return 'History';
+  if (normalized.includes('geography') || raw.includes('地理')) return 'Geography';
+  if (normalized.includes('economics') || raw.includes('经济')) return 'Economics';
+  if (normalized.includes('accounting') || raw.includes('会计')) return 'Accounting';
+  if (normalized.includes('computer') || raw.includes('计算机')) return 'Computer Science';
+  if (normalized.includes('social studies') || raw.includes('社会研究')) return 'Social Studies';
+  if (normalized.includes('science') || raw.includes('科学')) return 'Science';
+  if (normalized.includes('literature') || raw.includes('文学')) return 'Literature';
+  return '';
+};
+
+const inferMathTrackFromSummary = (summary = '') => {
+  const text = String(summary || '');
+  if (!text) return '';
+  if (
+    /三角函数|恒等变换|坐标几何|附加数学|高数|additional mathematics|a[-\s]?math/i.test(text)
+  ) return 'Additional Mathematics';
+  if (
+    /代数|方程|比例|统计|几何基础|mathematics/i.test(text)
+  ) return 'Mathematics';
+  return '';
+};
+
+const resolveSubjectEnglishName = (displayName = '', rawName = '', summary = '') => {
+  const fromRaw = subjectEnglishFromRaw(rawName);
+  if (fromRaw === 'Mathematics' && String(displayName) === '数学') {
+    const inferredMath = inferMathTrackFromSummary(summary);
+    if (inferredMath) return inferredMath;
+  }
+  if (fromRaw) return fromRaw;
+  if (String(displayName) === '数学') {
+    const inferredMath = inferMathTrackFromSummary(summary);
+    if (inferredMath) return inferredMath;
+  }
+  return SUBJECT_ENGLISH_BY_ZH[String(displayName)] || 'General Subject';
+};
 
 Page({
   data: {
@@ -75,6 +152,9 @@ Page({
     finalNextSuggestions: [],
     englishSummaryRows: [],
     subjectSummaryCards: [],
+    overallEvaluation: {},
+    subjectSummaryField: 'summary',
+    overallSummaryField: 'teacherComment',
     editMode: false,
     editForm: null,
   },
@@ -270,19 +350,20 @@ Page({
       return true;
     });
 
-    const subjectSummaryCards = subjectReports
+    const subjectSummaryCardsBase = subjectReports
       .filter((item) => !isEnglishSubject(item?.subjectName))
       .map((item) => {
         const subjectName = item?.subjectName || '未命名科目';
+        const subjectRawName = item?.subjectRawName || subjectName;
         const summary = reportType === 'yearly'
           ? String(item?.annualSummary || '').trim()
           : String(item?.summary || '').trim();
         if (summary) {
-          return { subjectName, summary };
+          return { subjectName, subjectRawName, summary };
         }
         const matched = ensureArray(analytics?.subjectStats).find((s) => s?.subjectName === subjectName) || null;
         if (!matched) {
-          return { subjectName, summary: '该阶段记录较少，暂无法形成完整趋势判断。' };
+          return { subjectName, subjectRawName, summary: '该阶段记录较少，暂无法形成完整趋势判断。' };
         }
         const scoreText = matched.averageScore == null ? '暂无足够分数数据' : `平均分约 ${matched.averageScore}%`;
         const trendMap = {
@@ -294,9 +375,57 @@ Page({
         const trendText = trendMap[matched.trend] || '成绩数据有限';
         return {
           subjectName,
+          subjectRawName,
           summary: `本阶段共记录 ${matched.activityCount || 0} 次学习，活跃 ${matched.activeDays || 0} 天，${scoreText}，${trendText}。`,
         };
       });
+    const subjectSummaryCards = subjectSummaryCardsBase.map((item) => {
+      const displayName = String(item?.subjectName || '未命名科目');
+      const rawName = String(item?.subjectRawName || displayName);
+      const englishName = resolveSubjectEnglishName(displayName, rawName, item?.summary || '');
+      return {
+        ...item,
+        subjectTitle: `${displayName}（${englishName}）`,
+      };
+    });
+
+    const activeDays = Number(overview.activeDays || 0);
+    const activeRate = Number(overview.activeRate);
+    const totalStudyHours = Number(attendanceAndStudyTime?.totalStudyHours || 0);
+    const strongestSubjects = ensureArray(overview.strongestSubjects).map(getSubjectDisplayName).filter(Boolean);
+    const improvingSubjects = ensureArray(overview.improvingSubjects).map(getSubjectDisplayName).filter(Boolean);
+    const attentionSubjects = ensureArray(overview.subjectsNeedingAttention).map(getSubjectDisplayName).filter(Boolean);
+    const hasActiveRate = Number.isFinite(activeRate);
+    const engagementText = hasActiveRate
+      ? (activeRate >= 0.75 ? '学习投入较高，学习节奏稳定。' : activeRate >= 0.5 ? '学习投入中等，仍有提升空间。' : '学习投入偏弱，需要提升学习连续性。')
+      : '当前阶段记录较少，学习投入度暂无法精确判断。';
+    const performanceText = (Number(overview.totalPapers || 0) + Number(overview.totalExams || 0)) > 0
+      ? `本阶段有 ${Number(overview.totalPapers || 0)} 份试卷与 ${Number(overview.totalExams || 0)} 次考试记录，可结合分数做阶段判断。`
+      : '当前阶段以日常学习记录为主，测验/考试数据有限。';
+    const strengthsText = strongestSubjects.length
+      ? `当前优势主要体现在：${strongestSubjects.slice(0, 3).join('、')}。`
+      : improvingSubjects.length
+        ? `阶段性进步主要体现在：${improvingSubjects.slice(0, 3).join('、')}。`
+        : '目前优势分布不明显，建议继续累积更多有效学习记录。';
+    const focusText = attentionSubjects.length
+      ? `下一阶段建议优先加强：${attentionSubjects.slice(0, 3).join('、')}。`
+      : (finalNextSuggestions[0] ? `下一阶段建议：${finalNextSuggestions[0]}` : '下一阶段建议保持规律学习节奏，并持续进行错题复盘。');
+    const generatedOverallSummary = [
+      `本阶段共记录 ${activeDays} 天学习，累计学习约 ${Number.isFinite(totalStudyHours) ? totalStudyHours : 0} 小时。`,
+      engagementText,
+      performanceText,
+      strengthsText,
+      focusText,
+    ].join('');
+    const overallSummary = String(finalOverallSummary || '').trim() || generatedOverallSummary || '该阶段记录较少，暂无法形成完整综合判断。';
+    const overallEvaluation = {
+      summary: overallSummary,
+      engagementText,
+      strengthsText,
+      focusText,
+    };
+    const subjectSummaryField = reportType === 'yearly' ? 'annualSummary' : 'summary';
+    const overallSummaryField = reportType === 'yearly' ? 'teacherAnnualComment' : 'teacherComment';
 
     this.setData({
       report: safeReport,
@@ -320,6 +449,9 @@ Page({
       finalNextSuggestions,
       englishSummaryRows: englishSummaryRowsFinal,
       subjectSummaryCards,
+      overallEvaluation,
+      subjectSummaryField,
+      overallSummaryField,
       editForm: buildEditableForm(safeReport),
     });
   },

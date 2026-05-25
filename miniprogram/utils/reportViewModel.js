@@ -72,7 +72,8 @@ const normalizeSubjectReports = (reportType, displayReport) => {
   if (reportType === 'yearly') {
     return subjectReports.map((item) => ({
       ...(item && typeof item === 'object' ? item : {}),
-      subjectName: getSubjectDisplayName(toText(item?.subjectName).trim() || '未命名科目'),
+      subjectRawName: toText(item?.subjectRawName || item?.subjectName).trim() || '未命名科目',
+      subjectName: getSubjectDisplayName(toText(item?.subjectRawName || item?.subjectName).trim() || '未命名科目'),
       annualSummary: toText(item?.annualSummary).trim(),
       growth: ensureArray(item?.growth),
       challenges: ensureArray(item?.challenges),
@@ -83,7 +84,8 @@ const normalizeSubjectReports = (reportType, displayReport) => {
 
   return subjectReports.map((item) => ({
     ...(item && typeof item === 'object' ? item : {}),
-    subjectName: getSubjectDisplayName(toText(item?.subjectName).trim() || '未命名科目'),
+    subjectRawName: toText(item?.subjectRawName || item?.subjectName).trim() || '未命名科目',
+    subjectName: getSubjectDisplayName(toText(item?.subjectRawName || item?.subjectName).trim() || '未命名科目'),
     summary: toText(item?.summary).trim(),
     strengths: ensureArray(item?.strengths),
     areasToImprove: ensureArray(item?.areasToImprove),
@@ -143,7 +145,8 @@ const buildFinalReportPayload = (report, form) => {
       longTermConcerns: splitLines(form.longTermConcernsText),
       subjectReports: subjectReports.map((item) => ({
         ...item,
-        subjectName: getSubjectDisplayName(toText(item.subjectName).trim() || '未命名科目'),
+        subjectRawName: toText(item.subjectRawName || item.subjectName).trim() || '未命名科目',
+        subjectName: toText(item.subjectRawName || item.subjectName).trim() || '未命名科目',
         annualSummary: toText(item.annualSummary).trim(),
       })),
       nextYearRecommendations: parseRecommendationLines(form.nextYearRecommendationsText),
@@ -167,7 +170,8 @@ const buildFinalReportPayload = (report, form) => {
     keyConcerns: splitLines(form.keyConcernsText),
     subjectReports: subjectReports.map((item) => ({
       ...item,
-      subjectName: getSubjectDisplayName(toText(item.subjectName).trim() || '未命名科目'),
+      subjectRawName: toText(item.subjectRawName || item.subjectName).trim() || '未命名科目',
+      subjectName: toText(item.subjectRawName || item.subjectName).trim() || '未命名科目',
       summary: toText(item.summary).trim(),
     })),
     nextStageRecommendations: parseRecommendationLines(form.nextStageRecommendationsText),

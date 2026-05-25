@@ -63,9 +63,9 @@
             <view class="score-side">
               <view class="chip score-chip">
                 <text>{{item.score || "未录入"}}</text>
-                <text wx:if="{{item.grade}}" class="score-grade">{{item.grade}}</text>
+                <text wx:if="{{item.gradeDisplay}}" class="score-grade">{{item.gradeDisplay}}</text>
               </view>
-              <view wx:if="{{item.percentage !== null && item.percentage !== undefined}}" class="score-percentage">{{item.percentage}}%</view>
+              <view wx:if="{{item.percentageDisplay}}" class="score-percentage">{{item.percentageDisplay}}%</view>
             </view>
           </view>
         </block>

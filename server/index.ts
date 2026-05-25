@@ -92,7 +92,7 @@ import {
   isActionLockConflictError,
   withActionLock,
 } from './services/actionLocks';
-import { serializeReportJson } from './utils/reportJson';
+import { parseReportJson, serializeReportJson } from './utils/reportJson';
 import {
   INPUT_LIMITS,
   parseFiniteInteger,
@@ -5798,6 +5798,37 @@ app.post('/api/ai/quarterly-summary', authenticate, requireRole('teacher', 'admi
       )
       .orderBy(desc(quarterlySummaryTable.endDate))
       .limit(1);
+    const prevQuarterReportRows = await db
+      .select({
+        id: studentReportsTable.id,
+        reportType: studentReportsTable.reportType,
+        title: studentReportsTable.title,
+        startDate: studentReportsTable.startDate,
+        endDate: studentReportsTable.endDate,
+        year: studentReportsTable.year,
+        summaryText: studentReportsTable.summaryText,
+        structuredReportJson: studentReportsTable.structuredReportJson,
+        finalReportJson: studentReportsTable.finalReportJson,
+        updatedAt: studentReportsTable.updatedAt,
+      })
+      .from(studentReportsTable)
+      .where(
+        and(
+          eq(studentReportsTable.studentId, studentId),
+          eq(studentReportsTable.reportType, 'quarterly'),
+          lt(studentReportsTable.endDate, startDate),
+        ),
+      )
+      .orderBy(desc(studentReportsTable.endDate), desc(studentReportsTable.updatedAt))
+      .limit(1);
+    const prevQuarterReport = prevQuarterReportRows[0]
+      ? {
+          ...prevQuarterReportRows[0],
+          finalReport: parseReportJson(prevQuarterReportRows[0].finalReportJson).value,
+          structuredReport: parseReportJson(prevQuarterReportRows[0].structuredReportJson).value,
+        }
+      : null;
+    const previousQuarterContext = prevQuarterReport || prevQuarter[0] || null;
     const normalizedDaily = daily.map(withV2Activities);
     const analytics = buildStudentReportAnalytics({
       student,
@@ -5807,7 +5838,7 @@ app.post('/api/ai/quarterly-summary', authenticate, requireRole('teacher', 'admi
       weeklyReports: weekly,
       papers,
       exams: examPayload,
-      previousQuarterSummary: prevQuarter[0] || null,
+      previousQuarterSummary: previousQuarterContext,
       quarterlySummaries: [],
       reportType: 'quarterly',
     });
@@ -5819,7 +5850,7 @@ app.post('/api/ai/quarterly-summary', authenticate, requireRole('teacher', 'admi
       weeklyReports: weekly,
       papers,
       exams: examPayload,
-      previousQuarterSummary: prevQuarter[0] || null,
+      previousQuarterSummary: previousQuarterContext,
       analytics,
       reportType: 'quarterly',
     });
@@ -6029,6 +6060,35 @@ app.post('/api/ai/yearly-summary', authenticate, requireRole('teacher', 'admin')
       .from(quarterlySummaryTable)
       .where(and(eq(quarterlySummaryTable.studentId, studentId), eq(quarterlySummaryTable.year, resolvedYear as number)))
       .orderBy(quarterlySummaryTable.quarter);
+    const quarterlyReportRows = await db
+      .select({
+        id: studentReportsTable.id,
+        reportType: studentReportsTable.reportType,
+        title: studentReportsTable.title,
+        startDate: studentReportsTable.startDate,
+        endDate: studentReportsTable.endDate,
+        year: studentReportsTable.year,
+        summaryText: studentReportsTable.summaryText,
+        structuredReportJson: studentReportsTable.structuredReportJson,
+        finalReportJson: studentReportsTable.finalReportJson,
+        updatedAt: studentReportsTable.updatedAt,
+      })
+      .from(studentReportsTable)
+      .where(
+        and(
+          eq(studentReportsTable.studentId, studentId),
+          eq(studentReportsTable.reportType, 'quarterly'),
+          gte(studentReportsTable.startDate, startDate),
+          lte(studentReportsTable.endDate, endDate),
+        ),
+      )
+      .orderBy(studentReportsTable.startDate, studentReportsTable.endDate);
+    const quarterlyReportHistory = quarterlyReportRows.map((row) => ({
+      ...row,
+      finalReport: parseReportJson(row.finalReportJson).value,
+      structuredReport: parseReportJson(row.structuredReportJson).value,
+    }));
+    const quarterlyHistoryForContext = quarterlyReportHistory.length ? quarterlyReportHistory : quarters;
     const normalizedDaily = daily.map(withV2Activities);
     const analytics = buildStudentReportAnalytics({
       student,
@@ -6039,7 +6099,7 @@ app.post('/api/ai/yearly-summary', authenticate, requireRole('teacher', 'admin')
       papers,
       exams: examPayload,
       previousQuarterSummary: null,
-      quarterlySummaries: quarters,
+      quarterlySummaries: quarterlyHistoryForContext,
       reportType: 'yearly',
     });
     const context = buildCompactReportContext({
@@ -6051,7 +6111,7 @@ app.post('/api/ai/yearly-summary', authenticate, requireRole('teacher', 'admin')
       weeklyReports: weekly,
       papers,
       exams: examPayload,
-      quarterlySummaries: quarters,
+      quarterlySummaries: quarterlyHistoryForContext,
       analytics,
       reportType: 'yearly',
     });

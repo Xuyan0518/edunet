@@ -6,6 +6,44 @@ const { formatChinaDate } = require("../../utils/chinaDate");
 const { showActionLockToast } = require("../../utils/actionLock");
 const { LIMITS, trimText, isYmd } = require("../../utils/validation");
 
+const toNumOrNull = (v) => {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+const percentageToGrade = (pct) => {
+  if (pct == null || !Number.isFinite(pct)) return "";
+  if (pct >= 75) return "A1";
+  if (pct >= 70) return "A2";
+  if (pct >= 65) return "B3";
+  if (pct >= 60) return "B4";
+  if (pct >= 55) return "C5";
+  if (pct >= 50) return "C6";
+  if (pct >= 45) return "D7";
+  if (pct >= 40) return "E8";
+  return "F9";
+};
+
+const derivePaperScoreMeta = (paper = {}) => {
+  const score = toNumOrNull(paper.score);
+  const total = toNumOrNull(paper.total);
+  const scoreText = typeof paper.score === "string" ? paper.score.trim() : "";
+  const slash = /^(-?\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/.exec(scoreText);
+  const parsedScore = slash ? toNumOrNull(slash[1]) : score;
+  const parsedTotal = slash ? toNumOrNull(slash[2]) : total;
+  const percentage = Number.isFinite(Number(paper.percentage))
+    ? Number(paper.percentage)
+    : (parsedScore != null && parsedTotal != null && parsedTotal > 0
+      ? Math.round((parsedScore / parsedTotal) * 10000) / 100
+      : (parsedScore != null && parsedScore >= 0 && parsedScore <= 100 ? parsedScore : null));
+  const grade = (paper.grade || "").trim() || percentageToGrade(percentage);
+  return {
+    percentageDisplay: percentage == null ? "" : String(percentage),
+    gradeDisplay: grade || "",
+  };
+};
+
 const buildGroups = (papers = []) => {
   const map = {};
   papers.forEach((p) => {
@@ -126,7 +164,10 @@ Page({
     this.setData({ loading: true });
     request({ url: `/students/${this.studentId}/papers` })
       .then((data) => {
-        const papers = data || [];
+        const papers = (data || []).map((item) => ({
+          ...item,
+          ...derivePaperScoreMeta(item),
+        }));
         this.setData({ papers, grouped: buildGroups(papers) });
       })
       .catch(() => wx.showToast({ title: "获取试卷失败", icon: "error" }))

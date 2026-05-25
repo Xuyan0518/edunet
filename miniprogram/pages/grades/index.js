@@ -5,6 +5,42 @@ const { showConflictModal } = require("../../utils/conflict");
 const { showActionLockToast } = require("../../utils/actionLock");
 const { LIMITS, trimText, isYmd } = require("../../utils/validation");
 
+const toNumOrNull = (v) => {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+const percentageToGrade = (pct) => {
+  if (pct == null || !Number.isFinite(pct)) return "";
+  if (pct >= 75) return "A1";
+  if (pct >= 70) return "A2";
+  if (pct >= 65) return "B3";
+  if (pct >= 60) return "B4";
+  if (pct >= 55) return "C5";
+  if (pct >= 50) return "C6";
+  if (pct >= 45) return "D7";
+  if (pct >= 40) return "E8";
+  return "F9";
+};
+
+const deriveScoreMeta = (rawScore, rawPercentage, rawGrade) => {
+  const scoreText = String(rawScore || "").trim();
+  const slash = /^(-?\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/.exec(scoreText);
+  const score = slash ? toNumOrNull(slash[1]) : toNumOrNull(scoreText);
+  const total = slash ? toNumOrNull(slash[2]) : null;
+  const percentage = Number.isFinite(Number(rawPercentage))
+    ? Number(rawPercentage)
+    : (score != null && total != null && total > 0
+      ? Math.round((score / total) * 10000) / 100
+      : (score != null && score >= 0 && score <= 100 ? score : null));
+  const grade = (String(rawGrade || "").trim()) || percentageToGrade(percentage);
+  return {
+    percentageDisplay: percentage == null ? "" : String(percentage),
+    gradeDisplay: grade || "",
+  };
+};
+
 const canonicalSubjectKey = (name = "") => {
   const raw = String(name || "").trim();
   const lower = raw.toLowerCase();
@@ -108,6 +144,7 @@ Page({
           subjects: (exam.subjects || []).map((s) => ({
             ...s,
             displayName: formatSubjectName(s.name),
+            ...deriveScoreMeta(s.score, s.percentage, s.grade),
           })),
         }));
         this.setData({ exams });

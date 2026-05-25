@@ -36,10 +36,6 @@
           <view class="profile-label">{{attendanceAndStudyTime.presentDays + attendanceAndStudyTime.lateDays}}</view>
         </view>
         <view class="row-between" style="margin-top: 8rpx;">
-          <view>缺席天数</view>
-          <view class="profile-label">{{attendanceAndStudyTime.absentDays}}</view>
-        </view>
-        <view class="row-between" style="margin-top: 8rpx;">
           <view>总学习时长</view>
           <view class="profile-label">{{attendanceAndStudyTime.totalStudyHours}} 小时</view>
         </view>
@@ -75,6 +71,7 @@
             <view class="subject-title">{{item.subjectRawName || item.subjectName}}</view>
             <textarea
               class="input textarea-scroll"
+              auto-height
               value="{{item[subjectSummaryField] || ''}}"
               data-index="{{index}}"
               data-field="{{subjectSummaryField}}"
@@ -100,6 +97,7 @@
       <block wx:if="{{editMode}}">
         <textarea
           class="input textarea-scroll"
+          auto-height
           value="{{editForm[overallSummaryField] || ''}}"
           data-field="{{overallSummaryField}}"
           bindinput="onEditFieldInput"

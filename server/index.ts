@@ -105,6 +105,7 @@ import {
   validateReportInput,
   validateYearRange,
 } from './utils/inputValidation';
+import { parseScoreMeta } from './utils/scoreGrade';
 
 // Apply V2 English normalization to a daily_progress row's activities. Used at
 // every read/write boundary so legacy rows look V2 to consumers and new writes
@@ -1230,10 +1231,29 @@ app.get('/api/students/:studentId/exams', authenticate, verifyParentStudentAcces
       .select()
       .from(examScoresTable)
       .where(inArray(examScoresTable.examId, examIds));
-    const scoreMap = new Map<string, { name: string; score: string; scope: string | null; examDate: string | Date | null }[]>();
+    const scoreMap = new Map<string, {
+      name: string;
+      score: string;
+      scope: string | null;
+      examDate: string | Date | null;
+      scoreValue: number | null;
+      totalValue: number | null;
+      percentage: number | null;
+      grade: string | null;
+    }[]>();
     scores.forEach((s) => {
       const list = scoreMap.get(s.examId) || [];
-      list.push({ name: s.name, score: s.score, scope: s.scope ?? null, examDate: s.examDate ?? null });
+      const meta = parseScoreMeta(s.score, null);
+      list.push({
+        name: s.name,
+        score: s.score,
+        scope: s.scope ?? null,
+        examDate: s.examDate ?? null,
+        scoreValue: meta.score,
+        totalValue: meta.total,
+        percentage: meta.percentage,
+        grade: meta.grade,
+      });
       scoreMap.set(s.examId, list);
     });
     const payload = exams.map((e) => ({
@@ -4049,6 +4069,7 @@ app.get('/api/students/:studentId/papers', authenticate, verifyParentStudentAcce
 
     const result = rows.map((r) => ({
       ...r,
+      ...parseScoreMeta(r.score, r.total),
       subjectName: r.subjectName || undefined,
       typeName: r.typeName || undefined,
       schoolName: r.schoolName || undefined,

@@ -53,13 +53,20 @@ export function validateLossPointsRequired(activities: unknown): {
     const eng = normalizeEnglishFields(a.english ?? {});
     for (const field of SCORED_FIELDS) {
       const block = eng[field];
-      // Loss-points required when any exercise scored less than 100 (i.e. <100% — points lost).
-      // Legacy single-score path kicks in when the exercises array is empty
-      // and the parent score is below the implicit perfect mark.
       const exercises = Array.isArray(block.exercises) ? block.exercises : [];
+      const blockTotal = Number.isFinite(Number(block.totalScore)) && Number(block.totalScore) > 0
+        ? Number(block.totalScore)
+        : 100;
       const anyImperfect = exercises.length
-        ? exercises.some((ex) => ex.score != null && ex.score < 100)
-        : block.score != null && block.score < 100;
+        ? exercises.some((ex) => {
+          const score = ex?.score;
+          if (score == null) return false;
+          const exTotal = Number.isFinite(Number(ex.totalScore)) && Number(ex.totalScore) > 0
+            ? Number(ex.totalScore)
+            : blockTotal;
+          return score < exTotal;
+        })
+        : block.score != null && block.score < blockTotal;
       if (!anyImperfect) continue;
       const hasIds = block.lossPointIds.length > 0;
       const hasOther = block.otherLossPointText.trim().length > 0;

@@ -97,12 +97,15 @@
                     <view class="muted">练习 {{exIdx + 1}}</view>
                     <view class="row score-row" wx:if="{{item.english.editing.uiFieldsUsed.indexOf('score') !== -1}}">
                       <view class="score-cell">
-                        <view class="muted">得分</view>
+                        <view class="muted">得分 / 满分</view>
                         <input class="input score-input" type="digit" placeholder="-" value="{{ex.score}}" data-index="{{index}}" data-subfield="editing" data-exercise-index="{{exIdx}}" bindinput="onExerciseScoreChange" disabled="{{!isEditable}}" />
-                        <view class="muted">%</view>
+                      </view>
+                      <view class="muted">/</view>
+                      <view class="score-cell">
+                        <input class="input score-input" type="digit" placeholder="100" value="{{ex.totalScore}}" data-index="{{index}}" data-subfield="editing" data-exercise-index="{{exIdx}}" bindinput="onExerciseTotalScoreChange" disabled="{{!isEditable}}" />
                       </view>
                     </view>
-                    <textarea wx:if="{{ex.showProblems && item.english.editing.uiFieldsUsed.indexOf('problems') !== -1}}" class="input" style="min-height: 120rpx; margin-top: 16rpx;" placeholder="出现的问题" value="{{ex.problems}}" data-index="{{index}}" data-subfield="editing" data-exercise-index="{{exIdx}}" bindinput="onExerciseProblemsChange" disabled="{{!isEditable}}" />
+                    <textarea wx:if="{{ex.showProblems && item.english.editing.uiFieldsUsed.indexOf('problems') !== -1}}" class="input" style="min-height: 120rpx; margin-top: 16rpx;" placeholder="出现的问题（非满分必填）" value="{{ex.problems}}" data-index="{{index}}" data-subfield="editing" data-exercise-index="{{exIdx}}" bindinput="onExerciseProblemsChange" disabled="{{!isEditable}}" />
                   </view>
                 </block>
                 <view wx:if="{{item.english.editing.anyImperfect}}">
@@ -138,12 +141,15 @@
                     <view class="muted">文章 {{exIdx + 1}}</view>
                     <view class="row score-row" wx:if="{{item.english.reading.uiFieldsUsed.indexOf('score') !== -1}}">
                       <view class="score-cell">
-                        <view class="muted">得分</view>
+                        <view class="muted">得分 / 满分</view>
                         <input class="input score-input" type="digit" placeholder="-" value="{{ex.score}}" data-index="{{index}}" data-subfield="reading" data-exercise-index="{{exIdx}}" bindinput="onExerciseScoreChange" disabled="{{!isEditable}}" />
-                        <view class="muted">%</view>
+                      </view>
+                      <view class="muted">/</view>
+                      <view class="score-cell">
+                        <input class="input score-input" type="digit" placeholder="100" value="{{ex.totalScore}}" data-index="{{index}}" data-subfield="reading" data-exercise-index="{{exIdx}}" bindinput="onExerciseTotalScoreChange" disabled="{{!isEditable}}" />
                       </view>
                     </view>
-                    <textarea wx:if="{{ex.showProblems && item.english.reading.uiFieldsUsed.indexOf('problems') !== -1}}" class="input" style="min-height: 120rpx; margin-top: 16rpx;" placeholder="出现的问题" value="{{ex.problems}}" data-index="{{index}}" data-subfield="reading" data-exercise-index="{{exIdx}}" bindinput="onExerciseProblemsChange" disabled="{{!isEditable}}" />
+                    <textarea wx:if="{{ex.showProblems && item.english.reading.uiFieldsUsed.indexOf('problems') !== -1}}" class="input" style="min-height: 120rpx; margin-top: 16rpx;" placeholder="出现的问题（非满分必填）" value="{{ex.problems}}" data-index="{{index}}" data-subfield="reading" data-exercise-index="{{exIdx}}" bindinput="onExerciseProblemsChange" disabled="{{!isEditable}}" />
                   </view>
                 </block>
                 <view wx:if="{{item.english.reading.anyImperfect}}">
@@ -179,12 +185,15 @@
                     <view class="muted">练习 {{exIdx + 1}}</view>
                     <view class="row score-row" wx:if="{{item.english.grammar.uiFieldsUsed.indexOf('score') !== -1}}">
                       <view class="score-cell">
-                        <view class="muted">得分</view>
+                        <view class="muted">得分 / 满分</view>
                         <input class="input score-input" type="digit" placeholder="-" value="{{ex.score}}" data-index="{{index}}" data-subfield="grammar" data-exercise-index="{{exIdx}}" bindinput="onExerciseScoreChange" disabled="{{!isEditable}}" />
-                        <view class="muted">%</view>
+                      </view>
+                      <view class="muted">/</view>
+                      <view class="score-cell">
+                        <input class="input score-input" type="digit" placeholder="100" value="{{ex.totalScore}}" data-index="{{index}}" data-subfield="grammar" data-exercise-index="{{exIdx}}" bindinput="onExerciseTotalScoreChange" disabled="{{!isEditable}}" />
                       </view>
                     </view>
-                    <textarea wx:if="{{ex.showProblems && item.english.grammar.uiFieldsUsed.indexOf('problems') !== -1}}" class="input" style="min-height: 120rpx; margin-top: 16rpx;" placeholder="出现的问题" value="{{ex.problems}}" data-index="{{index}}" data-subfield="grammar" data-exercise-index="{{exIdx}}" bindinput="onExerciseProblemsChange" disabled="{{!isEditable}}" />
+                    <textarea wx:if="{{ex.showProblems && item.english.grammar.uiFieldsUsed.indexOf('problems') !== -1}}" class="input" style="min-height: 120rpx; margin-top: 16rpx;" placeholder="出现的问题（非满分必填）" value="{{ex.problems}}" data-index="{{index}}" data-subfield="grammar" data-exercise-index="{{exIdx}}" bindinput="onExerciseProblemsChange" disabled="{{!isEditable}}" />
                   </view>
                 </block>
                 <view wx:if="{{item.english.grammar.anyImperfect}}">
@@ -251,11 +260,14 @@
             <block wx:if="{{item.english.essay.uiExpanded}}">
               <view class="english-section-body">
                 <input wx:if="{{item.english.essay.uiFieldsUsed.indexOf('problems') !== -1}}" class="input" placeholder="题目" value="{{item.english.essay.title}}" data-index="{{index}}" bindinput="onEssayTitleChange" disabled="{{!isEditable}}" />
-                <input wx:if="{{item.english.essay.uiFieldsUsed.indexOf('problems') !== -1}}" class="input" placeholder="作文评价" value="{{item.english.essay.text}}" data-index="{{index}}" data-subfield="essay" bindinput="onEnglishTextChange" disabled="{{!isEditable}}" />
                 <view class="row score-row" wx:if="{{item.english.essay.uiFieldsUsed.indexOf('score') !== -1}}">
                   <view class="score-cell">
-                    <view class="muted">得分</view>
+                    <view class="muted">得分 / 满分</view>
                     <input class="input score-input" type="digit" placeholder="-" value="{{item.english.essay.score}}" data-index="{{index}}" data-subfield="essay" bindinput="onEnglishScoreChange" disabled="{{!isEditable}}" />
+                  </view>
+                  <view class="muted">/</view>
+                  <view class="score-cell">
+                    <input class="input score-input" type="digit" placeholder="100" value="{{item.english.essay.totalScore}}" data-index="{{index}}" data-subfield="essay" bindinput="onEnglishTotalScoreChange" disabled="{{!isEditable}}" />
                   </view>
                   <checkbox-group class="score-cell" data-index="{{index}}" bindchange="onEssayCompletedToggle">
                     <label class="row">
@@ -264,6 +276,7 @@
                     </label>
                   </checkbox-group>
                 </view>
+                <input wx:if="{{item.english.essay.uiFieldsUsed.indexOf('problems') !== -1 && item.english.essay.showProblems}}" class="input" placeholder="出现的问题（非满分必填）" value="{{item.english.essay.text}}" data-index="{{index}}" data-subfield="essay" bindinput="onEnglishTextChange" disabled="{{!isEditable}}" />
               </view>
             </block>
           </view>
@@ -287,11 +300,15 @@
                   </view>
                   <view class="row score-row" wx:if="{{task.fieldsUsed && task.fieldsUsed.indexOf('score') !== -1}}">
                     <view class="score-cell">
-                      <view class="muted">分数</view>
+                      <view class="muted">得分 / 满分</view>
                       <input class="input score-input" type="digit" value="{{task.score}}" data-index="{{index}}" data-task-index="{{taskIndex}}" bindinput="onCustomTaskScoreInput" disabled="{{!isEditable}}" />
                     </view>
+                    <view class="muted">/</view>
+                    <view class="score-cell">
+                      <input class="input score-input" type="digit" value="{{task.maxScore}}" data-index="{{index}}" data-task-index="{{taskIndex}}" bindinput="onCustomTaskMaxScoreInput" disabled="{{!isEditable}}" />
+                    </view>
                   </view>
-                  <textarea wx:if="{{task.fieldsUsed && task.fieldsUsed.indexOf('problems') !== -1}}" class="input" style="min-height: 120rpx; margin-top: 16rpx;" placeholder="出现的问题" value="{{task.problems}}" data-index="{{index}}" data-task-index="{{taskIndex}}" bindinput="onCustomTaskProblemsInput" disabled="{{!isEditable}}" />
+                  <textarea wx:if="{{task.fieldsUsed && task.fieldsUsed.indexOf('problems') !== -1 && task.score !== null && task.maxScore !== null && task.score < task.maxScore}}" class="input" style="min-height: 120rpx; margin-top: 16rpx;" placeholder="出现的问题（非满分必填）" value="{{task.problems}}" data-index="{{index}}" data-task-index="{{taskIndex}}" bindinput="onCustomTaskProblemsInput" disabled="{{!isEditable}}" />
                 </view>
               </block>
             </view>

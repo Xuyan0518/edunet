@@ -26,6 +26,18 @@ const SUBJECTS: SubjectTemplate[] = [
     improvements: ["题目阅读速度可再提升", "复杂题型审题需更细致", "步骤书写可更精简"],
   },
   {
+    name: "中三/四 数学(G3) Secondary 3/4 G3 Math",
+    topics: ["三角函数证明", "坐标几何综合题", "二次函数应用", "代数恒等式变形"],
+    strengths: ["基础分稳定", "步骤书写清晰", "运算速度较快"],
+    improvements: ["压轴题拆解还需训练", "几何题图形信息提取可加强", "细节检查要更稳定"],
+  },
+  {
+    name: "中三/四 生物(纯) Secondary 3/4 Pure Biology",
+    topics: ["细胞结构与功能", "酶与代谢", "遗传基础", "生态系统能量流动"],
+    strengths: ["术语记忆较稳", "图表题表现不错", "概念对比清晰"],
+    improvements: ["实验题表达要更完整", "因果链条描述需更准确", "长题审题速度可提升"],
+  },
+  {
     name: "中三/四 化学(纯) Secondary 3/4 Pure Chemistry",
     topics: ["mole章节练习", "酸碱中和与滴定", "化学键与结构", "有机化学基础"],
     strengths: ["概念理解较扎实", "方程式配平较稳定", "题目完成度高"],
@@ -36,12 +48,6 @@ const SUBJECTS: SubjectTemplate[] = [
     topics: ["力与平衡", "电学电路分析", "热学与能量转换", "波动与光学"],
     strengths: ["物理图像理解较好", "公式套用准确", "计算过程有条理"],
     improvements: ["文字解释题可更完整", "单位标注需保持一致", "多步骤题容错率需降低"],
-  },
-  {
-    name: "中文 Chinese",
-    topics: ["阅读理解主旨题", "记叙文写作结构", "文言文词义训练", "修辞手法辨析"],
-    strengths: ["阅读要点抓取准确", "表达逻辑较清楚", "作答态度认真"],
-    improvements: ["论证层次可更深入", "错别字仍需注意", "文言文积累需加强"],
   },
 ];
 
@@ -103,17 +109,20 @@ const buildEnglishActivity = (dayIndex: number) => {
   const baseScore = clamp(74 + Math.floor(dayIndex / 4) + ((dayIndex % 3) - 1) * 2, 60, 96);
 
   const editingExercises = Array.from({ length: editingCount }).map((_, idx) => ({
-    score: clamp(baseScore + idx, 55, 99),
+    score: clamp(16 + Math.floor((baseScore + idx) / 8), 10, 24),
+    totalScore: 25,
     problems: idx % 2 === 0 ? "时态错误" : "主谓一致需加强",
   }));
 
   const readingExercises = Array.from({ length: readingCount }).map((_, idx) => ({
-    score: clamp(baseScore - 3 + idx, 50, 98),
+    score: clamp(14 + Math.floor((baseScore - 3 + idx) / 7), 8, 20),
+    totalScore: 20,
     problems: "细节定位速度可再提升",
   }));
 
   const grammarExercises = Array.from({ length: grammarCount }).map((_, idx) => ({
-    score: clamp(baseScore - 2 + idx, 50, 98),
+    score: clamp(12 + Math.floor((baseScore - 2 + idx) / 8), 8, 18),
+    totalScore: 20,
     problems: idx % 2 === 0 ? "介词搭配不稳定" : "从句结构需复盘",
   }));
 
@@ -126,8 +135,8 @@ const buildEnglishActivity = (dayIndex: number) => {
           chineseName: "听力",
           englishName: "Listening",
           practiceCount: 1,
-          score: clamp(baseScore - 4, 50, 98),
-          maxScore: 100,
+          score: clamp(12 + Math.floor((baseScore - 4) / 8), 8, 18),
+          maxScore: 20,
           problems: "听写拼写仍需加强",
           completed: true,
           targetCount: 2,
@@ -191,8 +200,8 @@ const buildEnglishActivity = (dayIndex: number) => {
         text: essayToday ? "完成短文写作训练" : "",
         title: essayToday ? pick(["My Favourite Day", "A Helpful Friend", "My Weekend Plan"], dayIndex) : "",
         completed: essayToday,
-        score: essayToday ? clamp(baseScore - 1, 55, 98) : null,
-        totalScore: essayToday ? 100 : null,
+        score: essayToday ? clamp(18 + Math.floor((baseScore - 1) / 10), 12, 28) : null,
+        totalScore: essayToday ? 30 : null,
         lossPointIds: [],
         lossPointLabelsSnapshot: [],
         otherLossPointText: "",
@@ -371,4 +380,3 @@ seedDailyProgress()
     console.error("❌ Seed failed:", err instanceof Error ? err.message : err);
     process.exit(1);
   });
-

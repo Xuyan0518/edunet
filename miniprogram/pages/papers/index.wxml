@@ -78,6 +78,8 @@
                   <view class="row paper-meta">
                     <view class="paper-date">{{paper.date}}</view>
                     <view class="paper-score-strong">{{paper.score || "-"}}/{{paper.total || "-"}}</view>
+                    <view wx:if="{{paper.grade}}" class="paper-grade-chip">{{paper.grade}}</view>
+                    <view wx:if="{{paper.percentage !== null && paper.percentage !== undefined}}" class="paper-percentage">{{paper.percentage}}%</view>
                   </view>
                   <view wx:if="{{paper.description}}" class="muted">{{paper.description}}</view>
                   <view wx:if="{{paper.strengths}}" class="muted">做得好的地方：{{paper.strengths}}</view>

@@ -21,6 +21,7 @@ export type LossPointRefs = {
 
 export type ExerciseEntry = {
   score: number | null;
+  totalScore: number | null;
   problems: string;
 };
 
@@ -77,9 +78,6 @@ export type EnglishFieldsV2 = {
   essay: EssayFieldV2;
 };
 
-// Scores are percentages (0..100). Old data with totalScore=10 still
-// validates because the field is permissive — UI now ignores totalScore and
-// renders the score as a "%".
 const DEFAULT_TOTAL_SCORE_SCORED = 100;
 
 const normalizeExercises = (
@@ -96,6 +94,7 @@ const normalizeExercises = (
       const obj = e as Record<string, unknown>;
       arr.push({
         score: toNumberOrNull(obj.score),
+        totalScore: toNumberOrNull(obj.totalScore),
         problems: typeof obj.problems === 'string' ? obj.problems : '',
       });
     } else {
@@ -103,6 +102,7 @@ const normalizeExercises = (
       // score/text so existing data isn't lost when the form first migrates.
       arr.push({
         score: i === 0 && incoming.length === 0 ? legacyScore : null,
+        totalScore: DEFAULT_TOTAL_SCORE_SCORED,
         problems: i === 0 && incoming.length === 0 ? legacyText : '',
       });
     }

@@ -8,7 +8,7 @@ const LIMITS = {
   scoreMin: 0,
   scoreMax: 500,
   percentageMax: 100,
-  englishScoreMax: 100,
+  englishScoreMax: 500,
   englishExerciseMax: 30,
   englishVocabMax: 500,
   englishSentenceMax: 500,

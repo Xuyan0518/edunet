@@ -87,12 +87,6 @@ const toInt = (value) => {
   return Math.max(0, Math.floor(n));
 };
 
-const formatPercent = (value) => {
-  const n = toNumberOrNull(value);
-  if (n == null) return "";
-  return `${Math.round(n)}%`;
-};
-
 const formatScorePair = (score, total) => {
   const s = toNumberOrNull(score);
   if (s == null) return "";
@@ -112,11 +106,12 @@ const normalizeExercises = (raw, count, fallbackScore, fallbackText) => {
     if (!isPlainObject(ex)) return { score: null, problems: "" };
     return {
       score: toNumberOrNull(ex.score),
+      totalScore: toNumberOrNull(ex.totalScore),
       problems: asText(ex.problems),
     };
   });
   if (!list.length && (fallbackScore != null || fallbackText)) {
-    list.push({ score: fallbackScore, problems: fallbackText });
+    list.push({ score: fallbackScore, totalScore: 100, problems: fallbackText });
   }
   const total = Math.max(toInt(count), list.length);
   while (list.length < total) {
@@ -192,7 +187,7 @@ const buildScoredSection = ({ title, countLabel, countKey, unitLabel, block }) =
   const list = [];
   for (let i = 0; i < totalCount; i++) {
     const ex = exercises[i] || {};
-    const scoreText = formatPercent(ex.score);
+    const scoreText = formatScorePair(ex.score, ex.totalScore || source.totalScore);
     const problems = asText(ex.problems);
     list.push({
       title: `${unitLabel} ${i + 1}`,
@@ -203,7 +198,7 @@ const buildScoredSection = ({ title, countLabel, countKey, unitLabel, block }) =
   const lossPointLabels = uniqText([...(source.lossPointLabelsSnapshot || []), ...(source.lossPointIds || [])]);
   const otherLossPointText = asText(source.otherLossPointText);
   const note = asText(source.text);
-  const hasData = totalCount > 0 || !!lossPointLabels.length || !!otherLossPointText || !!note || !!formatPercent(source.score);
+  const hasData = totalCount > 0 || !!lossPointLabels.length || !!otherLossPointText || !!note || !!formatScorePair(source.score, source.totalScore);
   if (!hasData) return null;
   return {
     title,
@@ -234,12 +229,12 @@ const buildParentEnglishSections = (english = {}, activity = {}) => {
     const configuredCount = toInt(source[countKey]);
     const exercises = Array.isArray(source.exercises) ? source.exercises : [];
     const totalCount = Math.max(configuredCount, exercises.length);
-    if (!totalCount && !formatPercent(source.score)) return null;
+    if (!totalCount && !formatScorePair(source.score, source.totalScore)) return null;
     const list = [];
     const rowCount = totalCount || 1;
     for (let i = 0; i < rowCount; i++) {
       const ex = exercises[i] || {};
-      const scoreText = formatPercent(ex.score) || (i === 0 ? formatPercent(source.score) : "");
+      const scoreText = formatScorePair(ex.score, ex.totalScore || source.totalScore) || (i === 0 ? formatScorePair(source.score, source.totalScore) : "");
       list.push({
         title: `练习 ${i + 1}`,
         scoreText: scoreText || "--",

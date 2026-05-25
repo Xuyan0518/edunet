@@ -96,6 +96,30 @@ const toBoundedScore = (v) => {
   return n;
 };
 
+const toBoundedTotalScore = (v) => {
+  const n = toScoreOrNull(v);
+  if (n == null) return null;
+  if (!Number.isFinite(n)) return null;
+  if (n <= 0 || n > LIMITS.englishScoreMax) return null;
+  return n;
+};
+
+const getEffectiveTotal = (score, totalScore, fallbackTotal = 100) => {
+  const total = toBoundedTotalScore(totalScore);
+  if (total != null) return total;
+  if (score == null) return null;
+  const fallback = toBoundedTotalScore(fallbackTotal);
+  return fallback != null ? fallback : 100;
+};
+
+const isImperfectScore = (score, totalScore, fallbackTotal = 100) => {
+  const s = toBoundedScore(score);
+  if (s == null) return false;
+  const total = getEffectiveTotal(s, totalScore, fallbackTotal);
+  if (total == null) return false;
+  return s < total;
+};
+
 const defaultFieldFor = (kind) => {
   if (kind === "editing" || kind === "grammar") {
     return {
@@ -174,18 +198,29 @@ const toV2Field = (raw, kind) => {
 
 const computeSectionSummary = (code, block) => {
   const exercisesScored = (Array.isArray(block.exercises) ? block.exercises : []).filter((ex) => ex.isScored);
-  const avg = (list) =>
-    list.length ? Math.round(list.reduce((s, ex) => s + Number(ex.score), 0) / list.length) : null;
+  const avgPct = (list, fallbackTotal) => {
+    if (!list.length) return null;
+    const percentages = list
+      .map((ex) => {
+        const score = toScoreOrNull(ex.score);
+        const total = getEffectiveTotal(score, ex.totalScore, fallbackTotal);
+        if (score == null || total == null || total <= 0) return null;
+        return (score / total) * 100;
+      })
+      .filter((n) => n != null);
+    if (!percentages.length) return null;
+    return Math.round(percentages.reduce((s, n) => s + Number(n), 0) / percentages.length);
+  };
   if (code === "editing" || code === "grammar") {
     const count = block.exerciseCount || 0;
     if (count === 0) return "未练习";
-    const a = avg(exercisesScored);
+    const a = avgPct(exercisesScored, block.totalScore || 100);
     return a == null ? `${count} 练习` : `${count} 练习 · 平均 ${a}%`;
   }
   if (code === "reading") {
     const count = block.articleCount || 0;
     if (count === 0) return "未练习";
-    const a = avg(exercisesScored);
+    const a = avgPct(exercisesScored, block.totalScore || 100);
     return a == null ? `${count} 篇` : `${count} 篇 · 平均 ${a}%`;
   }
   if (code === "vocab") {
@@ -244,11 +279,13 @@ const buildExercisesArray = (raw, count, legacyScore, legacyText) => {
     if (e && typeof e === "object" && !Array.isArray(e)) {
       out.push({
         score: toScoreOrNull(e.score),
+        totalScore: toScoreOrNull(e.totalScore),
         problems: typeof e.problems === "string" ? e.problems : "",
       });
     } else {
       out.push({
         score: i === 0 && incoming.length === 0 ? legacyScore : null,
+        totalScore: 100,
         problems: i === 0 && incoming.length === 0 ? (legacyText || "") : "",
       });
     }
@@ -631,12 +668,15 @@ Page({
 
         if (code === "editing" || code === "reading" || code === "grammar") {
           const ids = Array.isArray(block.lossPointIds) ? block.lossPointIds : [];
+          const fallbackTotal = toBoundedTotalScore(block.totalScore) || 100;
           const exercises = (Array.isArray(block.exercises) ? block.exercises : []).map((ex) => {
             const n = ex.score == null || ex.score === "" ? null : Number(ex.score);
             const isScored = n !== null && Number.isFinite(n);
+            const exTotal = getEffectiveTotal(n, ex.totalScore, fallbackTotal);
             return {
               ...ex,
-              showProblems: isScored && n < 100,
+              totalScore: exTotal,
+              showProblems: isScored && isImperfectScore(n, exTotal, fallbackTotal),
               isScored,
             };
           });
@@ -650,6 +690,11 @@ Page({
               selected: ids.indexOf(p.id) >= 0,
             })),
           };
+        }
+        if (code === "essay") {
+          const score = toScoreOrNull(decorated.score);
+          const total = toScoreOrNull(decorated.totalScore);
+          decorated.showProblems = isImperfectScore(score, total, 100);
         }
 
         decorated.uiSummary = computeSectionSummary(code, decorated);
@@ -1253,6 +1298,13 @@ Page({
     this.updateEnglishBlock(idx, sub, { score: toBoundedScore(e.detail.value) });
   },
 
+  onEnglishTotalScoreChange(e) {
+    if (!this.data.isEditable) return;
+    const idx = e.currentTarget.dataset.index;
+    const sub = e.currentTarget.dataset.subfield;
+    this.updateEnglishBlock(idx, sub, { totalScore: toBoundedTotalScore(e.detail.value) });
+  },
+
   onEnglishCountChange(e) {
     if (!this.data.isEditable) return;
     const idx = e.currentTarget.dataset.index;
@@ -1274,7 +1326,7 @@ Page({
       const existing = Array.isArray(block.exercises) ? block.exercises : [];
       const next = [];
       for (let i = 0; i < count; i++) {
-        next.push(existing[i] || { score: null, problems: "" });
+        next.push(existing[i] || { score: null, totalScore: toBoundedTotalScore(block.totalScore) || 100, problems: "" });
       }
       patch.exercises = next;
     }
@@ -1290,8 +1342,22 @@ Page({
     const a = this.data.activities[idx];
     const block = a?.english?.[sub] || {};
     const list = Array.isArray(block.exercises) ? block.exercises.slice() : [];
-    while (list.length <= exIdx) list.push({ score: null, problems: "" });
+    while (list.length <= exIdx) list.push({ score: null, totalScore: toBoundedTotalScore(block.totalScore) || 100, problems: "" });
     list[exIdx] = { ...list[exIdx], score: toBoundedScore(e.detail.value) };
+    this.updateEnglishBlock(idx, sub, { exercises: list });
+  },
+
+  onExerciseTotalScoreChange(e) {
+    if (!this.data.isEditable) return;
+    const idx = e.currentTarget.dataset.index;
+    const sub = e.currentTarget.dataset.subfield;
+    const exIdx = Number(e.currentTarget.dataset.exerciseIndex);
+    if (!Number.isInteger(exIdx)) return;
+    const a = this.data.activities[idx];
+    const block = a?.english?.[sub] || {};
+    const list = Array.isArray(block.exercises) ? block.exercises.slice() : [];
+    while (list.length <= exIdx) list.push({ score: null, totalScore: toBoundedTotalScore(block.totalScore) || 100, problems: "" });
+    list[exIdx] = { ...list[exIdx], totalScore: toBoundedTotalScore(e.detail.value) };
     this.updateEnglishBlock(idx, sub, { exercises: list });
   },
 
@@ -1304,7 +1370,7 @@ Page({
     const a = this.data.activities[idx];
     const block = a?.english?.[sub] || {};
     const list = Array.isArray(block.exercises) ? block.exercises.slice() : [];
-    while (list.length <= exIdx) list.push({ score: null, problems: "" });
+    while (list.length <= exIdx) list.push({ score: null, totalScore: toBoundedTotalScore(block.totalScore) || 100, problems: "" });
     list[exIdx] = { ...list[exIdx], problems: e.detail.value };
     this.updateEnglishBlock(idx, sub, { exercises: list });
   },
@@ -1382,6 +1448,15 @@ Page({
     const taskIndex = Number(e.currentTarget.dataset.taskIndex);
     this.updateCustomEnglishTask(idx, taskIndex, {
       score: toBoundedScore(e.detail.value),
+    });
+  },
+
+  onCustomTaskMaxScoreInput(e) {
+    if (!this.data.isEditable) return;
+    const idx = Number(e.currentTarget.dataset.index);
+    const taskIndex = Number(e.currentTarget.dataset.taskIndex);
+    this.updateCustomEnglishTask(idx, taskIndex, {
+      maxScore: toBoundedTotalScore(e.detail.value),
     });
   },
 
@@ -1804,10 +1879,35 @@ Page({
         }
         return true;
       };
+      const checkTotal = (label, value) => {
+        if (value == null || value === "") return true;
+        const n = Number(value);
+        if (!Number.isFinite(n) || n <= 0 || n > LIMITS.englishScoreMax) {
+          wx.showToast({ title: `${label}满分超范围`, icon: "none" });
+          return false;
+        }
+        return true;
+      };
+      const checkPair = (label, score, total, fallbackTotal = null) => {
+        if (!checkScore(label, score)) return false;
+        if (!checkTotal(label, total)) return false;
+        if (score == null || score === "") return true;
+        const s = Number(score);
+        const t = total == null || total === "" ? fallbackTotal : Number(total);
+        if (!Number.isFinite(t) || t <= 0) {
+          wx.showToast({ title: `${label}请填写满分`, icon: "none" });
+          return false;
+        }
+        if (s > t) {
+          wx.showToast({ title: `${label}得分不能超过满分`, icon: "none" });
+          return false;
+        }
+        return true;
+      };
       if (!checkScore("改错", editing.score)) return;
       if (!checkScore("阅读", reading.score)) return;
       if (!checkScore("语法", grammar.score)) return;
-      if (!checkScore("作文", english?.essay?.score)) return;
+      if (!checkPair("作文", english?.essay?.score, english?.essay?.totalScore, 100)) return;
       const exerciseGroups = [editing.exercises || [], reading.exercises || [], grammar.exercises || []];
       for (const group of exerciseGroups) {
         if (group.length > LIMITS.englishExerciseMax) {
@@ -1815,11 +1915,28 @@ Page({
           return;
         }
         for (const ex of group) {
-          if (!checkScore("英文", ex?.score)) return;
+          if (!checkPair("英文", ex?.score, ex?.totalScore, 100)) return;
           if (trimText(ex?.problems).length > LIMITS.activityTextMax) {
             wx.showToast({ title: "英文错因描述过长", icon: "none" });
             return;
           }
+          if (isImperfectScore(ex?.score, ex?.totalScore, 100) && !trimText(ex?.problems)) {
+            wx.showToast({ title: "非满分请填写出现的问题", icon: "none" });
+            return;
+          }
+        }
+      }
+      const essay = english?.essay || {};
+      if (isImperfectScore(essay?.score, essay?.totalScore, 100) && !trimText(essay?.text)) {
+        wx.showToast({ title: "作文非满分请填写出现的问题", icon: "none" });
+        return;
+      }
+      const customTasks = Array.isArray(activity?.customEnglishTasks) ? activity.customEnglishTasks : [];
+      for (const task of customTasks) {
+        if (!checkPair(task.displayName || "英文项目", task.score, task.maxScore, 100)) return;
+        if (isImperfectScore(task.score, task.maxScore, 100) && !trimText(task.problems)) {
+          wx.showToast({ title: `${task.displayName || "英文项目"}非满分请填写出现的问题`, icon: "none" });
+          return;
         }
       }
     }
@@ -1832,7 +1949,7 @@ Page({
       Object.keys(eng || {}).forEach((k) => {
         const v = eng[k];
         if (v && typeof v === "object" && !Array.isArray(v)) {
-          const { chips, hasAnyScore, anyImperfect, uiSummary, uiHasData, uiExpanded, ...rest } = v;
+          const { chips, hasAnyScore, anyImperfect, showProblems, uiSummary, uiHasData, uiExpanded, ...rest } = v;
           if (Array.isArray(rest.exercises)) {
             rest.exercises = rest.exercises.map((ex) => {
               const { showProblems, isScored, ...exRest } = ex || {};

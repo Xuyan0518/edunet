@@ -23,7 +23,7 @@ export const INPUT_LIMITS = {
   englishSentenceCountMax: 500,
   englishTaskConfigMax: 30,
   englishScoreMin: 0,
-  englishScoreMax: 100,
+  englishScoreMax: 500,
   scoreMin: 0,
   scoreMax: 500,
   weeklyDateRangeMaxDays: 10,
@@ -168,6 +168,22 @@ export const validateDailyProgressExtremes = (activitiesRaw: unknown): Validatio
         integer: false,
       });
       if (scoreIssue) issues.push(scoreIssue);
+      const maxScoreIssue = validateNumberRange({
+        field: `${path}.englishTasks[${taskIndex}].maxScore`,
+        value: task.maxScore,
+        min: 1,
+        max: INPUT_LIMITS.englishScoreMax,
+        integer: false,
+      });
+      if (maxScoreIssue) issues.push(maxScoreIssue);
+      const taskScore = parseFiniteNumber(task.score);
+      const taskMax = parseFiniteNumber(task.maxScore);
+      if (taskScore !== null && taskMax !== null && taskScore > taskMax) {
+        issues.push({
+          field: `${path}.englishTasks[${taskIndex}].score`,
+          message: '得分不能超过满分',
+        });
+      }
       if (textTooLong(task.problems, INPUT_LIMITS.activityTextMax)) {
         issues.push({
           field: `${path}.englishTasks[${taskIndex}].problems`,
@@ -184,21 +200,34 @@ export const validateDailyProgressExtremes = (activitiesRaw: unknown): Validatio
     const essay = safeObject(english.essay);
 
     const scoredBlocks = [
-      { field: `${path}.english.editing.score`, value: editing.score },
-      { field: `${path}.english.reading.score`, value: reading.score },
-      { field: `${path}.english.grammar.score`, value: grammar.score },
-      { field: `${path}.english.essay.score`, value: essay.score },
+      { field: `${path}.english.editing`, score: editing.score, total: editing.totalScore },
+      { field: `${path}.english.reading`, score: reading.score, total: reading.totalScore },
+      { field: `${path}.english.grammar`, score: grammar.score, total: grammar.totalScore },
+      { field: `${path}.english.essay`, score: essay.score, total: essay.totalScore },
     ];
 
     scoredBlocks.forEach((item) => {
-      const issue = validateNumberRange({
-        field: item.field,
-        value: item.value,
+      const scoreIssue = validateNumberRange({
+        field: `${item.field}.score`,
+        value: item.score,
         min: INPUT_LIMITS.englishScoreMin,
         max: INPUT_LIMITS.englishScoreMax,
         integer: false,
       });
-      if (issue) issues.push(issue);
+      if (scoreIssue) issues.push(scoreIssue);
+      const totalIssue = validateNumberRange({
+        field: `${item.field}.totalScore`,
+        value: item.total,
+        min: 1,
+        max: INPUT_LIMITS.englishScoreMax,
+        integer: false,
+      });
+      if (totalIssue) issues.push(totalIssue);
+      const score = parseFiniteNumber(item.score);
+      const total = parseFiniteNumber(item.total);
+      if (score !== null && total !== null && score > total) {
+        issues.push({ field: `${item.field}.score`, message: '得分不能超过满分' });
+      }
     });
 
     const countChecks = [
@@ -248,6 +277,22 @@ export const validateDailyProgressExtremes = (activitiesRaw: unknown): Validatio
           integer: false,
         });
         if (scoreIssue) issues.push(scoreIssue);
+        const totalIssue = validateNumberRange({
+          field: `${path}.english.${name}.exercises[${exIndex}].totalScore`,
+          value: exObj.totalScore,
+          min: 1,
+          max: INPUT_LIMITS.englishScoreMax,
+          integer: false,
+        });
+        if (totalIssue) issues.push(totalIssue);
+        const score = parseFiniteNumber(exObj.score);
+        const total = parseFiniteNumber(exObj.totalScore);
+        if (score !== null && total !== null && score > total) {
+          issues.push({
+            field: `${path}.english.${name}.exercises[${exIndex}].score`,
+            message: '得分不能超过满分',
+          });
+        }
         if (textTooLong(exObj.problems, INPUT_LIMITS.activityTextMax)) {
           issues.push({
             field: `${path}.english.${name}.exercises[${exIndex}].problems`,

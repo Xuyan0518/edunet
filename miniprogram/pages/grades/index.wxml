@@ -16,7 +16,7 @@
     <block wx:for="{{examSubjects}}" wx:key="index">
       <view class="subject-row" style="flex-wrap: wrap; row-gap: 8rpx;">
         <view class="subject-name">{{item.displayName || item.name}}</view>
-        <input class="input subject-input" placeholder="分数（选填）" value="{{item.score}}" data-index="{{index}}" bindinput="onSubjectScoreInput" />
+        <input class="input subject-input" placeholder="分数（如 72/90）" value="{{item.score}}" data-index="{{index}}" bindinput="onSubjectScoreInput" />
         <button wx:if="{{item.isCustom}}" class="btn-outline" size="mini" data-index="{{index}}" bindtap="removeCustomSubject">删除</button>
         <view style="flex: 1 1 100%; display: flex; gap: 8rpx; align-items: center;">
           <picker mode="date" value="{{item.examDate}}" data-index="{{index}}" bindchange="onSubjectDateChange" style="flex: 1;">
@@ -60,7 +60,13 @@
               <view>{{item.displayName || item.name}}</view>
               <view wx:if="{{item.examDate}}" class="muted" style="font-size: 22rpx; margin-top: 4rpx;">{{item.examDate}}</view>
             </view>
-            <view class="chip">{{item.score || "未录入"}}</view>
+            <view class="score-side">
+              <view class="chip score-chip">
+                <text>{{item.score || "未录入"}}</text>
+                <text wx:if="{{item.grade}}" class="score-grade">{{item.grade}}</text>
+              </view>
+              <view wx:if="{{item.percentage !== null && item.percentage !== undefined}}" class="score-percentage">{{item.percentage}}%</view>
+            </view>
           </view>
         </block>
       </view>

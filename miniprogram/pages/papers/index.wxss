@@ -48,6 +48,19 @@
   font-weight: 700;
 }
 
+.paper-grade-chip {
+  padding: 2rpx 10rpx;
+  border-radius: 999rpx;
+  background: #fff4d6;
+  color: #92400e;
+  font-weight: 700;
+}
+
+.paper-percentage {
+  color: #64748b;
+  font-size: 24rpx;
+}
+
 .paper-score {
   align-items: center;
   gap: 8rpx;

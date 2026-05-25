@@ -4585,15 +4585,46 @@ app.get('/api/feedback/missing', authenticate, requireTeacher, async (req, res) 
     return res.status(403).json({ error: 'Reviewer account cannot access cross-student reminders' });
   }
   try {
+    const requestedWeekStarting = parseDateString(req.query?.weekStarting);
     const requestedDate = req.query?.date;
     const date = requestedDate
       ? parseDateString(requestedDate)
       : chinaTodayDateString();
-    if (!date) {
+    if (!date && !requestedWeekStarting) {
       return res.status(400).json({ error: 'Invalid date; expected YYYY-MM-DD' });
     }
-
-    const cycle = await resolveCycleForDate(date);
+    let cycle: ResolvedCycle;
+    let responseDate = date as string;
+    if (requestedWeekStarting) {
+      const matched = await db
+        .select({
+          id: weeklyStudyCyclesTable.id,
+          startDate: weeklyStudyCyclesTable.startDate,
+          endDate: weeklyStudyCyclesTable.endDate,
+          notes: weeklyStudyCyclesTable.notes,
+        })
+        .from(weeklyStudyCyclesTable)
+        .where(eq(weeklyStudyCyclesTable.startDate, requestedWeekStarting))
+        .limit(1);
+      if (matched.length) {
+        cycle = {
+          id: matched[0].id,
+          startDate: String(matched[0].startDate).slice(0, 10),
+          endDate: addDaysToDate(requestedWeekStarting, 6),
+          notes: matched[0].notes ?? null,
+        };
+      } else {
+        cycle = {
+          id: null,
+          startDate: requestedWeekStarting,
+          endDate: addDaysToDate(requestedWeekStarting, 6),
+          notes: null,
+        };
+      }
+      responseDate = requestedWeekStarting;
+    } else {
+      cycle = await resolveCycleForDate(date as string);
+    }
     const missing = await db
       .select({
         id: studentsTable.id,
@@ -4612,7 +4643,7 @@ app.get('/api/feedback/missing', authenticate, requireTeacher, async (req, res) 
       .orderBy(studentsTable.name);
 
     res.json({
-      date,
+      date: responseDate,
       cycle: {
         id: cycle.id || null,
         startDate: cycle.startDate,
@@ -4980,11 +5011,6 @@ app.get('/api/feedback', async (_, res) => {
   }
 });
 */
-
-// Return empty array for now until tables are created
-app.get('/api/feedback', async (_, res) => {
-  res.json([]);
-});
 
 app.post('/api/progress', authenticate, requireTeacher, async (req, res) => {
   try {

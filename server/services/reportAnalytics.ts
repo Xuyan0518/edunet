@@ -243,6 +243,15 @@ export type StudentReportAnalytics = {
       evidence: string[];
       dataQualityNotes: string[];
     };
+    customTaskStats: Array<{
+      key: string;
+      displayName: string;
+      completedCount: number;
+      scoreRecordCount: number;
+      averageScore: number | null;
+      latestScore: number | null;
+      evidence: string[];
+    }>;
   };
 };
 
@@ -518,6 +527,18 @@ const normalizeCustomEnglishTasks = (raw: unknown): CustomEnglishTaskLike[] => {
   return tasks;
 };
 
+const CANONICAL_ENGLISH_TASK_KEYS = new Set([
+  'editing',
+  'reading',
+  'readingcomprehension',
+  'grammar',
+  'vocab',
+  'vocabulary',
+  'recitation',
+  'essay',
+  'composition',
+]);
+
 const extractCountFromPatterns = (textRaw: unknown, patterns: RegExp[]): number | null => {
   const text = String(textRaw || '');
   if (!text.trim()) return null;
@@ -718,6 +739,17 @@ export function buildStudentReportAnalytics(params: BuildParams): StudentReportA
     });
   });
   const englishSubjectNameSet = new Set<string>();
+  const customEnglishTaskMap = new Map<
+    string,
+    {
+      key: string;
+      displayName: string;
+      completedCount: number;
+      scores: number[];
+      latestScore: number | null;
+      evidence: string[];
+    }
+  >();
   const overallEnglishPoints: EnglishScorePoint[] = [];
   const englishVocabularyEvidence: string[] = [];
   const englishVocabularyNotes: string[] = [];
@@ -851,6 +883,7 @@ export function buildStudentReportAnalytics(params: BuildParams): StudentReportA
           score: number | null;
           total: number | null;
           count: number;
+          exercises: Array<{ score: number | null; problems: string }>;
           title: string;
           textualHint: string;
         }> = [
@@ -859,6 +892,7 @@ export function buildStudentReportAnalytics(params: BuildParams): StudentReportA
             score: english.editing.score,
             total: english.editing.totalScore,
             count: english.editing.exerciseCount,
+            exercises: Array.isArray(english.editing.exercises) ? english.editing.exercises : [],
             title: 'English Editing',
             textualHint: english.editing.text,
           },
@@ -867,6 +901,7 @@ export function buildStudentReportAnalytics(params: BuildParams): StudentReportA
             score: english.reading.score,
             total: english.reading.totalScore,
             count: english.reading.articleCount,
+            exercises: Array.isArray(english.reading.exercises) ? english.reading.exercises : [],
             title: 'English Reading',
             textualHint: english.reading.text,
           },
@@ -875,6 +910,7 @@ export function buildStudentReportAnalytics(params: BuildParams): StudentReportA
             score: english.grammar.score,
             total: english.grammar.totalScore,
             count: english.grammar.exerciseCount,
+            exercises: Array.isArray(english.grammar.exercises) ? english.grammar.exercises : [],
             title: 'English Grammar',
             textualHint: english.grammar.text,
           },
@@ -883,33 +919,59 @@ export function buildStudentReportAnalytics(params: BuildParams): StudentReportA
             score: english.essay.score,
             total: english.essay.totalScore,
             count: english.essay.completed ? 1 : 0,
+            exercises: [],
             title: english.essay.title ? `English Essay: ${english.essay.title}` : 'English Essay',
             textualHint: `${english.essay.title || ''} ${english.essay.text || ''}`.trim(),
           },
         ];
 
         for (const section of scoredSections) {
-          const hasSignal = section.count > 0 || !!section.textualHint || section.score !== null;
+          const hasExerciseScore = section.exercises.some((ex) => toNumOrNull(ex?.score) !== null);
+          const hasSignal = section.count > 0 || !!section.textualHint || section.score !== null || hasExerciseScore;
           if (!hasSignal) continue;
           activitySkills.add(section.key);
-          const parsedScore = parseScoreAndMax(section.score, section.total);
-          const pct = calcPercentage(parsedScore.score, parsedScore.maxScore);
-          const scorePoint =
-            parsedScore.score !== null
+          const exercisePoints = section.exercises
+            .map((ex) => {
+              const parsed = parseScoreAndMax(ex?.score, section.total);
+              const pct = calcPercentage(parsed.score, parsed.maxScore);
+              if (parsed.score === null) return null;
+              return {
+                date,
+                score: parsed.score,
+                maxScore: parsed.maxScore,
+                percentage: pct.percentage,
+                source: 'dailyProgress' as const,
+                title: section.title,
+              };
+            })
+            .filter((row): row is EnglishScorePoint => !!row);
+          const fallbackParsed = parseScoreAndMax(section.score, section.total);
+          const fallbackPct = calcPercentage(fallbackParsed.score, fallbackParsed.maxScore);
+          const fallbackPoint =
+            fallbackParsed.score !== null
               ? {
                   date,
-                  score: parsedScore.score,
-                  maxScore: parsedScore.maxScore,
-                  percentage: pct.percentage,
+                  score: fallbackParsed.score,
+                  maxScore: fallbackParsed.maxScore,
+                  percentage: fallbackPct.percentage,
                   source: 'dailyProgress' as const,
                   title: section.title,
                 }
               : null;
-          if (scorePoint) overallEnglishPoints.push(scorePoint);
+          const scorePoints = exercisePoints.length ? exercisePoints : (fallbackPoint ? [fallbackPoint] : []);
+          scorePoints.forEach((scorePoint) => {
+            overallEnglishPoints.push(scorePoint);
+            observeEnglishSkill(section.key, {
+              activityDelta: 0,
+              recordHit: false,
+              scorePoint,
+              evidence: evidenceBase || clipEvidence(section.textualHint || section.title),
+            });
+          });
           observeEnglishSkill(section.key, {
             activityDelta: section.count > 0 ? section.count : 1,
             recordHit: true,
-            scorePoint,
+            scorePoint: null,
             evidence: evidenceBase || clipEvidence(section.textualHint || section.title),
           });
           countedSkillRecords.add(section.key);
@@ -917,6 +979,9 @@ export function buildStudentReportAnalytics(params: BuildParams): StudentReportA
 
         const customTasks = normalizeCustomEnglishTasks(activity.englishTasks);
         for (const task of customTasks) {
+          if (CANONICAL_ENGLISH_TASK_KEYS.has(String(task.key || '').toLowerCase())) {
+            continue;
+          }
           const taskEvidence = clipEvidence(
             [task.displayName, task.problems, evidenceBase].filter(Boolean).join(' | '),
             90,
@@ -968,6 +1033,26 @@ export function buildStudentReportAnalytics(params: BuildParams): StudentReportA
             recordsWithSentences += 1;
             addVocabularyEvidence(`句子记录 ${date}：约 ${task.practiceCount} 项`);
           }
+
+          const customKey = `${task.key || task.displayName || 'custom'}::${task.displayName || task.key || '自定义任务'}`;
+          const currentCustom = customEnglishTaskMap.get(customKey) || {
+            key: task.key || 'custom',
+            displayName: task.displayName || task.key || '自定义任务',
+            completedCount: 0,
+            scores: [],
+            latestScore: null,
+            evidence: [],
+          };
+          const completedDelta = task.practiceCount > 0 ? task.practiceCount : task.completed ? 1 : 0;
+          currentCustom.completedCount += completedDelta;
+          if (pct.percentage !== null) {
+            currentCustom.scores.push(pct.percentage);
+            currentCustom.latestScore = pct.percentage;
+          }
+          if (taskEvidence && currentCustom.evidence.length < 3 && !currentCustom.evidence.includes(taskEvidence)) {
+            currentCustom.evidence.push(taskEvidence);
+          }
+          customEnglishTaskMap.set(customKey, currentCustom);
         }
 
         const vocabCount = Number(english.vocab.vocabularyWordCount || 0);
@@ -1595,6 +1680,19 @@ const finalizeEnglishSkill = (skill: MutableEnglishSkill) => {
       evidence: englishVocabularyEvidence.slice(0, 4),
       dataQualityNotes: englishVocabularyNotes,
     },
+    customTaskStats: Array.from(customEnglishTaskMap.values())
+      .map((row) => ({
+        key: row.key,
+        displayName: row.displayName,
+        completedCount: row.completedCount,
+        scoreRecordCount: row.scores.length,
+        averageScore: row.scores.length
+          ? round2(row.scores.reduce((sum, value) => sum + value, 0) / row.scores.length)
+          : null,
+        latestScore: row.latestScore,
+        evidence: row.evidence.slice(0, 3),
+      }))
+      .sort((a, b) => b.completedCount - a.completedCount),
   };
 
   return {

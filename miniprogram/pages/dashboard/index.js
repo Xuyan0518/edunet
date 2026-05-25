@@ -17,6 +17,11 @@ Page({
     weeklyMissingCycleStart: "",
     weeklyMissingCycleEnd: "",
     weeklyMissingSelectedDate: "",
+    weeklyMissingSelectedWeekStart: "",
+    weeklyMissingSelectedWeekEnd: "",
+    weeklyMissingWeekOptions: [],
+    weeklyMissingWeekLabels: [],
+    weeklyMissingWeekIndex: 0,
     weeklyMissingStudents: [],
     weeklyMissingLoading: false,
     weeklyMissingError: "",
@@ -60,7 +65,9 @@ Page({
     }
     if (isTeacher) {
       this.loadMissing(selectedMissingDate);
-      this.loadWeeklyMissing(weeklyMissingSelectedDate);
+      this.loadWeeklyMissingWeekOptions(this.data.weeklyMissingSelectedWeekStart || "")
+        .then((weekStart) => this.loadWeeklyMissing(weekStart || weeklyMissingSelectedDate))
+        .catch(() => this.loadWeeklyMissing(weeklyMissingSelectedDate));
       this.loadIncomplete();
       this.loadUpcomingExams();
     }
@@ -68,6 +75,18 @@ Page({
 
   todayString() {
     return formatChinaDate(new Date());
+  },
+
+  getCurrentSunday() {
+    const today = this.todayString();
+    const date = new Date(`${today}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return today;
+    const sunday = new Date(date);
+    sunday.setDate(date.getDate() - date.getDay());
+    const y = sunday.getFullYear();
+    const m = String(sunday.getMonth() + 1).padStart(2, "0");
+    const d = String(sunday.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
   },
 
   loadParentStudentsAndRedirect() {
@@ -173,32 +192,105 @@ Page({
       });
   },
 
-  loadWeeklyMissing(dateOverride) {
-    const selectedDate = dateOverride || this.data.weeklyMissingSelectedDate || this.todayString();
+  addDays(ymd, days) {
+    const date = new Date(`${ymd}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return ymd;
+    date.setDate(date.getDate() + days);
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    const d = String(date.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  },
+
+  buildSyntheticWeekOptions(anchorWeekStart) {
+    const base = anchorWeekStart || this.getCurrentSunday();
+    const baseDate = new Date(`${base}T00:00:00`);
+    if (Number.isNaN(baseDate.getTime())) return [];
+    const baseSunday = new Date(baseDate);
+    baseSunday.setDate(baseDate.getDate() - baseDate.getDay());
+    const options = [];
+    for (let i = -26; i <= 26; i++) {
+      const start = new Date(baseSunday);
+      start.setDate(baseSunday.getDate() + i * 7);
+      const y = start.getFullYear();
+      const m = String(start.getMonth() + 1).padStart(2, "0");
+      const d = String(start.getDate()).padStart(2, "0");
+      const startDate = `${y}-${m}-${d}`;
+      options.push({
+        startDate,
+        endDate: this.addDays(startDate, 6),
+      });
+    }
+    return options;
+  },
+
+  loadWeeklyMissingWeekOptions(preferredWeekStart = "") {
+    const baseWeekStart = preferredWeekStart || this.data.weeklyMissingCycleStart || this.getCurrentSunday();
+    let options = this.buildSyntheticWeekOptions(baseWeekStart);
+    if (baseWeekStart && !options.some((x) => x.startDate === baseWeekStart)) {
+      options.unshift({ startDate: baseWeekStart, endDate: this.addDays(baseWeekStart, 6) });
+    }
+    options = options
+      .sort((a, b) => (a.startDate > b.startDate ? -1 : 1))
+      .slice(0, 60);
+    const labels = options.map((item) => `${item.startDate} → ${item.endDate}`);
+    const selectedStart = baseWeekStart || options[0]?.startDate || "";
+    const index = Math.max(0, options.findIndex((item) => item.startDate === selectedStart));
+    this.setData({
+      weeklyMissingWeekOptions: options,
+      weeklyMissingWeekLabels: labels,
+      weeklyMissingWeekIndex: index < 0 ? 0 : index,
+      weeklyMissingSelectedWeekStart: options[index]?.startDate || "",
+      weeklyMissingSelectedWeekEnd: options[index]?.endDate || "",
+    });
+    return Promise.resolve(options[index]?.startDate || "");
+  },
+
+  loadWeeklyMissing(weekStartingOrDateOverride) {
+    const weekStarting = String(weekStartingOrDateOverride || this.data.weeklyMissingSelectedWeekStart || "").slice(0, 10);
+    const selectedDate = weekStarting || this.data.weeklyMissingSelectedDate || this.todayString();
     this.setData({ weeklyMissingLoading: true, weeklyMissingError: "" });
-    request({ url: `/feedback/missing?date=${encodeURIComponent(selectedDate)}` })
+    const query = weekStarting
+      ? `weekStarting=${encodeURIComponent(weekStarting)}`
+      : `date=${encodeURIComponent(selectedDate)}`;
+    request({ url: `/feedback/missing?${query}` })
       .then((data) => {
+        const cycleStart = data?.cycle?.startDate || weekStarting || "";
+        const cycleEnd = data?.cycle?.endDate || (cycleStart ? this.addDays(cycleStart, 6) : "");
+        const options = this.data.weeklyMissingWeekOptions || [];
+        let nextOptions = options;
+        if (cycleStart && !options.some((item) => item.startDate === cycleStart)) {
+          nextOptions = [{ startDate: cycleStart, endDate: cycleEnd }, ...options];
+        }
+        const labels = nextOptions.map((item) => `${item.startDate} → ${item.endDate}`);
+        const nextIndex = Math.max(0, nextOptions.findIndex((item) => item.startDate === cycleStart));
         this.setData({
           weeklyMissingSelectedDate: selectedDate,
-          weeklyMissingCycleStart: data?.cycle?.startDate || "",
-          weeklyMissingCycleEnd: data?.cycle?.endDate || "",
+          weeklyMissingSelectedWeekStart: cycleStart,
+          weeklyMissingSelectedWeekEnd: cycleEnd,
+          weeklyMissingCycleStart: cycleStart,
+          weeklyMissingCycleEnd: cycleEnd,
+          weeklyMissingWeekOptions: nextOptions,
+          weeklyMissingWeekLabels: labels,
+          weeklyMissingWeekIndex: nextIndex < 0 ? 0 : nextIndex,
           weeklyMissingStudents: Array.isArray(data?.missing) ? data.missing : [],
           weeklyMissingLoading: false,
         });
       })
-      .catch(() => this.loadWeeklyMissingFallback(selectedDate));
+      .catch(() => this.loadWeeklyMissingFallback(weekStarting || selectedDate));
   },
 
-  loadWeeklyMissingFallback(selectedDate) {
+  loadWeeklyMissingFallback(selectedDateOrWeekStart) {
+    const selectedWeekStart = String(selectedDateOrWeekStart || this.getCurrentSunday()).slice(0, 10);
+    const selectedWeekEnd = this.addDays(selectedWeekStart, 6);
     Promise.all([
       request({ url: "/students" }),
-      request({ url: `/weekly-tasks/incomplete?date=${encodeURIComponent(selectedDate || this.todayString())}` }),
       request({ url: "/feedback" }),
     ])
-      .then(([studentsData, cycleData, feedbackData]) => {
+      .then(([studentsData, feedbackData]) => {
         const students = Array.isArray(studentsData) ? studentsData : [];
-        const cycleStart = cycleData?.cycle?.startDate || "";
-        const cycleEnd = cycleData?.cycle?.endDate || "";
+        const cycleStart = selectedWeekStart;
+        const cycleEnd = selectedWeekEnd;
         const feedbackList = Array.isArray(feedbackData) ? feedbackData : [];
 
         const submittedIds = new Set(
@@ -214,7 +306,9 @@ Page({
           .sort((a, b) => a.name.localeCompare(b.name));
 
         this.setData({
-          weeklyMissingSelectedDate: selectedDate || this.data.weeklyMissingSelectedDate,
+          weeklyMissingSelectedDate: selectedWeekStart,
+          weeklyMissingSelectedWeekStart: cycleStart,
+          weeklyMissingSelectedWeekEnd: cycleEnd,
           weeklyMissingCycleStart: cycleStart,
           weeklyMissingCycleEnd: cycleEnd,
           weeklyMissingStudents: missing,
@@ -291,9 +385,15 @@ Page({
   },
 
   onWeeklyMissingDateChange(e) {
-    const date = e?.detail?.value;
-    if (!date) return;
-    this.loadWeeklyMissing(date);
+    const index = Number(e?.detail?.value);
+    const option = (this.data.weeklyMissingWeekOptions || [])[index];
+    if (!option) return;
+    this.setData({
+      weeklyMissingWeekIndex: index,
+      weeklyMissingSelectedWeekStart: option.startDate,
+      weeklyMissingSelectedWeekEnd: option.endDate,
+    });
+    this.loadWeeklyMissing(option.startDate);
   },
 
   toggleIncomplete() {

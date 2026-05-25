@@ -67,7 +67,7 @@
     </view>
     <view class="row-between" style="margin-top: 8rpx;">
       <view class="muted">{{weeklyMissingCycleStart}} → {{weeklyMissingCycleEnd}} · 点击进入汇报</view>
-      <picker mode="date" value="{{weeklyMissingSelectedDate}}" bindchange="onWeeklyMissingDateChange">
+      <picker mode="selector" range="{{weeklyMissingWeekLabels}}" value="{{weeklyMissingWeekIndex}}" bindchange="onWeeklyMissingDateChange">
         <view class="chip">筛选周次</view>
       </picker>
     </view>

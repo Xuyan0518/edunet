@@ -39,6 +39,10 @@ const toPercent = (value) => {
 };
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
+const isEnglishSubject = (name = '') => {
+  const text = String(name || '').toLowerCase();
+  return text.includes('english') || String(name || '').includes('英文') || String(name || '').includes('英语');
+};
 
 Page({
   data: {
@@ -69,6 +73,8 @@ Page({
     currentTrendPoints: [],
     finalOverallSummary: '',
     finalNextSuggestions: [],
+    englishSummaryRows: [],
+    subjectSummaryCards: [],
     editMode: false,
     editForm: null,
   },
@@ -220,6 +226,78 @@ Page({
           summaryText
         );
 
+    const englishAnalytics = analytics?.englishAnalytics || {};
+    const skillBreakdown = englishAnalytics?.skillBreakdown || {};
+    const englishSummaryRows = [
+      { key: 'editing', label: 'Editing', data: skillBreakdown.editing || {} },
+      { key: 'composition', label: 'Essay', data: skillBreakdown.composition || {} },
+      { key: 'readingComprehension', label: 'Reading Comprehension', data: skillBreakdown.readingComprehension || {} },
+      { key: 'grammar', label: 'Grammar', data: skillBreakdown.grammar || {} },
+    ].map((row) => {
+      const activityCount = Number(row.data.activityCount || 0);
+      const avg = row.data.averageScore;
+      const averageText = avg == null ? '暂无足够数据' : `${Number(avg).toFixed(1)}%`;
+      return {
+        label: row.label,
+        countText: activityCount > 0 ? `完成 ${activityCount} 次` : '暂无足够数据',
+        averageText,
+      };
+    });
+    const vocabStats = englishAnalytics?.vocabularyStats || {};
+    englishSummaryRows.push({
+      label: 'Vocab',
+      countText:
+        (vocabStats.vocabularyItemsCount != null || vocabStats.sentenceItemsCount != null)
+          ? `单词 ${vocabStats.vocabularyItemsCount == null ? '--' : vocabStats.vocabularyItemsCount} 个，句子 ${vocabStats.sentenceItemsCount == null ? '--' : vocabStats.sentenceItemsCount} 个`
+          : '暂无足够数据',
+      averageText: '',
+    });
+    const customTaskStats = ensureArray(englishAnalytics?.customTaskStats).map((task) => {
+      const completedCount = Number(task?.completedCount || 0);
+      const avg = task?.averageScore;
+      return {
+        label: task?.displayName || task?.key || '自定义英文任务',
+        countText: completedCount > 0 ? `完成 ${completedCount} 次` : '暂无足够数据',
+        averageText: avg == null ? '暂无足够数据' : `${Number(avg).toFixed(1)}%`,
+      };
+    });
+    const englishRowsCombined = [...englishSummaryRows, ...customTaskStats];
+    const seenLabels = new Set();
+    const englishSummaryRowsFinal = englishRowsCombined.filter((row) => {
+      const key = String(row.label || '');
+      if (!key || seenLabels.has(key)) return false;
+      seenLabels.add(key);
+      return true;
+    });
+
+    const subjectSummaryCards = subjectReports
+      .filter((item) => !isEnglishSubject(item?.subjectName))
+      .map((item) => {
+        const subjectName = item?.subjectName || '未命名科目';
+        const summary = reportType === 'yearly'
+          ? String(item?.annualSummary || '').trim()
+          : String(item?.summary || '').trim();
+        if (summary) {
+          return { subjectName, summary };
+        }
+        const matched = ensureArray(analytics?.subjectStats).find((s) => s?.subjectName === subjectName) || null;
+        if (!matched) {
+          return { subjectName, summary: '该阶段记录较少，暂无法形成完整趋势判断。' };
+        }
+        const scoreText = matched.averageScore == null ? '暂无足够分数数据' : `平均分约 ${matched.averageScore}%`;
+        const trendMap = {
+          improving: '趋势上升',
+          declining: '趋势下行',
+          stable: '趋势稳定',
+          insufficient_data: '成绩数据有限，暂不判断趋势',
+        };
+        const trendText = trendMap[matched.trend] || '成绩数据有限';
+        return {
+          subjectName,
+          summary: `本阶段共记录 ${matched.activityCount || 0} 次学习，活跃 ${matched.activeDays || 0} 天，${scoreText}，${trendText}。`,
+        };
+      });
+
     this.setData({
       report: safeReport,
       reportType,
@@ -240,6 +318,8 @@ Page({
       currentTrendPoints: scoreTrendSubjects[selectedTrendIndex]?.points || [],
       finalOverallSummary,
       finalNextSuggestions,
+      englishSummaryRows: englishSummaryRowsFinal,
+      subjectSummaryCards,
       editForm: buildEditableForm(safeReport),
     });
   },

@@ -1,5 +1,6 @@
 const { resolveDisplayName } = require("../../utils/userIdentity");
 const { request } = require("../../utils/api");
+const { formatChinaDate } = require("../../utils/chinaDate");
 
 Page({
   data: {
@@ -8,12 +9,14 @@ Page({
     isParent: false,
     manageOpen: false,
     missingDate: "",
+    selectedMissingDate: "",
     missingStudents: [],
     missingLoading: false,
     missingError: "",
     missingExpanded: false,
     weeklyMissingCycleStart: "",
     weeklyMissingCycleEnd: "",
+    weeklyMissingSelectedDate: "",
     weeklyMissingStudents: [],
     weeklyMissingLoading: false,
     weeklyMissingError: "",
@@ -41,21 +44,30 @@ Page({
     }
     const isTeacher = user?.role === "teacher";
     const isParent = user?.role === "parent";
+    const today = this.todayString();
+    const selectedMissingDate = this.data.selectedMissingDate || today;
+    const weeklyMissingSelectedDate = this.data.weeklyMissingSelectedDate || today;
     this.setData({
       userName: resolveDisplayName(user),
       isTeacher,
       isParent,
+      selectedMissingDate,
+      weeklyMissingSelectedDate,
     });
     if (isParent) {
       this.loadParentStudentsAndRedirect();
       return;
     }
     if (isTeacher) {
-      this.loadMissing();
-      this.loadWeeklyMissing();
+      this.loadMissing(selectedMissingDate);
+      this.loadWeeklyMissing(weeklyMissingSelectedDate);
       this.loadIncomplete();
       this.loadUpcomingExams();
     }
+  },
+
+  todayString() {
+    return formatChinaDate(new Date());
   },
 
   loadParentStudentsAndRedirect() {
@@ -141,11 +153,13 @@ Page({
       });
   },
 
-  loadMissing() {
+  loadMissing(dateOverride) {
+    const selectedDate = dateOverride || this.data.selectedMissingDate || this.todayString();
     this.setData({ missingLoading: true, missingError: "" });
-    request({ url: "/daily-progress/missing" })
+    request({ url: `/daily-progress/missing?date=${encodeURIComponent(selectedDate)}` })
       .then((data) => {
         this.setData({
+          selectedMissingDate: selectedDate,
           missingDate: data?.date || "",
           missingStudents: Array.isArray(data?.missing) ? data.missing : [],
           missingLoading: false,
@@ -159,24 +173,26 @@ Page({
       });
   },
 
-  loadWeeklyMissing() {
+  loadWeeklyMissing(dateOverride) {
+    const selectedDate = dateOverride || this.data.weeklyMissingSelectedDate || this.todayString();
     this.setData({ weeklyMissingLoading: true, weeklyMissingError: "" });
-    request({ url: "/feedback/missing" })
+    request({ url: `/feedback/missing?date=${encodeURIComponent(selectedDate)}` })
       .then((data) => {
         this.setData({
+          weeklyMissingSelectedDate: selectedDate,
           weeklyMissingCycleStart: data?.cycle?.startDate || "",
           weeklyMissingCycleEnd: data?.cycle?.endDate || "",
           weeklyMissingStudents: Array.isArray(data?.missing) ? data.missing : [],
           weeklyMissingLoading: false,
         });
       })
-      .catch(() => this.loadWeeklyMissingFallback());
+      .catch(() => this.loadWeeklyMissingFallback(selectedDate));
   },
 
-  loadWeeklyMissingFallback() {
+  loadWeeklyMissingFallback(selectedDate) {
     Promise.all([
       request({ url: "/students" }),
-      request({ url: "/weekly-tasks/incomplete" }),
+      request({ url: `/weekly-tasks/incomplete?date=${encodeURIComponent(selectedDate || this.todayString())}` }),
       request({ url: "/feedback" }),
     ])
       .then(([studentsData, cycleData, feedbackData]) => {
@@ -198,6 +214,7 @@ Page({
           .sort((a, b) => a.name.localeCompare(b.name));
 
         this.setData({
+          weeklyMissingSelectedDate: selectedDate || this.data.weeklyMissingSelectedDate,
           weeklyMissingCycleStart: cycleStart,
           weeklyMissingCycleEnd: cycleEnd,
           weeklyMissingStudents: missing,
@@ -263,8 +280,20 @@ Page({
     this.setData({ missingExpanded: !this.data.missingExpanded });
   },
 
+  onMissingDateChange(e) {
+    const date = e?.detail?.value;
+    if (!date) return;
+    this.loadMissing(date);
+  },
+
   toggleWeeklyMissing() {
     this.setData({ weeklyMissingExpanded: !this.data.weeklyMissingExpanded });
+  },
+
+  onWeeklyMissingDateChange(e) {
+    const date = e?.detail?.value;
+    if (!date) return;
+    this.loadWeeklyMissing(date);
   },
 
   toggleIncomplete() {

@@ -36,6 +36,35 @@ describe('miniprogram report api helpers', () => {
     );
   });
 
+  it('calls yearly AI endpoint with optional date range payload', async () => {
+    const reportApi = require('../../miniprogram/utils/reportApi.js');
+    (globalThis as any).wx.request.mockImplementation((options: any) => {
+      options.success({ statusCode: 200, data: { summary: 'ok', reportId: 'r-year-1' } });
+    });
+
+    const data = await reportApi.generateYearlyReport(
+      's-1',
+      2026,
+      true,
+      { startDate: '2026-02-01', endDate: '2026-11-30' }
+    );
+
+    expect(data.reportId).toBe('r-year-1');
+    expect((globalThis as any).wx.request).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: 'https://api.example.com/api/ai/yearly-summary',
+        method: 'POST',
+        data: {
+          studentId: 's-1',
+          year: 2026,
+          saveReport: true,
+          startDate: '2026-02-01',
+          endDate: '2026-11-30',
+        },
+      })
+    );
+  });
+
   it('normalizes list and detail report shapes', async () => {
     const reportApi = require('../../miniprogram/utils/reportApi.js');
     (globalThis as any).wx.request.mockImplementation((options: any) => {

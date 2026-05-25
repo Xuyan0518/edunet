@@ -51,6 +51,7 @@ import {
   aggregateAttendance,
   aggregateEnglishStats,
   aggregateLossPoints,
+  aggregateWeeklyExamBreakdown,
   aggregateWeeklyPaperBreakdown,
   aggregateWeeklySubjectAndEnglishBreakdown,
   buildCompactWeeklySummaryContext,
@@ -5525,6 +5526,47 @@ app.post('/api/ai/weekly-summary', authenticate, requireTeacher, async (req, res
         )
       )
       .orderBy(studentPapersTable.date);
+    const exams = await db
+      .select()
+      .from(examsTable)
+      .where(
+        and(
+          eq(examsTable.studentId, studentId),
+          gte(examsTable.examDate, weekStart),
+          lte(examsTable.examDate, contextWeekEnding)
+        )
+      )
+      .orderBy(examsTable.examDate);
+    const examIds = exams.map((exam) => exam.id);
+    const examScores = examIds.length
+      ? await db.select().from(examScoresTable).where(inArray(examScoresTable.examId, examIds))
+      : [];
+    const scoreMap = new Map<string, any[]>();
+    examScores.forEach((score) => {
+      const list = scoreMap.get(score.examId) || [];
+      list.push({
+        name: score.name,
+        score: score.score,
+        scope: score.scope,
+      });
+      scoreMap.set(score.examId, list);
+    });
+    const examPayload = exams.map((exam) => ({
+      id: exam.id,
+      name: exam.name,
+      examDate: exam.examDate,
+      subjects: scoreMap.get(exam.id) || [],
+    }));
+    const weeklyFeedbackRows = await db
+      .select()
+      .from(weeklyFeedback)
+      .where(
+        and(
+          eq(weeklyFeedback.studentId, studentId),
+          eq(weeklyFeedback.weekStarting, weekStart),
+        )
+      )
+      .orderBy(desc(weeklyFeedback.updatedAt));
     const subjectProgress = await getSubjectProgressSummary(studentId);
 
     // Part 5: enrich the AI context so the model can reference concrete
@@ -5536,6 +5578,7 @@ app.post('/api/ai/weekly-summary', authenticate, requireTeacher, async (req, res
     const attendanceRollup = aggregateAttendance(v2Progress);
     const weeklyBreakdown = aggregateWeeklySubjectAndEnglishBreakdown(v2Progress);
     const weeklyPaperBreakdown = aggregateWeeklyPaperBreakdown(papers);
+    const weeklyExamBreakdown = aggregateWeeklyExamBreakdown(examPayload);
     const context = buildCompactWeeklySummaryContext({
       student,
       weekStarting: weekStart,
@@ -5546,9 +5589,12 @@ app.post('/api/ai/weekly-summary', authenticate, requireTeacher, async (req, res
       subjectBreakdown: weeklyBreakdown.subjectBreakdown,
       englishBreakdown: weeklyBreakdown.englishBreakdown,
       weeklyPaperBreakdown,
+      weeklyExamBreakdown,
       lossPoints: lossPointBreakdown,
       dailyProgress: v2Progress,
       papers,
+      exams: examPayload,
+      weeklyFeedback: weeklyFeedbackRows,
       subjectProgress,
     });
     // Operator-supplied prompt wins; otherwise use the Part 5 enhanced prompt.
@@ -5822,17 +5868,37 @@ app.post('/api/ai/quarterly-summary', authenticate, requireRole('teacher', 'admi
 });
 
 app.post('/api/ai/yearly-summary', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
-  const { studentId, year } = req.body || {};
+  const { studentId, year, startDate: startDateRaw, endDate: endDateRaw } = req.body || {};
   const saveReport = parseBooleanLike(req.body?.saveReport) === true;
   const yearNum = parseFiniteInteger(year);
-  if (!studentId || yearNum === null) {
+  const startDateInput = parseDateString(startDateRaw);
+  const endDateInput = parseDateString(endDateRaw);
+  const hasCustomRange = Boolean(startDateInput && endDateInput);
+  if (!studentId || (!hasCustomRange && yearNum === null)) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
   if (!enforceReviewerScope(req, res, studentId)) return;
-  const yearIssue = validateYearRange(yearNum, 'year');
-  if (yearIssue) return invalidInput(res, [yearIssue]);
-  const startDate = `${yearNum}-01-01`;
-  const endDate = `${yearNum}-12-31`;
+  let startDate = '';
+  let endDate = '';
+  let resolvedYear: number | null = null;
+  if (hasCustomRange) {
+    const rangeIssues = validateDateRange({
+      startDate: startDateInput as string,
+      endDate: endDateInput as string,
+      maxDays: INPUT_LIMITS.yearlyDateRangeMaxDays,
+      fieldPrefix: 'yearlyRange',
+    });
+    if (rangeIssues.length) return invalidInput(res, rangeIssues);
+    startDate = startDateInput as string;
+    endDate = endDateInput as string;
+    resolvedYear = Number(String(startDate).slice(0, 4));
+  } else {
+    const yearIssue = validateYearRange(yearNum as number, 'year');
+    if (yearIssue) return invalidInput(res, [yearIssue]);
+    startDate = `${yearNum}-01-01`;
+    endDate = `${yearNum}-12-31`;
+    resolvedYear = yearNum;
+  }
   try {
     const studentRows = await db.select().from(studentsTable).where(eq(studentsTable.id, studentId));
     const student = studentRows[0];
@@ -5914,7 +5980,7 @@ app.post('/api/ai/yearly-summary', authenticate, requireRole('teacher', 'admin')
     const quarters = await db
       .select()
       .from(quarterlySummaryTable)
-      .where(and(eq(quarterlySummaryTable.studentId, studentId), eq(quarterlySummaryTable.year, yearNum)))
+      .where(and(eq(quarterlySummaryTable.studentId, studentId), eq(quarterlySummaryTable.year, resolvedYear as number)))
       .orderBy(quarterlySummaryTable.quarter);
     const normalizedDaily = daily.map(withV2Activities);
     const analytics = buildStudentReportAnalytics({
@@ -5931,7 +5997,7 @@ app.post('/api/ai/yearly-summary', authenticate, requireRole('teacher', 'admin')
     });
     const context = buildCompactReportContext({
       student,
-      year: yearNum,
+      year: resolvedYear || undefined,
       startDate,
       endDate,
       dailyProgress: normalizedDaily,
@@ -5952,7 +6018,7 @@ app.post('/api/ai/yearly-summary', authenticate, requireRole('teacher', 'admin')
         actionType: '生成年度学习报告',
         ttlMs: ACTION_LOCK_TTL.studentAiMs,
         ...withLockActor(req),
-        metadata: { route: '/api/ai/yearly-summary', year: yearNum, saveReport },
+        metadata: { route: '/api/ai/yearly-summary', year: resolvedYear, startDate, endDate, saveReport },
       },
       async () =>
         withActionLock(
@@ -5961,7 +6027,7 @@ app.post('/api/ai/yearly-summary', authenticate, requireRole('teacher', 'admin')
             actionType: '生成年度学习报告',
             ttlMs: ACTION_LOCK_TTL.studentAiMs,
             ...withLockActor(req),
-            metadata: { route: '/api/ai/yearly-summary', year: yearNum, saveReport },
+            metadata: { route: '/api/ai/yearly-summary', year: resolvedYear, startDate, endDate, saveReport },
           },
           async () => {
             const raw = await callDeepSeek(promptToUse, context, hasCustomYearlyPrompt
@@ -5992,10 +6058,12 @@ app.post('/api/ai/yearly-summary', authenticate, requireRole('teacher', 'admin')
               .values({
                 studentId,
                 reportType: 'yearly',
-                title: `${student.name || '学生'}年度学习报告（${yearNum}）`,
+                title: resolvedYear
+                  ? `${student.name || '学生'}年度学习报告（${resolvedYear}）`
+                  : `${student.name || '学生'}年度学习报告（${startDate}~${endDate}）`,
                 startDate,
                 endDate,
-                year: yearNum,
+                year: resolvedYear,
                 summaryText: parsed.summaryText,
                 analyticsJson: serializeReportJson(analytics),
                 structuredReportJson: normalizedPayload.structuredReportJson,

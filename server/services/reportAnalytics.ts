@@ -11,6 +11,9 @@ type StudentLike = {
 
 type DailyProgressLike = {
   date?: string | Date | null;
+  attendance?: string | null;
+  attendanceStart?: string | null;
+  attendanceEnd?: string | null;
   activities?: unknown;
 };
 
@@ -100,6 +103,16 @@ export type StudentReportAnalytics = {
     strongestSubjects: string[];
     improvingSubjects: string[];
     subjectsNeedingAttention: string[];
+  };
+  attendanceAndStudyTime: {
+    presentDays: number;
+    lateDays: number;
+    absentDays: number;
+    attendanceRecordedDays: number;
+    totalStudyMinutes: number;
+    totalStudyHours: number;
+    daysWithStudyTime: number;
+    averageStudyHoursPerDay: number | null;
   };
   learningActivity: {
     dailyActivity: Array<{
@@ -546,6 +559,15 @@ const clipEvidence = (value: unknown, maxLen = 60) => {
   return `${text.slice(0, maxLen)}...`;
 };
 
+const toTimeMinutes = (value: unknown): number | null => {
+  const text = String(value || "").trim();
+  if (!/^\d{2}:\d{2}$/.test(text)) return null;
+  const [hh, mm] = text.split(":").map(Number);
+  if (!Number.isInteger(hh) || !Number.isInteger(mm)) return null;
+  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+  return hh * 60 + mm;
+};
+
 const pickTrend = (first: number | null, latest: number | null, count: number): TrendType => {
   if (count < 2 || first === null || latest === null) return 'insufficient_data';
   const diff = latest - first;
@@ -705,6 +727,11 @@ export function buildStudentReportAnalytics(params: BuildParams): StudentReportA
   let sentenceItemsCount = 0;
   let hasExplicitVocabularyCount = false;
   let hasExplicitSentenceCount = false;
+  let presentDays = 0;
+  let lateDays = 0;
+  let absentDays = 0;
+  let totalStudyMinutes = 0;
+  let daysWithStudyTime = 0;
 
   const addEnglishEvidence = (skillKey: EnglishSkillKey, text: string) => {
     const entry = englishSkillMap.get(skillKey);
@@ -749,6 +776,22 @@ export function buildStudentReportAnalytics(params: BuildParams): StudentReportA
       continue;
     }
     if (date < startDate || date > endDate) continue;
+    const attendanceRaw = String(row?.attendance || "").trim().toLowerCase();
+    if (attendanceRaw === "present") presentDays += 1;
+    else if (attendanceRaw === "late") lateDays += 1;
+    else if (attendanceRaw === "absent" || attendanceRaw.includes("缺席")) absentDays += 1;
+    const startMinute = toTimeMinutes(row?.attendanceStart);
+    const endMinute = toTimeMinutes(row?.attendanceEnd);
+    if (startMinute !== null && endMinute !== null && endMinute > startMinute) {
+      const duration = endMinute - startMinute;
+      // Keep a sane bound to avoid malformed time inflating analytics.
+      if (duration <= 12 * 60) {
+        totalStudyMinutes += duration;
+        daysWithStudyTime += 1;
+      } else {
+        notesSet.add(`Ignored unrealistic study duration on ${date}`);
+      }
+    }
     const day = dayMap.get(date) || { activityCount: 0, subjects: new Set<string>() };
     const activities = Array.isArray(row?.activities) ? row.activities : [];
     if (!Array.isArray(row?.activities)) notesSet.add(`dailyProgress ${date} has non-array activities`);
@@ -1001,6 +1044,11 @@ export function buildStudentReportAnalytics(params: BuildParams): StudentReportA
 
   const activeDays = dailyActivity.filter((d) => d.activityCount > 0).length;
   const activeRate = totalCalendarDays > 0 ? round2(activeDays / totalCalendarDays) : 0;
+  const attendanceRecordedDays = presentDays + lateDays + absentDays;
+  const totalStudyHours = round2(totalStudyMinutes / 60);
+  const averageStudyHoursPerDay = daysWithStudyTime > 0
+    ? round2(totalStudyHours / daysWithStudyTime)
+    : null;
 
   let longestActiveStreak = 0;
   let longestInactiveStreak = 0;
@@ -1573,6 +1621,16 @@ const finalizeEnglishSkill = (skill: MutableEnglishSkill) => {
       strongestSubjects,
       improvingSubjects,
       subjectsNeedingAttention,
+    },
+    attendanceAndStudyTime: {
+      presentDays,
+      lateDays,
+      absentDays,
+      attendanceRecordedDays,
+      totalStudyMinutes,
+      totalStudyHours,
+      daysWithStudyTime,
+      averageStudyHoursPerDay,
     },
     learningActivity: {
       dailyActivity,

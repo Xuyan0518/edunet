@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   aggregateAttendance,
   aggregateEnglishStats,
+  aggregateWeeklyExamBreakdown,
   aggregateLossPoints,
   aggregateWeeklyPaperBreakdown,
   parseStructuredSummary,
@@ -162,6 +163,41 @@ describe('aggregateWeeklyPaperBreakdown', () => {
     expect(out.subjectPapers[0].averagePercentage).toBe(null);
     expect(out.subjectPapers[0].highestPercentage).toBe(null);
     expect(out.subjectPapers[0].latestPercentage).toBe(null);
+  });
+});
+
+describe('aggregateWeeklyExamBreakdown', () => {
+  it('groups exam subject scores by subject', () => {
+    const out = aggregateWeeklyExamBreakdown([
+      {
+        examDate: '2026-05-10',
+        name: 'Mid-year',
+        subjects: [
+          { name: 'Math', score: 78, maxScore: 100 },
+          { name: 'English', score: 40, maxScore: 50 },
+        ],
+      },
+      {
+        examDate: '2026-05-12',
+        name: 'Quiz',
+        subjects: [{ name: 'Math', score: 35, maxScore: 50 }],
+      },
+    ]);
+    expect(out.totalExams).toBe(2);
+    expect(out.subjectExams[0].subjectName).toBe('Math');
+    expect(out.subjectExams[0].examCount).toBe(2);
+    expect(out.subjectExams[0].averagePercentage).toBe(74);
+  });
+
+  it('treats score as percentage when max score is missing', () => {
+    const out = aggregateWeeklyExamBreakdown([
+      {
+        examDate: '2026-05-10',
+        name: 'Class test',
+        subjects: [{ name: 'Science', score: 70, maxScore: null }],
+      },
+    ]);
+    expect(out.subjectExams[0].averagePercentage).toBe(70);
   });
 });
 

@@ -32,6 +32,9 @@ const quarterStart = () => {
   return `${now.getFullYear()}-${pad(quarterMonth + 1)}-01`;
 };
 
+const yearStart = (year) => `${year}-01-01`;
+const yearEnd = (year) => `${year}-12-31`;
+
 const buildPreviewReport = ({ reportType, studentId, studentName, startDate, endDate, year, response }) => ({
   id: '',
   studentId,
@@ -74,6 +77,8 @@ Page({
     generateYearIndex: 0,
     quarterlyStartDate: quarterStart(),
     quarterlyEndDate: todayString(),
+    yearlyStartDate: yearStart(new Date().getFullYear()),
+    yearlyEndDate: yearEnd(new Date().getFullYear()),
     parseWarning: '',
     hasLoaded: false,
     deletingId: '',
@@ -178,7 +183,14 @@ Page({
   },
 
   onGenerateYearChange(e) {
-    this.setData({ generateYearIndex: Number(e.detail.value || 0) });
+    const generateYearIndex = Number(e.detail.value || 0);
+    const yearText =
+      this.data.generateYearOptions[generateYearIndex] || String(new Date().getFullYear());
+    this.setData({
+      generateYearIndex,
+      yearlyStartDate: yearStart(yearText),
+      yearlyEndDate: yearEnd(yearText),
+    });
   },
 
   onQuarterStartChange(e) {
@@ -187,6 +199,14 @@ Page({
 
   onQuarterEndChange(e) {
     this.setData({ quarterlyEndDate: e.detail.value });
+  },
+
+  onYearlyStartChange(e) {
+    this.setData({ yearlyStartDate: e.detail.value });
+  },
+
+  onYearlyEndChange(e) {
+    this.setData({ yearlyEndDate: e.detail.value });
   },
 
   async generateQuarterly() {
@@ -262,10 +282,32 @@ Page({
       wx.showToast({ title: '请选择年份', icon: 'none' });
       return;
     }
+    const startDate = this.data.yearlyStartDate || yearStart(yearCheck.year);
+    const endDate = this.data.yearlyEndDate || yearEnd(yearCheck.year);
+    if (!startDate || !endDate) {
+      wx.showToast({ title: '请选择日期范围', icon: 'none' });
+      return;
+    }
+    if (startDate > endDate) {
+      wx.showToast({ title: '开始日期不能晚于结束日期', icon: 'none' });
+      return;
+    }
+    const rangeCheck = validateDateRange({
+      startDate,
+      endDate,
+      maxDays: LIMITS.yearlyRangeMaxDays,
+    });
+    if (!rangeCheck.ok) {
+      wx.showToast({ title: rangeCheck.message, icon: 'none' });
+      return;
+    }
 
     this.setData({ generatingYearly: true, parseWarning: '' });
     try {
-      const response = await generateYearlyReport(this.studentId, yearCheck.year, true);
+      const response = await generateYearlyReport(this.studentId, yearCheck.year, true, {
+        startDate,
+        endDate,
+      });
       if (response?.parseError) {
         this.setData({ parseWarning: 'AI 返回格式存在问题，已使用文本 fallback。' });
       }
@@ -281,8 +323,8 @@ Page({
         reportType: 'yearly',
         studentId: this.studentId,
         studentName: this.data.student?.name || '',
-        startDate: `${yearCheck.year}-01-01`,
-        endDate: `${yearCheck.year}-12-31`,
+        startDate,
+        endDate,
         year: yearCheck.year,
         response,
       });

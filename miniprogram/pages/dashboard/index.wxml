@@ -37,7 +37,12 @@
         <view class="muted">{{missingExpanded ? '收起' : '展开'}}</view>
       </view>
     </view>
-    <view class="muted" style="margin-top: 4rpx;">{{missingDate}} · 点击进入记录</view>
+    <view class="row-between" style="margin-top: 8rpx;">
+      <view class="muted">{{missingDate}} · 点击进入记录</view>
+      <picker mode="date" value="{{selectedMissingDate}}" bindchange="onMissingDateChange">
+        <view class="chip">筛选日期</view>
+      </picker>
+    </view>
     <block wx:if="{{missingExpanded}}">
       <view wx:if="{{missingError}}" class="muted" style="margin-top: 12rpx;">{{missingError}}</view>
       <view wx:elif="{{!missingLoading && missingStudents.length === 0}}" class="muted" style="margin-top: 12rpx;">所有学生今日都已记录</view>
@@ -60,7 +65,12 @@
         <view class="muted">{{weeklyMissingExpanded ? '收起' : '展开'}}</view>
       </view>
     </view>
-    <view class="muted" style="margin-top: 4rpx;">{{weeklyMissingCycleStart}} → {{weeklyMissingCycleEnd}} · 点击进入汇报</view>
+    <view class="row-between" style="margin-top: 8rpx;">
+      <view class="muted">{{weeklyMissingCycleStart}} → {{weeklyMissingCycleEnd}} · 点击进入汇报</view>
+      <picker mode="date" value="{{weeklyMissingSelectedDate}}" bindchange="onWeeklyMissingDateChange">
+        <view class="chip">筛选周次</view>
+      </picker>
+    </view>
     <block wx:if="{{weeklyMissingExpanded}}">
       <view wx:if="{{weeklyMissingError}}" class="muted" style="margin-top: 12rpx;">{{weeklyMissingError}}</view>
       <view wx:elif="{{!weeklyMissingLoading && weeklyMissingStudents.length === 0}}" class="muted" style="margin-top: 12rpx;">所有学生本周都已汇报</view>

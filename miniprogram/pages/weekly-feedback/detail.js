@@ -11,6 +11,53 @@ const attendanceLabels = {
   absent: "缺席",
 };
 
+const pad2 = (value) => String(value).padStart(2, "0");
+
+const normalizeYmd = (input) => {
+  if (!input) return "";
+  if (input instanceof Date && !Number.isNaN(input.getTime())) {
+    return `${input.getFullYear()}-${pad2(input.getMonth() + 1)}-${pad2(input.getDate())}`;
+  }
+  const text = String(input).trim();
+  if (!text) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  const matched = text.match(/(\d{4})[/-](\d{1,2})[/-](\d{1,2})/);
+  if (!matched) return "";
+  const y = matched[1];
+  const m = pad2(matched[2]);
+  const d = pad2(matched[3]);
+  return `${y}-${m}-${d}`;
+};
+
+const isDateInRange = (dateLike, start, end) => {
+  const date = normalizeYmd(dateLike);
+  const s = normalizeYmd(start);
+  const e = normalizeYmd(end);
+  if (!date) return false;
+  if (!s || !e) return true;
+  return date >= s && date <= e;
+};
+
+const isAbsentDay = (entry = {}) => {
+  if (entry.isAbsent === true || entry.absent === true) return true;
+  const raw = String(
+    entry.attendance || entry.attendanceStatus || entry.status || ""
+  )
+    .trim()
+    .toLowerCase();
+  if (!raw) return false;
+  return raw === "absent" || raw.includes("缺席");
+};
+
+const getAbsenceReason = (entry = {}) =>
+  asText(
+    entry.absenceReason ||
+      entry.absentReason ||
+      entry.leaveReason ||
+      entry.reason ||
+      entry.attendanceReason
+  );
+
 const isEnglishSubject = (name = "") => {
   const lower = String(name || "").toLowerCase();
   return lower.includes("english") || String(name || "").includes("英文") || String(name || "").includes("英语");
@@ -171,7 +218,113 @@ const buildScoredSection = ({ title, countLabel, countKey, unitLabel, block }) =
   };
 };
 
-const buildEnglishSections = (english = {}, activity = {}) => {
+const buildParentEnglishSections = (english = {}, activity = {}) => {
+  const sections = [];
+  const pushIf = (title, rows) => {
+    const validRows = (rows || []).filter((row) => asText(row.value));
+    if (!validRows.length) return;
+    sections.push({
+      title,
+      kind: "kv",
+      rows: validRows,
+    });
+  };
+  const buildParentScoredSection = ({ title, block, countKey, countLabel }) => {
+    const source = block || {};
+    const configuredCount = toInt(source[countKey]);
+    const exercises = Array.isArray(source.exercises) ? source.exercises : [];
+    const totalCount = Math.max(configuredCount, exercises.length);
+    if (!totalCount && !formatPercent(source.score)) return null;
+    const list = [];
+    const rowCount = totalCount || 1;
+    for (let i = 0; i < rowCount; i++) {
+      const ex = exercises[i] || {};
+      const scoreText = formatPercent(ex.score) || (i === 0 ? formatPercent(source.score) : "");
+      list.push({
+        title: `练习 ${i + 1}`,
+        scoreText: scoreText || "--",
+        problems: "",
+      });
+    }
+    return {
+      title,
+      kind: "scored",
+      countLabel,
+      countValue: String(totalCount || 1),
+      list,
+      note: "",
+      lossPointLabels: [],
+      lossPointText: "",
+      otherLossPointText: "",
+    };
+  };
+  const editing = english.editing || {};
+  const editingSection = buildParentScoredSection({
+    title: "改错 (Editing)",
+    block: editing,
+    countKey: "exerciseCount",
+    countLabel: "练习数",
+  });
+  if (editingSection) sections.push(editingSection);
+
+  const reading = english.reading || {};
+  const readingSection = buildParentScoredSection({
+    title: "阅读理解 (Reading)",
+    block: reading,
+    countKey: "articleCount",
+    countLabel: "文章数",
+  });
+  if (readingSection) sections.push(readingSection);
+
+  const grammar = english.grammar || {};
+  const grammarSection = buildParentScoredSection({
+    title: "语法 (Grammar)",
+    block: grammar,
+    countKey: "exerciseCount",
+    countLabel: "练习数",
+  });
+  if (grammarSection) sections.push(grammarSection);
+
+  const vocab = english.vocab || english.vocabulary || {};
+  const wordCount = toInt(vocab.vocabularyWordCount);
+  const sentenceCount = toInt(vocab.vocabularySentenceCount);
+  pushIf("词汇 (Vocab)", [
+    { label: "单词数", value: wordCount ? String(wordCount) : "" },
+    { label: "句子数", value: sentenceCount ? String(sentenceCount) : "" },
+  ]);
+
+  const essay = english.essay || {};
+  const essayTitle = asText(essay.title);
+  const essayScore = formatScorePair(essay.score, essay.totalScore);
+  const essayCompleted = essay.completed === true ? "已完成" : "";
+  pushIf("作文 (Essay)", [
+    { label: "题目", value: essayTitle },
+    { label: "得分", value: essayScore },
+    { label: "完成", value: essayCompleted },
+  ]);
+
+  const canonicalKeys = new Set(["editing", "reading", "grammar", "vocab", "recitation", "essay"]);
+  const customTasks = Array.isArray(activity.customEnglishTasks || activity.englishTasks)
+    ? (activity.customEnglishTasks || activity.englishTasks)
+    : [];
+  customTasks.forEach((task) => {
+    const taskKey = asText(task.key).toLowerCase();
+    if (canonicalKeys.has(taskKey)) return;
+    const displayName = asText(task.displayName || task.chineseName || task.englishName || task.key || "自定义项目");
+    const scoreText = formatScorePair(task.score, task.maxScore);
+    const count = toInt(task.practiceCount);
+    const completed = task.completed === true ? "已完成" : "";
+    pushIf(displayName, [
+      { label: "数量", value: count ? String(count) : "" },
+      { label: "得分", value: scoreText },
+      { label: "完成", value: completed },
+    ]);
+  });
+  return sections;
+};
+
+const buildEnglishSections = (english = {}, activity = {}, role = "teacher") => {
+  if (role !== "teacher") return buildParentEnglishSections(english, activity);
   const sections = [];
   const editing = buildScoredSection({
     title: "改错 (Editing)",
@@ -336,23 +489,30 @@ const buildEnglishFields = (input = {}) => {
     details.push({ label: `作文${essayScore}`, value: essayContent || "已记录" });
   }
 
-  const summary = details.slice(0, 3).map((d) => d.value).join("；") || "已记录英文学习";
+  const summary = details.slice(0, 3).map((d) => d.value).join("；");
   return { summary, details, editing, reading, grammar, vocab, recitation, essay };
 };
 
 const normalizePaper = (paper = {}) => {
-  const score = paper.score !== null && paper.score !== undefined && paper.score !== "" ? paper.score : "-";
-  const total = paper.total !== null && paper.total !== undefined && paper.total !== "" ? paper.total : "-";
+  const score = paper.score !== null && paper.score !== undefined && paper.score !== "" ? paper.score : null;
+  const total = paper.total !== null && paper.total !== undefined && paper.total !== "" ? paper.total : null;
+  const date = normalizeYmd(paper.date) || asText(paper.date);
+  const scoreText = score != null && total != null
+    ? `${score}/${total}`
+    : score != null
+      ? String(score)
+      : "--";
   return {
     id: paper.id || "",
-    date: paper.date || "",
+    date,
     subjectName: paper.subjectName || "",
     subjectDisplayName: formatSubjectName(paper.subjectName || ""),
-    title: `${paper.description || "试卷"} · ${score}/${total}`,
+    title: paper.description || "试卷",
     typeName: paper.typeName || "",
     schoolName: paper.schoolName || "",
     score,
     total,
+    scoreText,
     strengths: paper.strengths || "",
     improvements: paper.improvements || "",
   };
@@ -362,12 +522,7 @@ const buildWeeklyPaperGroups = (papers = [], weekStarting = "", weekEnding = "")
   const rows = Array.isArray(papers)
     ? papers
         .map((paper) => normalizePaper(paper))
-        .filter((paper) => {
-          const d = String(paper.date || "");
-          if (!d) return false;
-          if (!weekStarting || !weekEnding) return true;
-          return d >= weekStarting && d <= weekEnding;
-        })
+        .filter((paper) => isDateInRange(paper.date, weekStarting, weekEnding))
     : [];
   const grouped = new Map();
   rows.forEach((paper) => {
@@ -380,12 +535,17 @@ const buildWeeklyPaperGroups = (papers = [], weekStarting = "", weekEnding = "")
     .map(([subjectDisplayName, items]) => ({
       subjectDisplayName,
       count: items.length,
-      papers: items.sort((a, b) => (a.date > b.date ? -1 : 1)),
+      papers: items.sort((a, b) => {
+        const da = normalizeYmd(a.date) || "";
+        const db = normalizeYmd(b.date) || "";
+        if (da === db) return 0;
+        return da > db ? -1 : 1;
+      }),
     }))
     .sort((a, b) => b.count - a.count);
 };
 
-const normalizeActivity = (activity = {}) => {
+const normalizeActivity = (activity = {}, role = "teacher") => {
   const subjectName = activity.subjectName || activity.subject || "";
   const subjectId = activity.subjectId || "";
   const english = activity.english || activity.englishFields || {};
@@ -393,48 +553,67 @@ const normalizeActivity = (activity = {}) => {
   const papers = (activity.papers || []).map((p) => normalizePaper(p));
   if (isEnglish) {
     const englishView = buildEnglishFields({ ...english, ...activity });
-    const sections = buildEnglishSections(englishView, activity);
+    const sections = buildEnglishSections(englishView, activity, role);
+    const hasVisibleContent = sections.length > 0 || papers.length > 0 || !!asText(englishView.summary);
     return {
       subjectId,
       subjectName,
       subjectDisplayName: formatSubjectName(subjectName || "英文"),
       type: "english",
-      summaryLine: englishView.summary,
+      summaryLine: role === "teacher" ? (englishView.summary || "已记录英文学习") : "",
+      showSummaryLine: false,
       detailLines: englishView.details,
       sections,
       papers,
+      hasVisibleContent,
     };
   }
   const detailLines = buildGenericRows(activity);
+  const taskSummary = asText(activity.taskSummary || activity.practiceProgress || activity.description);
+  const sections = role === "teacher" && detailLines.length
+    ? [{
+        title: "学习明细",
+        kind: "kv",
+        rows: detailLines,
+        note: "",
+      }]
+    : [];
   return {
     subjectId,
     subjectName,
     subjectDisplayName: formatSubjectName(subjectName),
     type: "generic",
-    summaryLine: asText(activity.taskSummary || activity.practiceProgress || activity.description || activity.strengths || activity.improvements) || "已记录",
+    summaryLine: role === "teacher" ? "" : (taskSummary || "已记录"),
+    showSummaryLine: role !== "teacher" && !!taskSummary,
     detailLines,
-    sections: detailLines.length
-      ? [{
-          title: "学习明细",
-          kind: "kv",
-          rows: detailLines,
-          note: "",
-        }]
-      : [],
+    sections,
     papers,
+    hasVisibleContent: role === "teacher"
+      ? (!!taskSummary || detailLines.length > 0 || papers.length > 0)
+      : (!!taskSummary || papers.length > 0),
   };
 };
 
-const formatProgressEntry = (entry = {}) => {
-  const activities = (entry.activities || []).map((a) => normalizeActivity(a));
+const formatProgressEntry = (entry = {}, role = "teacher") => {
+  const absent = isAbsentDay(entry);
+  const absenceReason = getAbsenceReason(entry);
+  const activities = absent
+    ? []
+    : (entry.activities || [])
+        .map((a) => normalizeActivity(a, role))
+        .filter((a) => a && a.hasVisibleContent);
   const subjectNames = activities.map((a) => a.subjectDisplayName || a.subjectName).filter(Boolean);
   const preview = subjectNames.slice(0, 3).join("、");
+  const attendanceKey = absent ? "absent" : entry.attendance;
+  const absentPreview = absenceReason ? `缺席（${absenceReason}）` : "缺席";
   return {
     ...entry,
-    attendanceLabel: attendanceLabels[entry.attendance] || entry.attendance || "",
+    attendanceLabel: attendanceLabels[attendanceKey] || attendanceKey || "",
+    isAbsentDay: absent,
+    absenceReason,
     activities,
     activityCount: activities.length,
-    previewText: preview || "已记录学习内容",
+    previewText: absent ? absentPreview : (preview || "已记录学习内容"),
   };
 };
 
@@ -680,13 +859,18 @@ Page({
     this.setData({ progressLoading: true });
     request({ url: `/progress/list?studentId=${this.studentId}` })
       .then((data) => {
+        const role = this.data.isTeacher ? "teacher" : "parent";
         const entries = (data || [])
           .filter((entry) => {
-            const date = entry.date || "";
-            return date >= start && date <= end;
+            return isDateInRange(entry.date, start, end);
           })
-          .map((entry) => formatProgressEntry(entry))
-          .sort((a, b) => (a.date > b.date ? 1 : -1));
+          .map((entry) => formatProgressEntry(entry, role))
+          .sort((a, b) => {
+            const da = normalizeYmd(a.date) || "";
+            const db = normalizeYmd(b.date) || "";
+            if (da === db) return 0;
+            return da > db ? 1 : -1;
+          });
         const currentMap = { ...(this.data.expandedProgressMap || {}) };
         const nextMap = {};
         entries.forEach((entry, idx) => {

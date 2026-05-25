@@ -67,7 +67,7 @@ const generateQuarterlyReport = async (studentId, startDate, endDate, saveReport
     },
   });
 
-const generateYearlyReport = async (studentId, year, saveReport = true) =>
+const generateYearlyReport = async (studentId, year, saveReport = true, extra = {}) =>
   request({
     url: '/ai/yearly-summary',
     method: 'POST',
@@ -75,6 +75,7 @@ const generateYearlyReport = async (studentId, year, saveReport = true) =>
       studentId,
       year,
       saveReport,
+      ...(extra || {}),
     },
   });
 

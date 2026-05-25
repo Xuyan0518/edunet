@@ -73,6 +73,33 @@
     </view>
 
     <view class="section card">
+      <view class="section-title">出勤与学习时间</view>
+      <block wx:if="{{attendanceAndStudyTime}}">
+        <view class="row-between">
+          <view>出席天数</view>
+          <view class="profile-label">{{attendanceAndStudyTime.presentDays}}</view>
+        </view>
+        <view class="row-between" style="margin-top: 8rpx;">
+          <view>迟到天数</view>
+          <view class="profile-label">{{attendanceAndStudyTime.lateDays}}</view>
+        </view>
+        <view class="row-between" style="margin-top: 8rpx;">
+          <view>缺席天数</view>
+          <view class="profile-label">{{attendanceAndStudyTime.absentDays}}</view>
+        </view>
+        <view class="row-between" style="margin-top: 8rpx;">
+          <view>总学习时长</view>
+          <view class="profile-label">{{attendanceAndStudyTime.totalStudyHours}} 小时</view>
+        </view>
+        <view class="row-between" style="margin-top: 8rpx;">
+          <view>平均每日学习时长</view>
+          <view class="profile-label">{{attendanceAndStudyTime.averageStudyHoursPerDay == null ? '--' : attendanceAndStudyTime.averageStudyHoursPerDay + ' 小时'}}</view>
+        </view>
+      </block>
+      <view wx:else class="muted">该周期暂无足够出勤/学习时间数据。</view>
+    </view>
+
+    <view class="section card">
       <view class="section-title">学习活跃度</view>
       <block wx:if="{{weeklyActivityRows.length === 0}}">
         <view class="muted">暂无每周学习活跃度数据。</view>
@@ -328,6 +355,17 @@
       </block>
       <view class="muted" wx:elif="{{!report.parseError}}">暂无数据质量提示</view>
       <view class="muted" wx:if="{{report.parseError}}" style="margin-top: 10rpx;">解析提醒：{{report.parseError}}</view>
+    </view>
+
+    <view class="section card">
+      <view class="section-title">总评总结</view>
+      <view class="summary-text">{{finalOverallSummary || '该阶段记录较少，暂无法形成完整趋势判断。'}}</view>
+      <block wx:if="{{finalNextSuggestions.length}}">
+        <view class="field-label" style="margin-top: 12rpx;">下一阶段建议</view>
+        <block wx:for="{{finalNextSuggestions}}" wx:key="*this">
+          <view class="list-item">{{item}}</view>
+        </block>
+      </block>
     </view>
   </block>
 </view>

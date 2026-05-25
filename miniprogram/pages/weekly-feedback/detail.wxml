@@ -35,14 +35,21 @@
             <view class="muted">{{expandedProgressMap[day.id || day.date] ? "收起" : "展开"}}</view>
           </view>
         </view>
-        <view class="muted" wx:if="{{day.attendanceStart || day.attendanceEnd}}">
+        <view class="muted" wx:if="{{!day.isAbsentDay && (day.attendanceStart || day.attendanceEnd)}}">
           时间 {{day.attendanceStart || "--"}} - {{day.attendanceEnd || "--"}}
         </view>
         <block wx:if="{{expandedProgressMap[day.id || day.date]}}">
+          <view wx:if="{{day.isAbsentDay}}" class="absent-day-block">
+            <view class="absent-label">缺席</view>
+            <view wx:if="{{day.absenceReason}}" class="muted">原因：{{day.absenceReason}}</view>
+          </view>
           <block wx:for="{{day.activities}}" wx:for-item="activity" wx:key="index">
             <view class="activity-card">
-              <view class="field-label">{{activity.subjectDisplayName || activity.subjectName || "科目"}}</view>
-              <view class="activity-summary">{{activity.summaryLine || "已记录"}}</view>
+              <view class="row-between">
+                <view class="field-label">{{activity.subjectDisplayName || activity.subjectName || "科目"}}</view>
+                <view wx:if="{{!isTeacher && activity.type === 'english'}}" class="chip">英文</view>
+              </view>
+              <view class="activity-summary" wx:if="{{activity.showSummaryLine}}">{{activity.summaryLine}}</view>
               <block wx:for="{{activity.sections}}" wx:for-item="section" wx:key="index">
                 <view class="section-block">
                   <view class="section-block-title">{{section.title}}</view>
@@ -78,18 +85,21 @@
                 <view class="paper-title">试卷 / 测验</view>
                 <block wx:for="{{activity.papers}}" wx:for-item="paper" wx:key="index">
                   <view class="paper-item">
-                    <view>{{paper.title}}</view>
-                    <view class="muted" wx:if="{{paper.typeName || paper.schoolName}}">
+                    <view class="row-between">
+                      <view>{{paper.date}} · {{paper.title}}</view>
+                      <view class="score-badge">{{paper.scoreText}}</view>
+                    </view>
+                    <view class="muted" wx:if="{{isTeacher && (paper.typeName || paper.schoolName)}}">
                       {{paper.typeName || "--"}} · {{paper.schoolName || "--"}}
                     </view>
-                    <view class="muted" wx:if="{{paper.strengths}}">做得好的地方：{{paper.strengths}}</view>
-                    <view class="muted" wx:if="{{paper.improvements}}">需要改进的地方：{{paper.improvements}}</view>
+                    <view class="muted" wx:if="{{isTeacher && paper.strengths}}">做得好的地方：{{paper.strengths}}</view>
+                    <view class="muted" wx:if="{{isTeacher && paper.improvements}}">需要改进的地方：{{paper.improvements}}</view>
                   </view>
                 </block>
               </block>
             </view>
           </block>
-          <view wx:if="{{day.summary}}" class="daily-summary">
+          <view wx:if="{{!day.isAbsentDay && day.summary}}" class="daily-summary">
             <view class="field-label">当日总结</view>
             <view class="muted">{{day.summary}}</view>
           </view>
@@ -114,12 +124,15 @@
         </view>
         <block wx:for="{{item.papers}}" wx:key="id" wx:for-item="paper">
           <view class="paper-item">
-            <view>{{paper.date}} · {{paper.title}}</view>
-            <view class="muted" wx:if="{{paper.typeName || paper.schoolName}}">
+            <view class="row-between">
+              <view>{{paper.date}} · {{paper.title}}</view>
+              <view class="score-badge">{{paper.scoreText}}</view>
+            </view>
+            <view class="muted" wx:if="{{isTeacher && (paper.typeName || paper.schoolName)}}">
               {{paper.typeName || "--"}} · {{paper.schoolName || "--"}}
             </view>
-            <view class="muted" wx:if="{{paper.strengths}}">做得好的地方：{{paper.strengths}}</view>
-            <view class="muted" wx:if="{{paper.improvements}}">需要改进的地方：{{paper.improvements}}</view>
+            <view class="muted" wx:if="{{isTeacher && paper.strengths}}">做得好的地方：{{paper.strengths}}</view>
+            <view class="muted" wx:if="{{isTeacher && paper.improvements}}">需要改进的地方：{{paper.improvements}}</view>
           </view>
         </block>
       </view>

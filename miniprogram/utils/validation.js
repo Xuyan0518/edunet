@@ -18,6 +18,7 @@ const LIMITS = {
   yearMax: 2100,
   weeklyRangeMaxDays: 10,
   quarterlyRangeMaxDays: 220,
+  yearlyRangeMaxDays: 380,
   exportRangeMaxDays: 370,
   scorePointsRenderMax: 30,
 };

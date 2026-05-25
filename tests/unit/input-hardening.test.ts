@@ -138,9 +138,12 @@ describe('input hardening helpers', () => {
       subjectBreakdown: Array.from({ length: 100 }, () => ({ subjectName: 'math' })),
       englishBreakdown: {},
       weeklyPaperBreakdown: {},
+      weeklyExamBreakdown: {},
       lossPoints: { byEntry: Array.from({ length: 100 }, (_, i) => ({ id: `p-${i}` })) },
       dailyProgress: Array.from({ length: 100 }, (_, i) => ({ date: `2026-05-${String((i % 28) + 1).padStart(2, '0')}`, activities: [] })),
       papers: Array.from({ length: 100 }, () => ({ description: 'paper' })),
+      exams: Array.from({ length: 100 }, () => ({ subjects: [] })),
+      weeklyFeedback: Array.from({ length: 20 }, () => ({ summary: 'weekly' })),
       subjectProgress: Array.from({ length: 100 }, () => ({ subjectName: 'math' })),
     });
     expect(weeklyCompact.dailyProgress.length).toBeLessThanOrEqual(14);

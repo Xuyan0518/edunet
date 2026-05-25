@@ -28,6 +28,7 @@ export const INPUT_LIMITS = {
   scoreMax: 500,
   weeklyDateRangeMaxDays: 10,
   quarterlyDateRangeMaxDays: 220,
+  yearlyDateRangeMaxDays: 380,
   exportDateRangeMaxDays: 370,
 } as const;
 

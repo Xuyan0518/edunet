@@ -27,6 +27,14 @@
     <picker mode="selector" range="{{generateYearOptions}}" value="{{generateYearIndex}}" bindchange="onGenerateYearChange">
       <view class="chip">{{generateYearOptions[generateYearIndex] || '选择年份'}}</view>
     </picker>
+    <view class="row-between" style="margin-top: 10rpx;">
+      <picker mode="date" value="{{yearlyStartDate}}" bindchange="onYearlyStartChange">
+        <view class="chip">{{yearlyStartDate || '开始日期'}}</view>
+      </picker>
+      <picker mode="date" value="{{yearlyEndDate}}" bindchange="onYearlyEndChange">
+        <view class="chip">{{yearlyEndDate || '结束日期'}}</view>
+      </picker>
+    </view>
     <view class="row" style="margin-top: 12rpx;">
       <button class="btn-primary" size="mini" bindtap="generateYearly" disabled="{{generatingYearly}}">
         {{generatingYearly ? '生成中...' : '生成年度报告'}}

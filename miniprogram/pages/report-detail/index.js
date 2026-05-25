@@ -56,6 +56,7 @@ Page({
     summaryText: '',
     subjectReports: [],
     analytics: null,
+    attendanceAndStudyTime: null,
     overviewCards: [],
     strongestSubjectsText: '--',
     improvingSubjectsText: '--',
@@ -66,6 +67,8 @@ Page({
     scoreTrendSubjects: [],
     selectedTrendIndex: 0,
     currentTrendPoints: [],
+    finalOverallSummary: '',
+    finalNextSuggestions: [],
     editMode: false,
     editForm: null,
   },
@@ -129,6 +132,7 @@ Page({
     const analytics = safeReport.analytics || null;
     const englishSpecialSection = buildEnglishSpecialSection(reportType, displayReport || {}, analytics);
     const overview = analytics?.overview || {};
+    const attendanceAndStudyTime = analytics?.attendanceAndStudyTime || null;
 
     const overviewCards = [
       { label: '活跃天数', value: overview.activeDays ?? '--' },
@@ -191,6 +195,31 @@ Page({
         ? 0
         : Math.min(this.data.selectedTrendIndex || 0, scoreTrendSubjects.length - 1);
 
+    const recommendationField = reportType === 'yearly'
+      ? ensureArray(displayReport?.nextYearRecommendations)
+      : ensureArray(displayReport?.nextStageRecommendations);
+    const finalNextSuggestions = recommendationField
+      .map((item) => {
+        const row = item && typeof item === 'object' ? item : {};
+        const area = String(row.area || '').trim();
+        const recommendation = String(row.recommendation || '').trim();
+        return [area, recommendation].filter(Boolean).join('：');
+      })
+      .filter(Boolean)
+      .slice(0, 5);
+
+    const finalOverallSummary = reportType === 'yearly'
+      ? (
+          String(displayReport?.teacherAnnualComment || '').trim() ||
+          String(displayReport?.annualExecutiveSummary || '').trim() ||
+          summaryText
+        )
+      : (
+          String(displayReport?.teacherComment || '').trim() ||
+          String(displayReport?.executiveSummary || '').trim() ||
+          summaryText
+        );
+
     this.setData({
       report: safeReport,
       reportType,
@@ -198,6 +227,7 @@ Page({
       summaryText,
       subjectReports,
       analytics,
+      attendanceAndStudyTime,
       overviewCards,
       strongestSubjectsText: ensureArray(overview.strongestSubjects).map(getSubjectDisplayName).join('、') || '--',
       improvingSubjectsText: ensureArray(overview.improvingSubjects).map(getSubjectDisplayName).join('、') || '--',
@@ -208,6 +238,8 @@ Page({
       scoreTrendSubjects,
       selectedTrendIndex,
       currentTrendPoints: scoreTrendSubjects[selectedTrendIndex]?.points || [],
+      finalOverallSummary,
+      finalNextSuggestions,
       editForm: buildEditableForm(safeReport),
     });
   },

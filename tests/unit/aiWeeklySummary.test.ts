@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   aggregateAttendance,
   aggregateEnglishStats,
+  aggregateWeeklySubjectAndEnglishBreakdown,
   aggregateWeeklyExamBreakdown,
   aggregateLossPoints,
   aggregateWeeklyPaperBreakdown,
+  buildCompactWeeklySummaryContext,
   parseStructuredSummary,
 } from '../../server/utils/aiWeeklySummary';
 
@@ -57,6 +59,155 @@ describe('aggregateEnglishStats', () => {
       vocabSentenceCount: 0,
       compositionCompletedCount: 0,
     });
+  });
+});
+
+describe('aggregateWeeklySubjectAndEnglishBreakdown', () => {
+  it('ignores empty reading placeholders from default custom English tasks', () => {
+    const rows = [25, 26, 28, 29].map((day, index) => ({
+      date: `2026-05-${day}`,
+      attendance: 'present',
+      activities: [
+        {
+          type: 'english',
+          subjectName: '英语',
+          english: {
+            editing: {
+              exerciseCount: 1,
+              exercises: [{ score: [60, 50, 30, 40][index], problems: index ? '介词错误' : '' }],
+            },
+            vocab: { vocabularyWordCount: 10 },
+          },
+          customEnglishTasks: [
+            {
+              key: 'reading',
+              displayName: '阅读理解 (Reading)',
+              practiceCount: 0,
+              score: null,
+              maxScore: null,
+              completed: false,
+              problems: '',
+              exercises: [{ score: null, totalScore: 100, problems: '' }],
+            },
+          ],
+        },
+      ],
+    }));
+
+    const { englishBreakdown } = aggregateWeeklySubjectAndEnglishBreakdown(rows);
+
+    expect(englishBreakdown.editing.totalAttempts).toBe(4);
+    expect(englishBreakdown.reading.totalAttempts).toBe(0);
+    expect(englishBreakdown.reading.attempts).toEqual([]);
+    expect(englishBreakdown.customTasks).toEqual([]);
+  });
+
+  it('keeps real reading practice counts even without scores', () => {
+    const { englishBreakdown } = aggregateWeeklySubjectAndEnglishBreakdown([
+      {
+        date: '2026-05-25',
+        attendance: 'present',
+        activities: [
+          {
+            type: 'english',
+            english: { reading: { articleCount: 2 } },
+          },
+        ],
+      },
+    ]);
+
+    expect(englishBreakdown.reading.totalAttempts).toBe(2);
+    expect(englishBreakdown.reading.scoredAttempts).toBe(0);
+    expect(englishBreakdown.reading.attempts).toHaveLength(2);
+  });
+
+  it('feeds meaningful custom English tasks into a dedicated custom breakdown', () => {
+    const { englishBreakdown } = aggregateWeeklySubjectAndEnglishBreakdown([
+      {
+        date: '2026-05-29',
+        attendance: 'present',
+        activities: [
+          {
+            type: 'english',
+            customEnglishTasks: [
+              { key: 'oral', displayName: '口语 (Oral)', practiceCount: 1, score: null, completed: true },
+              {
+                key: 'vocab-book',
+                displayName: '词汇书 (vocabulary book)',
+                practiceCount: 1,
+                exercises: [{ score: 9, totalScore: 12, problems: '固定搭配' }],
+              },
+              { key: 'recitation', displayName: '单词句子背诵 (Recitation)', practiceCount: 1, problems: '背诵单词30个，正确29个' },
+            ],
+          },
+        ],
+      },
+    ]);
+
+    expect(englishBreakdown.customTasks.map((task) => task.displayName)).toEqual([
+      '单词句子背诵 (Recitation)',
+      '口语 (Oral)',
+      '词汇书 (vocabulary book)',
+    ]);
+    expect(englishBreakdown.customTasks.find((task) => task.key === 'vocab-book')?.averageAccuracy).toBe(75);
+    expect(englishBreakdown.vocabularyWordCount).toBe(1);
+    expect(englishBreakdown.essay.totalAttempts).toBe(0);
+  });
+});
+
+describe('buildCompactWeeklySummaryContext', () => {
+  it('does not feed empty default custom English tasks to the AI context', () => {
+    const context = buildCompactWeeklySummaryContext({
+      student: { id: 'student-1', name: '徐湘涵' },
+      weekStarting: '2026-05-24',
+      weekEnding: '2026-05-30',
+      recordWeekEnding: '2026-05-30',
+      attendance: { totalDays: 1, present: 1, late: 0, absent: 0 },
+      englishStats: {
+        readingArticleCount: 0,
+        editingExerciseCount: 1,
+        grammarExerciseCount: 0,
+        vocabSentenceCount: 0,
+        compositionCompletedCount: 0,
+      },
+      subjectBreakdown: [],
+      englishBreakdown: {
+        editing: { skill: 'editing', totalAttempts: 1, scoredAttempts: 1, averageAccuracy: 60, attempts: [] },
+        reading: { skill: 'reading', totalAttempts: 0, scoredAttempts: 0, averageAccuracy: null, attempts: [] },
+        grammar: { skill: 'grammar', totalAttempts: 0, scoredAttempts: 0, averageAccuracy: null, attempts: [] },
+        essay: { skill: 'essay', totalAttempts: 0, scoredAttempts: 0, averageAccuracy: null, attempts: [] },
+        customTasks: [],
+        vocabularyWordCount: 0,
+        vocabularySentenceCount: 0,
+      },
+      weeklyPaperBreakdown: { totalPapers: 0, subjectPapers: [] },
+      weeklyExamBreakdown: { totalExams: 0, subjectExams: [] },
+      lossPoints: { byEntry: [] },
+      dailyProgress: [
+        {
+          date: '2026-05-25',
+          attendance: 'present',
+          activities: [
+            {
+              type: 'english',
+              english: { editing: { exerciseCount: 1, exercises: [{ score: 60, problems: '' }] } },
+              customEnglishTasks: [
+                { key: 'reading', displayName: '阅读理解 (Reading)', practiceCount: 0, score: null, completed: false, problems: '', exercises: [{ score: null, totalScore: 100, problems: '' }] },
+                { key: 'vocab', displayName: '词汇', practiceCount: 10 },
+              ],
+            },
+          ],
+        },
+      ],
+      papers: [],
+      exams: [],
+      weeklyFeedback: [],
+      subjectProgress: [],
+    });
+
+    const customTasks = context.dailyProgress[0].activities[0].customEnglishTasks;
+    expect(customTasks).toHaveLength(1);
+    expect(customTasks[0].displayName).toBe('词汇');
   });
 });
 

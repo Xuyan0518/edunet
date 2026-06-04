@@ -6034,8 +6034,6 @@ app.post('/api/ai/weekly-summary', authenticate, requireTeacher, async (req, res
         )
       )
       .orderBy(desc(weeklyFeedback.updatedAt));
-    const subjectProgress = await getSubjectProgressSummary(studentId);
-
     // Part 5: enrich the AI context so the model can reference concrete
     // numbers and loss-points instead of guessing.
     const v2Progress = progress.map(withV2Activities);
@@ -6062,7 +6060,6 @@ app.post('/api/ai/weekly-summary', authenticate, requireTeacher, async (req, res
       papers,
       exams: examPayload,
       weeklyFeedback: weeklyFeedbackRows,
-      subjectProgress,
     });
     // Operator-supplied prompt wins; otherwise use the Part 5 enhanced prompt.
     const hasCustomWeeklyPrompt = Boolean(weeklySummaryPrompt && weeklySummaryPrompt.trim());

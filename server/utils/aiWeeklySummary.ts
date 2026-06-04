@@ -212,11 +212,21 @@ export type WeeklyEnglishSkillBreakdownEntry = {
   attempts: WeeklyEnglishAttempt[];
 };
 
+export type WeeklyEnglishCustomTaskBreakdownEntry = {
+  key: string | null;
+  displayName: string;
+  totalAttempts: number;
+  scoredAttempts: number;
+  averageAccuracy: number | null;
+  attempts: WeeklyEnglishAttempt[];
+};
+
 export type WeeklyEnglishBreakdown = {
   editing: WeeklyEnglishSkillBreakdownEntry;
   reading: WeeklyEnglishSkillBreakdownEntry;
   grammar: WeeklyEnglishSkillBreakdownEntry;
   essay: WeeklyEnglishSkillBreakdownEntry;
+  customTasks: WeeklyEnglishCustomTaskBreakdownEntry[];
   vocabularyWordCount: number;
   vocabularySentenceCount: number;
 };
@@ -278,6 +288,7 @@ export function aggregateWeeklySubjectAndEnglishBreakdown(
     reading: buildSkill('reading'),
     grammar: buildSkill('grammar'),
     essay: buildSkill('essay'),
+    customTasks: [],
     vocabularyWordCount: 0,
     vocabularySentenceCount: 0,
   };
@@ -287,6 +298,33 @@ export function aggregateWeeklySubjectAndEnglishBreakdown(
     reading: [],
     grammar: [],
     essay: [],
+  };
+  const customTaskScores = new Map<string, number[]>();
+  const customTaskMap = new Map<string, WeeklyEnglishCustomTaskBreakdownEntry>();
+  const getCustomTask = (key: string | null, displayName: string): WeeklyEnglishCustomTaskBreakdownEntry => {
+    const mapKey = key || displayName;
+    const existing = customTaskMap.get(mapKey);
+    if (existing) return existing;
+    const item: WeeklyEnglishCustomTaskBreakdownEntry = {
+      key,
+      displayName,
+      totalAttempts: 0,
+      scoredAttempts: 0,
+      averageAccuracy: null,
+      attempts: [],
+    };
+    customTaskMap.set(mapKey, item);
+    customTaskScores.set(mapKey, []);
+    return item;
+  };
+
+  const declaredPracticeCount = (
+    skill: 'editing' | 'reading' | 'grammar',
+    block: Record<string, unknown>,
+  ): number => {
+    const raw = skill === 'reading' ? block.articleCount : block.exerciseCount;
+    const count = toOptionalNumber(raw) ?? 0;
+    return count > 0 ? Math.floor(count) : 0;
   };
 
   for (const row of rows) {
@@ -353,15 +391,35 @@ export function aggregateWeeklySubjectAndEnglishBreakdown(
         const exercises = Array.isArray(block.exercises) ? block.exercises : [];
         const ids = Array.isArray(block.lossPointLabelsSnapshot) ? block.lossPointLabelsSnapshot : [];
         const commonIssue = String(block.otherLossPointText || '').trim();
-        if (exercises.length) {
-          exercises.forEach((ex, idx) => {
-            const score = typeof ex?.score === 'number' ? ex.score : null;
-            const issue = String(ex?.problems || '').trim() || ids.join('、') || commonIssue || '无';
+        const blockRecord = block as Record<string, unknown>;
+        const count = declaredPracticeCount(skill, blockRecord);
+        const blockScore = typeof block.score === 'number' ? block.score : null;
+        const blockText = String(blockRecord.text ?? '').trim();
+        const hasBlockEvidence =
+          count > 0 ||
+          blockScore != null ||
+          blockText.length > 0 ||
+          ids.length > 0 ||
+          commonIssue.length > 0 ||
+          exercises.some(exerciseHasEvidence);
+        if (!hasBlockEvidence) return;
+
+        const meaningfulExercises = exercises.filter(exerciseHasEvidence);
+        if (meaningfulExercises.length) {
+          meaningfulExercises.forEach((ex, idx) => {
+            const exRecord = isPlainObject(ex) ? ex : {};
+            const score = typeof exRecord.score === 'number' ? exRecord.score : null;
+            const issue = String(exRecord.problems || '').trim() || ids.join('、') || commonIssue || '无';
             pushAttempt(skill, score, issue, idx + 1);
           });
-        } else if (typeof block.score === 'number') {
-          const issue = ids.join('、') || commonIssue || '无';
-          pushAttempt(skill, block.score, issue, 1);
+        } else if (count > 0) {
+          const issue = ids.join('、') || commonIssue || blockText || '无';
+          for (let idx = 0; idx < count; idx += 1) {
+            pushAttempt(skill, idx === 0 ? blockScore : null, issue, idx + 1);
+          }
+        } else {
+          const issue = ids.join('、') || commonIssue || blockText || '无';
+          pushAttempt(skill, blockScore, issue, 1);
         }
       });
 
@@ -397,7 +455,6 @@ export function aggregateWeeklySubjectAndEnglishBreakdown(
         const displayName = String(
           rawTask.displayName ?? rawTask.chineseName ?? rawTask.englishName ?? rawTask.key ?? '自定义项目',
         ).trim();
-        const fieldsUsed = Array.isArray(rawTask.fieldsUsed) ? rawTask.fieldsUsed : [];
         const practiceCount = toOptionalNumber(rawTask.practiceCount) ?? 0;
         const taskScore = toOptionalNumber(rawTask.score);
         const taskMax = toOptionalNumber(rawTask.maxScore);
@@ -421,7 +478,7 @@ export function aggregateWeeklySubjectAndEnglishBreakdown(
         const scoredTaskExercises = taskExercises.filter((ex) => ex.percentage != null);
 
         const lowerName = displayName.toLowerCase();
-        const targetSkill = lowerName.includes('editing') || displayName.includes('改错')
+        const targetSkill: 'editing' | 'reading' | 'grammar' | 'essay' | null = lowerName.includes('editing') || displayName.includes('改错')
           ? 'editing'
           : lowerName.includes('reading') || displayName.includes('阅读')
             ? 'reading'
@@ -429,29 +486,57 @@ export function aggregateWeeklySubjectAndEnglishBreakdown(
               ? 'grammar'
               : lowerName.includes('essay') || lowerName.includes('composition') || displayName.includes('作文')
                 ? 'essay'
-                : 'essay';
+                : null;
 
-        const target = englishBreakdown[targetSkill];
         const delta = practiceCount > 0 ? Math.floor(practiceCount) : taskCompleted ? 1 : 0;
-        target.totalAttempts += delta;
         const scorePercentages = scoredTaskExercises.length
           ? scoredTaskExercises.map((ex) => ex.percentage).filter((value): value is number => value != null)
           : (taskPct != null ? [taskPct] : []);
-        if (scorePercentages.length) {
-          target.scoredAttempts += scorePercentages.length;
-          scorePercentages.forEach((percentage) => scoreBuffer[targetSkill].push(percentage));
-        }
-        const attemptRows = scoredTaskExercises.length
-          ? scoredTaskExercises
+        const meaningfulTaskExercises = taskExercises.filter((ex) => ex.percentage != null || ex.problems);
+        const inferredAttempts = delta > 0
+          ? delta
+          : meaningfulTaskExercises.length
+            ? meaningfulTaskExercises.length
+            : (taskPct != null || taskProblems ? 1 : 0);
+        if (inferredAttempts === 0) continue;
+        const attemptRows = meaningfulTaskExercises.length
+          ? meaningfulTaskExercises
           : [{ percentage: taskPct, problems: taskProblems }];
+
+        const customKey = hasMeaningfulText(rawTask.key) ? String(rawTask.key).trim() : null;
+        const customTask = getCustomTask(customKey, displayName || '自定义项目');
+        const customScoreBuffer = customTaskScores.get(customKey || customTask.displayName) ?? [];
+        customTask.totalAttempts += inferredAttempts;
+        if (scorePercentages.length) {
+          customTask.scoredAttempts += scorePercentages.length;
+          scorePercentages.forEach((percentage) => customScoreBuffer.push(percentage));
+        }
         for (const attempt of attemptRows) {
-          if (target.attempts.length >= 50) break;
-          target.attempts.push({
+          if (customTask.attempts.length >= 50) break;
+          customTask.attempts.push({
             date: date || '',
-            attemptIndex: target.attempts.length + 1,
+            attemptIndex: customTask.attempts.length + 1,
             accuracy: attempt.percentage,
             issues: (attempt.problems || taskProblems || displayName || '无').slice(0, 120),
           });
+        }
+
+        if (targetSkill) {
+          const target = englishBreakdown[targetSkill];
+          target.totalAttempts += inferredAttempts;
+          if (scorePercentages.length) {
+            target.scoredAttempts += scorePercentages.length;
+            scorePercentages.forEach((percentage) => scoreBuffer[targetSkill].push(percentage));
+          }
+          for (const attempt of attemptRows) {
+            if (target.attempts.length >= 50) break;
+            target.attempts.push({
+              date: date || '',
+              attemptIndex: target.attempts.length + 1,
+              accuracy: attempt.percentage,
+              issues: (attempt.problems || taskProblems || displayName || '无').slice(0, 120),
+            });
+          }
         }
 
         if (displayName.includes('词汇') || lowerName.includes('vocab')) {
@@ -460,9 +545,6 @@ export function aggregateWeeklySubjectAndEnglishBreakdown(
         if (displayName.includes('句') || lowerName.includes('sentence')) {
           englishBreakdown.vocabularySentenceCount += practiceCount > 0 ? Math.floor(practiceCount) : 0;
         }
-        if (!fieldsUsed.length && delta === 0 && taskProblems) {
-          target.totalAttempts += 1;
-        }
       }
     }
   }
@@ -470,6 +552,12 @@ export function aggregateWeeklySubjectAndEnglishBreakdown(
   (['editing', 'reading', 'grammar', 'essay'] as const).forEach((skill) => {
     englishBreakdown[skill].averageAccuracy = avg(scoreBuffer[skill]);
   });
+  englishBreakdown.customTasks = [...customTaskMap.values()]
+    .map((task) => ({
+      ...task,
+      averageAccuracy: avg(customTaskScores.get(task.key || task.displayName) ?? []),
+    }))
+    .sort((a, b) => b.totalAttempts - a.totalAttempts || a.displayName.localeCompare(b.displayName));
 
   const subjectBreakdown = [...subjectMap.values()]
     .map((item) => ({
@@ -497,6 +585,13 @@ const toPercentage = (score: number | null, total: number | null): number | null
   if (total != null && total > 0) return Number(((score / total) * 100).toFixed(1));
   if (score >= 0 && score <= 100) return Number(score.toFixed(1));
   return null;
+};
+
+const hasMeaningfulText = (value: unknown): boolean => String(value ?? '').trim().length > 0;
+
+const exerciseHasEvidence = (ex: unknown): boolean => {
+  if (!isPlainObject(ex)) return false;
+  return toOptionalNumber(ex.score) != null || hasMeaningfulText(ex.problems);
 };
 
 /**
@@ -687,7 +782,7 @@ type WeeklyContextInput = {
   papers: unknown[];
   exams?: unknown[];
   weeklyFeedback?: unknown[];
-  subjectProgress: unknown;
+  subjectProgress?: unknown;
 };
 
 const clip = (value: unknown, maxLen: number) => {
@@ -731,6 +826,15 @@ export function buildCompactWeeklySummaryContext(input: WeeklyContextInput) {
             : [];
         const customEnglishTasks = customEnglishTasksRaw
           .filter((task) => isPlainObject(task))
+          .filter((task) => {
+            const practiceCount = toOptionalNumber(task.practiceCount) ?? 0;
+            const hasScore = toOptionalNumber(task.score) != null;
+            const hasProblem = hasMeaningfulText(task.problems);
+            const hasMeaningfulExercise = Array.isArray(task.exercises)
+              ? task.exercises.some(exerciseHasEvidence)
+              : false;
+            return practiceCount > 0 || hasScore || task.completed === true || hasProblem || hasMeaningfulExercise;
+          })
           .slice(0, 8)
           .map((task) => ({
             key: task.key ?? null,
@@ -830,9 +934,6 @@ export function buildCompactWeeklySummaryContext(input: WeeklyContextInput) {
   const subjectBreakdown = Array.isArray(input.subjectBreakdown)
     ? input.subjectBreakdown.slice(0, 20)
     : [];
-  const subjectProgress = Array.isArray(input.subjectProgress)
-    ? input.subjectProgress.slice(0, 24)
-    : input.subjectProgress;
   const lossPointsObj = isPlainObject(input.lossPoints) ? input.lossPoints : {};
   const compactLossPoints = {
     ...lossPointsObj,
@@ -855,7 +956,13 @@ export function buildCompactWeeklySummaryContext(input: WeeklyContextInput) {
     papers: papersLimited,
     exams: examsLimited,
     weeklyFeedback,
-    subjectProgress,
+    ...(input.subjectProgress === undefined
+      ? {}
+      : {
+          subjectProgress: Array.isArray(input.subjectProgress)
+            ? input.subjectProgress.slice(0, 24)
+            : input.subjectProgress,
+        }),
     contextMeta: {
       dailyRowsOriginal: dailyRows.length,
       dailyRowsUsed: dailyLimited.length,
@@ -879,7 +986,7 @@ export function buildCompactWeeklySummaryContext(input: WeeklyContextInput) {
  * the output schema and the no-generic-advice rule. Operators can still
  * override via env if they want different phrasing.
  */
-export const ENHANCED_WEEKLY_PROMPT = `You are an experienced secondary-school teacher writing the weekly progress report for ONE student. The user message contains a JSON object with: student profile, attendance rollup, English statistics, loss-point histogram, daily_progress entries, paper scores, subject/topic progress.
+export const ENHANCED_WEEKLY_PROMPT = `You are an experienced secondary-school teacher writing the weekly progress report for ONE student. The user message contains a JSON object with: student profile, attendance rollup, English statistics, custom English task breakdown, loss-point histogram, daily_progress entries, paper scores, and exam scores.
 
 OUTPUT RULES (HARD):
 1. Respond with a SINGLE valid JSON object — no prose, no markdown fences, no commentary outside the object.
@@ -911,7 +1018,7 @@ OUTPUT RULES (HARD):
    - vocabularyWordCount, vocabularySentenceCount.
    If a count is 0 or missing, state data is insufficient; do not invent.
 10. You MUST use weeklyPaperBreakdown as the source of truth for paper/test statements. Do not invent paper names or scores.
-11. If dailyProgress activities include customEnglishTasks, summarize their concrete completion/score status as part of English learning.
+11. If englishBreakdown.customTasks or dailyProgress activities include customEnglishTasks, summarize their concrete completion/score status as part of English learning. Treat custom English tasks such as oral practice, vocabulary book, recitation, and teacher-defined tasks as English learning evidence when they have practiceCount, score, completed, problems, or exercise data.
 12. If weeklyExamBreakdown has data, include exam performance by subject with concrete scores/percentages from that object.
 13. If a day is marked absent, do not describe that day as learning activity.
 
@@ -926,7 +1033,7 @@ ADDITIONAL NON-NEGOTIABLE CONSTRAINTS:
 - English paragraph must include editing/reading/grammar/essay attempt counts, per-attempt accuracy, and per-attempt issues.
 - For subjects with paperCount > 0 in weeklyPaperBreakdown, include at least one concrete paper/test score statement.
 - For subjects with examCount > 0 in weeklyExamBreakdown, include at least one concrete exam score statement.
-- If customEnglishTasks exist, include them in English summary coverage.
+- If englishBreakdown.customTasks or customEnglishTasks exist, include them in English summary coverage with their concrete names/counts/scores/problems.
 - Days marked absent must not be narrated as completed study tasks.
 - Do not summarize English as one generic sentence.
 - If any required field lacks data, explicitly state "本周无有效记录/数据不足以判断", never fabricate.

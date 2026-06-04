@@ -7,6 +7,7 @@ Page({
     userName: "",
     isTeacher: false,
     isParent: false,
+    canManageStudentsAndParents: false,
     manageOpen: false,
     missingDate: "",
     selectedMissingDate: "",
@@ -49,6 +50,7 @@ Page({
     }
     const isTeacher = user?.role === "teacher";
     const isParent = user?.role === "parent";
+    const canManageStudentsAndParents = !!user?.canManageStudentsAndParents;
     const today = this.todayString();
     const selectedMissingDate = this.data.selectedMissingDate || today;
     const weeklyMissingSelectedDate = this.data.weeklyMissingSelectedDate || today;
@@ -56,6 +58,7 @@ Page({
       userName: resolveDisplayName(user),
       isTeacher,
       isParent,
+      canManageStudentsAndParents,
       selectedMissingDate,
       weeklyMissingSelectedDate,
     });
@@ -366,7 +369,7 @@ Page({
   },
 
   toggleManage() {
-    if (!this.data.isTeacher) return;
+    if (!this.data.isTeacher || !this.data.canManageStudentsAndParents) return;
     this.setData({ manageOpen: !this.data.manageOpen });
   },
 

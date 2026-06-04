@@ -161,7 +161,7 @@
       <view class="muted">账号信息、偏好与退出</view>
     </view>
 
-    <view wx:if="{{isTeacher}}" class="card tile wide" bindtap="toggleManage">
+    <view wx:if="{{isTeacher && canManageStudentsAndParents}}" class="card tile wide" bindtap="toggleManage">
       <view class="row-between">
         <view>
           <view class="tile-title">管理入口</view>

@@ -79,6 +79,11 @@ type CustomEnglishTaskLike = {
   score: number | null;
   maxScore: number | null;
   problems: string;
+  exercises: Array<{
+    score: number | null;
+    maxScore: number | null;
+    problems: string;
+  }>;
   completed: boolean;
 };
 
@@ -513,6 +518,20 @@ const normalizeCustomEnglishTasks = (raw: unknown): CustomEnglishTaskLike[] => {
     const practiceCount = Number(row.practiceCount ?? 0);
     const parsed = parseScoreAndMax(row.score, row.maxScore);
     const problems = String(row.problems || '').trim();
+    const exercises = Array.isArray(row.exercises)
+      ? row.exercises
+          .map((ex) => {
+            if (!ex || typeof ex !== 'object' || Array.isArray(ex)) return null;
+            const exRow = ex as Record<string, unknown>;
+            const exParsed = parseScoreAndMax(exRow.score, exRow.totalScore ?? exRow.maxScore ?? row.maxScore);
+            return {
+              score: exParsed.score,
+              maxScore: exParsed.maxScore,
+              problems: String(exRow.problems || '').trim(),
+            };
+          })
+          .filter((ex): ex is { score: number | null; maxScore: number | null; problems: string } => !!ex)
+      : [];
     const completed = row.completed === true;
     tasks.push({
       key: key || displayName.toLowerCase().replace(/\s+/g, '_'),
@@ -521,6 +540,7 @@ const normalizeCustomEnglishTasks = (raw: unknown): CustomEnglishTaskLike[] => {
       score: parsed.score,
       maxScore: parsed.maxScore,
       problems,
+      exercises,
       completed,
     });
   }
@@ -990,33 +1010,65 @@ export function buildStudentReportAnalytics(params: BuildParams): StudentReportA
           const primarySkill = taskSkills[0] || null;
           if (primarySkill) activitySkills.add(primarySkill);
           const parsedScore = parseScoreAndMax(task.score, task.maxScore);
-          const pct = calcPercentage(parsedScore.score, parsedScore.maxScore);
-          const scorePoint =
+          const fallbackScorePoint =
             parsedScore.score !== null
               ? {
                   date,
                   score: parsedScore.score,
                   maxScore: parsedScore.maxScore,
-                  percentage: pct.percentage,
+                  percentage: calcPercentage(parsedScore.score, parsedScore.maxScore).percentage,
                   source: 'dailyProgress' as const,
                   title: task.displayName || 'English Task',
                 }
               : null;
-          if (scorePoint) overallEnglishPoints.push(scorePoint);
+          const exerciseScorePoints = task.exercises
+            .map((ex, exIndex) => {
+              if (ex.score === null) return null;
+              const exPct = calcPercentage(ex.score, ex.maxScore);
+              return {
+                date,
+                score: ex.score,
+                maxScore: ex.maxScore,
+                percentage: exPct.percentage,
+                source: 'dailyProgress' as const,
+                title: `${task.displayName || 'English Task'} ${exIndex + 1}`,
+              };
+            })
+            .filter((row): row is EnglishScorePoint => !!row);
+          const scorePoints = exerciseScorePoints.length
+            ? exerciseScorePoints
+            : (fallbackScorePoint ? [fallbackScorePoint] : []);
+          scorePoints.forEach((scorePoint) => overallEnglishPoints.push(scorePoint));
           if (primarySkill) {
+            scorePoints.forEach((scorePoint) => {
+              observeEnglishSkill(primarySkill, {
+                activityDelta: 0,
+                recordHit: false,
+                scorePoint,
+                evidence: taskEvidence || evidenceBase,
+              });
+            });
             observeEnglishSkill(primarySkill, {
               activityDelta: task.practiceCount > 0 ? task.practiceCount : task.completed ? 1 : 0,
               recordHit: true,
-              scorePoint,
+              scorePoint: null,
               evidence: taskEvidence || evidenceBase,
             });
             countedSkillRecords.add(primarySkill);
-          } else if (task.practiceCount > 0 || task.completed || task.problems || scorePoint) {
+          } else if (task.practiceCount > 0 || task.completed || task.problems || scorePoints.length) {
             // No exact skill match: still mark a generic English activity.
+            scorePoints.forEach((scorePoint) => {
+              observeEnglishSkill('composition', {
+                activityDelta: 0,
+                recordHit: false,
+                scorePoint,
+                evidence: taskEvidence || evidenceBase,
+              });
+            });
             observeEnglishSkill('composition', {
               activityDelta: task.practiceCount > 0 ? task.practiceCount : task.completed ? 1 : 0,
               recordHit: true,
-              scorePoint,
+              scorePoint: null,
               evidence: taskEvidence || evidenceBase,
             });
             countedSkillRecords.add('composition');
@@ -1045,10 +1097,13 @@ export function buildStudentReportAnalytics(params: BuildParams): StudentReportA
           };
           const completedDelta = task.practiceCount > 0 ? task.practiceCount : task.completed ? 1 : 0;
           currentCustom.completedCount += completedDelta;
-          if (pct.percentage !== null) {
-            currentCustom.scores.push(pct.percentage);
-            currentCustom.latestScore = pct.percentage;
-          }
+          const taskPercentages = scorePoints
+            .map((scorePoint) => scorePoint.percentage)
+            .filter((percentage): percentage is number => percentage !== null);
+          taskPercentages.forEach((percentage) => {
+            currentCustom.scores.push(percentage);
+            currentCustom.latestScore = percentage;
+          });
           if (taskEvidence && currentCustom.evidence.length < 3 && !currentCustom.evidence.includes(taskEvidence)) {
             currentCustom.evidence.push(taskEvidence);
           }

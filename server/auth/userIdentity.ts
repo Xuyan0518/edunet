@@ -1,3 +1,5 @@
+import { canManageStudentsAndParents } from '../utils/managementPermissions';
+
 export const DEFAULT_USER_NAME = '未命名用户';
 
 export const pickDisplayName = (input?: unknown) => {
@@ -23,6 +25,7 @@ export const toPublicUser = (user: any, role: 'teacher' | 'parent' | 'admin') =>
     status: user.status || 'approved',
     authProvider: user.authProvider || 'wechat',
     wechatOpenIdMasked: maskOpenId(user.wechatOpenId),
+    canManageStudentsAndParents: canManageStudentsAndParents({ role, wechatOpenId: user.wechatOpenId }),
     createdAt: user.createdAt || null,
     updatedAt: user.updatedAt || null,
   };

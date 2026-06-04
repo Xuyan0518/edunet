@@ -9,6 +9,12 @@ vi.mock('../../server/db', () => ({
   db: mockDb,
 }));
 
+vi.mock('../../server/services/actionLocks', () => ({
+  withActionLock: async (_options: unknown, callback: () => Promise<unknown>) => callback(),
+  isActionLockConflictError: () => false,
+  buildActionLockConflictPayload: () => ({ error: 'ACTION_LOCKED' }),
+}));
+
 let app: Express;
 let generateToken: typeof import('../../server/utils/auth').generateToken;
 let fetchMock: ReturnType<typeof vi.fn>;

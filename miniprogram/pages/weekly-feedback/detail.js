@@ -95,23 +95,33 @@ const formatScorePair = (score, total) => {
   return `${s}/${t}`;
 };
 
+const shouldShowProblemsForScore = (score, total, problems) => {
+  const text = asText(problems);
+  if (!text) return false;
+  const s = toNumberOrNull(score);
+  if (s == null) return true;
+  const t = toNumberOrNull(total);
+  if (t == null) return true;
+  return s < t;
+};
+
 const uniqText = (arr = []) =>
   [...new Set((Array.isArray(arr) ? arr : []).map((item) => asText(item)).filter(Boolean))];
 
 const isPlainObject = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 
-const normalizeExercises = (raw, count, fallbackScore, fallbackText) => {
+const normalizeExercises = (raw, count, fallbackScore, fallbackText, fallbackTotalScore = 100) => {
   const incoming = Array.isArray(raw) ? raw : [];
   const list = incoming.map((ex) => {
     if (!isPlainObject(ex)) return { score: null, problems: "" };
     return {
       score: toNumberOrNull(ex.score),
-      totalScore: toNumberOrNull(ex.totalScore),
+      totalScore: toNumberOrNull(ex.totalScore ?? ex.maxScore),
       problems: asText(ex.problems),
     };
   });
   if (!list.length && (fallbackScore != null || fallbackText)) {
-    list.push({ score: fallbackScore, totalScore: 100, problems: fallbackText });
+    list.push({ score: fallbackScore, totalScore: toNumberOrNull(fallbackTotalScore) || 100, problems: fallbackText });
   }
   const total = Math.max(toInt(count), list.length);
   while (list.length < total) {
@@ -187,8 +197,9 @@ const buildScoredSection = ({ title, countLabel, countKey, unitLabel, block }) =
   const list = [];
   for (let i = 0; i < totalCount; i++) {
     const ex = exercises[i] || {};
-    const scoreText = formatScorePair(ex.score, ex.totalScore || source.totalScore);
-    const problems = asText(ex.problems);
+    const totalScore = ex.totalScore || source.totalScore;
+    const scoreText = formatScorePair(ex.score, totalScore);
+    const problems = shouldShowProblemsForScore(ex.score, totalScore, ex.problems) ? asText(ex.problems) : "";
     list.push({
       title: `${unitLabel} ${i + 1}`,
       scoreText: scoreText || "--",
@@ -210,6 +221,52 @@ const buildScoredSection = ({ title, countLabel, countKey, unitLabel, block }) =
     lossPointLabels,
     lossPointText: lossPointLabels.join("、"),
     otherLossPointText,
+  };
+};
+
+const buildCustomScoredSection = ({ title, task, role = "teacher" }) => {
+  const fieldsUsed = Array.isArray(task.fieldsUsed)
+    ? task.fieldsUsed
+    : ["practiceCount", "score", "problems"];
+  const usesPracticeCount = fieldsUsed.includes("practiceCount");
+  const usesScore = fieldsUsed.includes("score");
+  const usesProblems = fieldsUsed.includes("problems");
+  const count = toInt(task.practiceCount);
+  const exercises = normalizeExercises(
+    task.exercises,
+    count,
+    toNumberOrNull(task.score),
+    asText(task.problems),
+    toNumberOrNull(task.maxScore) || 100
+  );
+  const totalCount = usesPracticeCount ? Math.max(count, exercises.length) : exercises.length;
+  if (!usesPracticeCount || (!totalCount && !formatScorePair(task.score, task.maxScore))) return null;
+  const list = [];
+  const rowCount = totalCount || 1;
+  for (let i = 0; i < rowCount; i++) {
+    const ex = exercises[i] || {};
+    const totalScore = ex.totalScore || task.maxScore;
+    const scoreText = usesScore
+      ? (formatScorePair(ex.score, totalScore) || (i === 0 ? formatScorePair(task.score, task.maxScore) : ""))
+      : "";
+    list.push({
+      title: `练习 ${i + 1}`,
+      scoreText: scoreText || "--",
+      problems: role === "teacher" && usesProblems && shouldShowProblemsForScore(ex.score, totalScore, ex.problems)
+        ? asText(ex.problems)
+        : "",
+    });
+  }
+  return {
+    title,
+    kind: "scored",
+    countLabel: "练习数",
+    countValue: String(totalCount || rowCount),
+    list,
+    note: "",
+    lossPointLabels: [],
+    lossPointText: "",
+    otherLossPointText: "",
   };
 };
 
@@ -306,6 +363,11 @@ const buildParentEnglishSections = (english = {}, activity = {}) => {
     const taskKey = asText(task.key).toLowerCase();
     if (canonicalKeys.has(taskKey)) return;
     const displayName = asText(task.displayName || task.chineseName || task.englishName || task.key || "自定义项目");
+    const scoredSection = buildCustomScoredSection({ title: displayName, task, role: "parent" });
+    if (scoredSection) {
+      sections.push(scoredSection);
+      return;
+    }
     const scoreText = formatScorePair(task.score, task.maxScore);
     const count = toInt(task.practiceCount);
     const completed = task.completed === true ? "已完成" : "";
@@ -404,6 +466,11 @@ const buildEnglishSections = (english = {}, activity = {}, role = "teacher") => 
     const taskKey = asText(task.key).toLowerCase();
     if (canonicalKeys.has(taskKey)) return;
     const displayName = asText(task.displayName || task.chineseName || task.englishName || task.key || "自定义项目");
+    const scoredSection = buildCustomScoredSection({ title: displayName, task, role: "teacher" });
+    if (scoredSection) {
+      sections.push(scoredSection);
+      return;
+    }
     const fieldsUsed = Array.isArray(task.fieldsUsed)
       ? task.fieldsUsed
       : ["practiceCount", "score", "problems"];
@@ -907,7 +974,7 @@ Page({
     if (!this.data.existingId) return;
     wx.showModal({
       title: "确认删除",
-      content: "删除后无法恢复，确定继续？",
+      content: "删除后将进入该学生的回收站，可在 30 天内恢复。",
       success: (res) => {
         if (!res.confirm) return;
         const updatedAt = encodeURIComponent(this.data.lastUpdatedAt || "");

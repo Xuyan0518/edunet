@@ -240,9 +240,13 @@ describe('buildStudentReportAnalytics', () => {
                   key: 'listening',
                   displayName: 'Listening',
                   practiceCount: 3,
-                  score: 78,
-                  maxScore: 100,
+                  score: null,
+                  maxScore: null,
                   problems: 'careless mistakes',
+                  exercises: [
+                    { score: 78, totalScore: 100, problems: 'careless mistakes' },
+                    { score: 90, totalScore: 100, problems: '' },
+                  ],
                   completed: true,
                   fieldsUsed: ['practiceCount', 'score', 'problems'],
                 },
@@ -253,7 +257,9 @@ describe('buildStudentReportAnalytics', () => {
       ],
     });
     expect(out.englishAnalytics.hasEnglishData).toBe(true);
-    expect(out.englishAnalytics.overallEnglishScoreTrend.points.length).toBeGreaterThan(0);
+    expect(out.englishAnalytics.overallEnglishScoreTrend.points.length).toBe(2);
+    expect(out.englishAnalytics.customTaskStats[0].scoreRecordCount).toBe(2);
+    expect(out.englishAnalytics.customTaskStats[0].averageScore).toBe(84);
     expect(out.subjectStats.some((s) => s.subjectName === 'English')).toBe(true);
   });
 });

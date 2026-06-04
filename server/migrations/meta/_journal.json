@@ -216,6 +216,13 @@
       "when": 1779100000000,
       "tag": "0030_add_english_task_config_and_subject_levels",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1780590000000,
+      "tag": "0031_add_student_bin_soft_delete",
+      "breakpoints": true
     }
   ]
 }

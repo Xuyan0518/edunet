@@ -271,7 +271,7 @@ const computeSectionHasData = (code, block) => {
   return false;
 };
 
-const buildExercisesArray = (raw, count, legacyScore, legacyText) => {
+const buildExercisesArray = (raw, count, legacyScore, legacyText, legacyTotalScore = 100) => {
   const incoming = Array.isArray(raw) ? raw : [];
   const out = [];
   for (let i = 0; i < count; i++) {
@@ -279,13 +279,15 @@ const buildExercisesArray = (raw, count, legacyScore, legacyText) => {
     if (e && typeof e === "object" && !Array.isArray(e)) {
       out.push({
         score: toScoreOrNull(e.score),
-        totalScore: toScoreOrNull(e.totalScore),
+        totalScore: toScoreOrNull(e.totalScore ?? e.maxScore),
         problems: typeof e.problems === "string" ? e.problems : "",
       });
     } else {
       out.push({
         score: i === 0 && incoming.length === 0 ? legacyScore : null,
-        totalScore: 100,
+        totalScore: i === 0 && incoming.length === 0
+          ? (toBoundedTotalScore(legacyTotalScore) || 100)
+          : 100,
         problems: i === 0 && incoming.length === 0 ? (legacyText || "") : "",
       });
     }
@@ -320,16 +322,21 @@ const normalizeCustomEnglishTasks = (raw) => {
       const fieldsUsed = Array.isArray(task.fieldsUsed)
         ? task.fieldsUsed.filter((f) => ["practiceCount", "score", "problems"].includes(f))
         : ["practiceCount", "score", "problems"];
+      const practiceCount = toIntOrZero(task.practiceCount);
+      const score = toScoreOrNull(task.score);
+      const maxScore = toScoreOrNull(task.maxScore);
+      const problems = String(task.problems || "").trim();
       return {
         taskId: id,
         key,
         displayName,
         chineseName: String(task.chineseName || "").trim(),
         englishName: String(task.englishName || "").trim(),
-        practiceCount: toIntOrZero(task.practiceCount),
-        score: toScoreOrNull(task.score),
-        maxScore: toScoreOrNull(task.maxScore),
-        problems: String(task.problems || "").trim(),
+        practiceCount,
+        score,
+        maxScore,
+        problems,
+        exercises: buildExercisesArray(task.exercises, practiceCount, score, problems, maxScore || 100),
         completed: task.completed === true,
         targetCount: toIntOrZero(task.targetCount),
         fieldsUsed: fieldsUsed.length ? fieldsUsed : ["practiceCount", "score", "problems"],
@@ -341,6 +348,14 @@ const normalizeCustomEnglishTasks = (raw) => {
 const summarizeEnglishProblems = (block = {}) => {
   const exercises = Array.isArray(block.exercises) ? block.exercises : [];
   const collected = exercises
+    .map((ex) => String(ex?.problems || "").trim())
+    .filter(Boolean)
+    .slice(0, 3);
+  return collected.join("；");
+};
+
+const summarizeTaskExerciseProblems = (exercises = []) => {
+  const collected = (Array.isArray(exercises) ? exercises : [])
     .map((ex) => String(ex?.problems || "").trim())
     .filter(Boolean)
     .slice(0, 3);
@@ -405,6 +420,13 @@ const normalizeEnglishTaskEntryForUi = (entry = {}, configTask = {}) => {
     score: toScoreOrNull(entry.score),
     maxScore: toScoreOrNull(entry.maxScore),
     problems: trimText(entry.problems || ""),
+    exercises: buildExercisesArray(
+      entry.exercises,
+      toIntOrZero(entry.practiceCount),
+      toScoreOrNull(entry.score),
+      trimText(entry.problems || ""),
+      toScoreOrNull(entry.maxScore) || 100
+    ),
     completed: entry.completed === true,
     targetCount: toIntOrZero(configTask.weeklyTargetCount || entry.targetCount),
     fieldsUsed: enabledFields,
@@ -728,6 +750,20 @@ Page({
         const current = customByKey.get(task.key) || {};
         const normalized = normalizeEnglishTaskEntryForUi(current, task);
         if (expandedByKey.has(task.key)) normalized.uiExpanded = expandedByKey.get(task.key);
+        const fallbackTotal = toBoundedTotalScore(normalized.maxScore) || 100;
+        const exercises = (Array.isArray(normalized.exercises) ? normalized.exercises : []).map((ex) => {
+          const n = ex.score == null || ex.score === "" ? null : Number(ex.score);
+          const isScored = n !== null && Number.isFinite(n);
+          const exTotal = getEffectiveTotal(n, ex.totalScore, fallbackTotal);
+          return {
+            ...ex,
+            totalScore: exTotal,
+            showProblems: isScored && isImperfectScore(n, exTotal, fallbackTotal),
+            isScored,
+          };
+        });
+        normalized.exercises = exercises;
+        normalized.anyImperfect = exercises.some((ex) => ex.showProblems);
         return normalized;
       });
       return { ...a, english: eng, customEnglishTasks };
@@ -1438,8 +1474,16 @@ Page({
     if (!this.data.isEditable) return;
     const idx = Number(e.currentTarget.dataset.index);
     const taskIndex = Number(e.currentTarget.dataset.taskIndex);
-    const value = clampIntInput(e.detail.value, 0, LIMITS.englishVocabMax);
-    this.updateCustomEnglishTask(idx, taskIndex, { practiceCount: value, completed: value > 0 });
+    const value = clampIntInput(e.detail.value, 0, LIMITS.englishExerciseMax);
+    const activity = this.data.activities[idx];
+    const task = activity?.customEnglishTasks?.[taskIndex] || {};
+    const existing = Array.isArray(task.exercises) ? task.exercises : [];
+    const fallbackTotal = toBoundedTotalScore(task.maxScore) || 100;
+    const next = [];
+    for (let i = 0; i < value; i++) {
+      next.push(existing[i] || { score: null, totalScore: fallbackTotal, problems: "" });
+    }
+    this.updateCustomEnglishTask(idx, taskIndex, { practiceCount: value, exercises: next, completed: value > 0 });
   },
 
   onCustomTaskScoreInput(e) {
@@ -1465,6 +1509,51 @@ Page({
     const idx = Number(e.currentTarget.dataset.index);
     const taskIndex = Number(e.currentTarget.dataset.taskIndex);
     this.updateCustomEnglishTask(idx, taskIndex, { problems: e.detail.value || "" });
+  },
+
+  onCustomTaskExerciseScoreInput(e) {
+    if (!this.data.isEditable) return;
+    const idx = Number(e.currentTarget.dataset.index);
+    const taskIndex = Number(e.currentTarget.dataset.taskIndex);
+    const exIdx = Number(e.currentTarget.dataset.exerciseIndex);
+    if (!Number.isInteger(exIdx)) return;
+    const activity = this.data.activities[idx];
+    const task = activity?.customEnglishTasks?.[taskIndex] || {};
+    const list = Array.isArray(task.exercises) ? task.exercises.slice() : [];
+    const fallbackTotal = toBoundedTotalScore(task.maxScore) || 100;
+    while (list.length <= exIdx) list.push({ score: null, totalScore: fallbackTotal, problems: "" });
+    list[exIdx] = { ...list[exIdx], score: toBoundedScore(e.detail.value) };
+    this.updateCustomEnglishTask(idx, taskIndex, { exercises: list });
+  },
+
+  onCustomTaskExerciseTotalInput(e) {
+    if (!this.data.isEditable) return;
+    const idx = Number(e.currentTarget.dataset.index);
+    const taskIndex = Number(e.currentTarget.dataset.taskIndex);
+    const exIdx = Number(e.currentTarget.dataset.exerciseIndex);
+    if (!Number.isInteger(exIdx)) return;
+    const activity = this.data.activities[idx];
+    const task = activity?.customEnglishTasks?.[taskIndex] || {};
+    const list = Array.isArray(task.exercises) ? task.exercises.slice() : [];
+    const fallbackTotal = toBoundedTotalScore(task.maxScore) || 100;
+    while (list.length <= exIdx) list.push({ score: null, totalScore: fallbackTotal, problems: "" });
+    list[exIdx] = { ...list[exIdx], totalScore: toBoundedTotalScore(e.detail.value) };
+    this.updateCustomEnglishTask(idx, taskIndex, { exercises: list });
+  },
+
+  onCustomTaskExerciseProblemsInput(e) {
+    if (!this.data.isEditable) return;
+    const idx = Number(e.currentTarget.dataset.index);
+    const taskIndex = Number(e.currentTarget.dataset.taskIndex);
+    const exIdx = Number(e.currentTarget.dataset.exerciseIndex);
+    if (!Number.isInteger(exIdx)) return;
+    const activity = this.data.activities[idx];
+    const task = activity?.customEnglishTasks?.[taskIndex] || {};
+    const list = Array.isArray(task.exercises) ? task.exercises.slice() : [];
+    const fallbackTotal = toBoundedTotalScore(task.maxScore) || 100;
+    while (list.length <= exIdx) list.push({ score: null, totalScore: fallbackTotal, problems: "" });
+    list[exIdx] = { ...list[exIdx], problems: e.detail.value || "" };
+    this.updateCustomEnglishTask(idx, taskIndex, { exercises: list });
   },
 
   syncPaperPickers() {
@@ -1704,7 +1793,7 @@ Page({
     if (!this.data.existingId) return;
     wx.showModal({
       title: "确认删除",
-      content: "删除后无法恢复，确定继续？",
+      content: "删除后将进入该学生的回收站，可在 30 天内恢复。",
       success: (res) => {
         if (!res.confirm) return;
         const updatedAt = encodeURIComponent(this.data.lastUpdatedAt || "");
@@ -1933,10 +2022,40 @@ Page({
       }
       const customTasks = Array.isArray(activity?.customEnglishTasks) ? activity.customEnglishTasks : [];
       for (const task of customTasks) {
-        if (!checkPair(task.displayName || "英文项目", task.score, task.maxScore, 100)) return;
-        if (isImperfectScore(task.score, task.maxScore, 100) && !trimText(task.problems)) {
-          wx.showToast({ title: `${task.displayName || "英文项目"}非满分请填写出现的问题`, icon: "none" });
+        const label = task.displayName || "英文项目";
+        const fieldsUsed = Array.isArray(task.fieldsUsed) ? task.fieldsUsed : [];
+        const usesPracticeCount = fieldsUsed.indexOf("practiceCount") !== -1;
+        const usesScore = fieldsUsed.indexOf("score") !== -1;
+        const usesProblems = fieldsUsed.indexOf("problems") !== -1;
+        const count = Number(task.practiceCount || 0);
+        if (!Number.isFinite(count) || count < 0 || count > LIMITS.englishExerciseMax) {
+          wx.showToast({ title: `${label}练习数超过限制`, icon: "none" });
           return;
+        }
+        if (usesPracticeCount) {
+          const exercises = Array.isArray(task.exercises) ? task.exercises : [];
+          if (exercises.length > LIMITS.englishExerciseMax) {
+            wx.showToast({ title: `${label}练习条数过多`, icon: "none" });
+            return;
+          }
+          for (let exIndex = 0; exIndex < exercises.length; exIndex += 1) {
+            const ex = exercises[exIndex] || {};
+            if (usesScore && !checkPair(`${label}练习${exIndex + 1}`, ex.score, ex.totalScore, 100)) return;
+            if (trimText(ex.problems).length > LIMITS.activityTextMax) {
+              wx.showToast({ title: `${label}错因描述过长`, icon: "none" });
+              return;
+            }
+            if (usesProblems && usesScore && isImperfectScore(ex.score, ex.totalScore, 100) && !trimText(ex.problems)) {
+              wx.showToast({ title: `${label}练习${exIndex + 1}非满分请填写出现的问题`, icon: "none" });
+              return;
+            }
+          }
+        } else {
+          if (!checkPair(label, task.score, task.maxScore, 100)) return;
+          if (usesProblems && isImperfectScore(task.score, task.maxScore, 100) && !trimText(task.problems)) {
+            wx.showToast({ title: `${label}非满分请填写出现的问题`, icon: "none" });
+            return;
+          }
         }
       }
     }
@@ -2001,7 +2120,12 @@ Page({
           practiceCount: toIntOrZero(task.practiceCount),
           score: toScoreOrNull(task.score),
           maxScore: toScoreOrNull(task.maxScore),
-          problems: trimText(task.problems || ""),
+          problems: trimText(task.problems || summarizeTaskExerciseProblems(task.exercises)),
+          exercises: (Array.isArray(task.exercises) ? task.exercises : []).map((ex) => ({
+            score: toScoreOrNull(ex?.score),
+            totalScore: toScoreOrNull(ex?.totalScore),
+            problems: trimText(ex?.problems || ""),
+          })),
           completed: task.completed === true,
           targetCount: toIntOrZero(task.targetCount),
           fieldsUsed: Array.isArray(task.fieldsUsed) ? task.fieldsUsed : ["practiceCount", "score", "problems"],

@@ -134,7 +134,7 @@
     </block>
   </view>
 
-  <view class="section card" wx:if="{{isTeacher}}">
+  <view class="section card" wx:if="{{isTeacher && canManageStudentsAndParents}}">
     <view class="section-title">家长绑定</view>
     <view class="row-between">
       <view class="muted">当前家长</view>
@@ -179,6 +179,10 @@
         <view wx:if="{{reportsUnread && isParent}}" class="chip chip-alert">新</view>
         <view class="chip">查看</view>
       </view>
+    </view>
+    <view wx:if="{{isTeacher}}" class="list-item row-between" bindtap="openBin">
+      <view>回收站</view>
+      <view class="chip">30天内可恢复</view>
     </view>
     <view class="list-item row-between" bindtap="openQuarterlySummary">
       <view>学期总结（旧版）</view>

@@ -419,7 +419,7 @@ Page({
     const updatedAt = encodeURIComponent(exam?.updatedAt || "");
     wx.showModal({
       title: "确认删除",
-      content: "删除考试后无法恢复，确定继续？",
+      content: "删除后将进入该学生的回收站，可在 30 天内恢复。",
       success: (res) => {
         if (!res.confirm) return;
         request({ url: `/exams/${id}?updatedAt=${updatedAt}`, method: "DELETE" })

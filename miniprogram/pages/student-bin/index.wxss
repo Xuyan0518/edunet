@@ -1,0 +1,64 @@
+.empty-state {
+  text-align: center;
+}
+
+.empty-title {
+  font-weight: 700;
+  margin-bottom: 8rpx;
+}
+
+.bin-item {
+  padding: 20rpx 0;
+  border-bottom: 1rpx solid #e2e8f0;
+}
+
+.bin-item:last-child {
+  border-bottom: 0;
+}
+
+.bin-main {
+  flex: 1;
+  min-width: 0;
+  padding-right: 16rpx;
+}
+
+.bin-title {
+  font-weight: 700;
+  margin-bottom: 8rpx;
+}
+
+.bin-summary {
+  max-width: 480rpx;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bin-meta {
+  margin-top: 12rpx;
+  color: #64748b;
+  font-size: 24rpx;
+  line-height: 1.7;
+}
+
+.retention {
+  color: #b45309;
+  font-weight: 700;
+}
+
+.bin-actions {
+  display: flex;
+  gap: 12rpx;
+  justify-content: flex-end;
+  margin-top: 14rpx;
+}
+
+.action-btn {
+  margin: 0;
+}
+
+.danger {
+  border-color: #fecaca;
+  color: #b91c1c;
+  background: #fff7f7;
+}

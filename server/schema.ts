@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { sql } from 'drizzle-orm';
 import { pgTable, uuid, varchar, integer, timestamp, jsonb, text, date, uniqueIndex, boolean, index } from 'drizzle-orm/pg-core';
 import { v4 as uuidv4 } from 'uuid';
 // Fix uuid import for ESM compatibility
@@ -413,8 +414,13 @@ export const dailyProgress = pgTable('daily_progress', {
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
   updatedByName: varchar('updated_by_name', { length: 100 }),
+  deletedAt: timestamp('deleted_at'),
+  deletedBy: varchar('deleted_by', { length: 64 }),
+  deletedByName: varchar('deleted_by_name', { length: 100 }),
 }, (table) => ({
-  studentDateUnique: uniqueIndex('daily_progress_student_date_idx').on(table.studentId, table.date),
+  studentDateUnique: uniqueIndex('daily_progress_student_date_idx')
+    .on(table.studentId, table.date)
+    .where(sql`${table.deletedAt} IS NULL`),
 }));
 
 export const weeklyFeedback = pgTable('weekly_feedback', {
@@ -430,8 +436,13 @@ export const weeklyFeedback = pgTable('weekly_feedback', {
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
   updatedByName: varchar('updated_by_name', { length: 100 }),
+  deletedAt: timestamp('deleted_at'),
+  deletedBy: varchar('deleted_by', { length: 64 }),
+  deletedByName: varchar('deleted_by_name', { length: 100 }),
 }, (table) => ({
-  uqStudentWeek: uniqueIndex('uq_weekly_feedback_student_week').on(table.studentId, table.weekStarting),
+  uqStudentWeek: uniqueIndex('uq_weekly_feedback_student_week')
+    .on(table.studentId, table.weekStarting)
+    .where(sql`${table.deletedAt} IS NULL`),
 }));
 
 export const examsTable = pgTable('exams', {
@@ -447,6 +458,9 @@ export const examsTable = pgTable('exams', {
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
   updatedByName: varchar('updated_by_name', { length: 100 }),
+  deletedAt: timestamp('deleted_at'),
+  deletedBy: varchar('deleted_by', { length: 64 }),
+  deletedByName: varchar('deleted_by_name', { length: 100 }),
 });
 
 export const examScoresTable = pgTable('exam_scores', {
@@ -477,8 +491,13 @@ export const quarterlySummaryTable = pgTable('quarterly_summary', {
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
   updatedByName: varchar('updated_by_name', { length: 100 }),
+  deletedAt: timestamp('deleted_at'),
+  deletedBy: varchar('deleted_by', { length: 64 }),
+  deletedByName: varchar('deleted_by_name', { length: 100 }),
 }, (table) => ({
-  uqStudentYearQuarter: uniqueIndex('uq_quarterly_summary_student_year_quarter').on(table.studentId, table.year, table.quarter),
+  uqStudentYearQuarter: uniqueIndex('uq_quarterly_summary_student_year_quarter')
+    .on(table.studentId, table.year, table.quarter)
+    .where(sql`${table.deletedAt} IS NULL`),
 }));
 
 export const yearlySummaryTable = pgTable('yearly_summary', {
@@ -489,8 +508,13 @@ export const yearlySummaryTable = pgTable('yearly_summary', {
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
   updatedByName: varchar('updated_by_name', { length: 100 }),
+  deletedAt: timestamp('deleted_at'),
+  deletedBy: varchar('deleted_by', { length: 64 }),
+  deletedByName: varchar('deleted_by_name', { length: 100 }),
 }, (table) => ({
-  uqStudentYear: uniqueIndex('uq_yearly_summary_student_year').on(table.studentId, table.year),
+  uqStudentYear: uniqueIndex('uq_yearly_summary_student_year')
+    .on(table.studentId, table.year)
+    .where(sql`${table.deletedAt} IS NULL`),
 }));
 
 export const studentReportsTable = pgTable('student_reports', {
@@ -514,6 +538,9 @@ export const studentReportsTable = pgTable('student_reports', {
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
   updatedByName: varchar('updated_by_name', { length: 100 }),
+  deletedAt: timestamp('deleted_at'),
+  deletedBy: varchar('deleted_by', { length: 64 }),
+  deletedByName: varchar('deleted_by_name', { length: 100 }),
 }, (table) => ({
   idxStudentReportsStudent: index('idx_student_reports_student_created')
     .on(table.studentId, table.createdAt, table.id),
@@ -631,6 +658,9 @@ export const studentPapersTable = pgTable('student_papers', {
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
   updatedByName: varchar('updated_by_name', { length: 100 }),
+  deletedAt: timestamp('deleted_at'),
+  deletedBy: varchar('deleted_by', { length: 64 }),
+  deletedByName: varchar('deleted_by_name', { length: 100 }),
 });
 
 export const studentEnglishTaskConfigsTable = pgTable('student_english_task_configs', {

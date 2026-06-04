@@ -388,7 +388,7 @@ Page({
     if (!id) return;
     wx.showModal({
       title: "确认删除",
-      content: "删除后无法恢复，确定继续？",
+      content: "删除后将进入该学生的回收站，可在 30 天内恢复。",
       success: (res) => {
         if (!res.confirm) return;
         const paper = (this.data.papers || []).find((p) => p.id === id);

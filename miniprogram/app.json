@@ -17,6 +17,7 @@
     "pages/reports/index",
     "pages/report-detail/index",
     "pages/report-view/index",
+    "pages/student-bin/index",
     "pages/student-add/index",
     "pages/students-manage/index",
     "pages/parents/index",

@@ -10,7 +10,7 @@ Page({
 
   onShow() {
     const user = wx.getStorageSync("user");
-    if (user?.role !== "teacher") {
+    if (user?.role !== "teacher" || !user?.canManageStudentsAndParents) {
       wx.showToast({ title: "无权限", icon: "error" });
       wx.navigateBack();
       return;

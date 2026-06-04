@@ -39,6 +39,7 @@ describe('server/auth/userIdentity', () => {
       status: 'approved',
       authProvider: 'wechat',
       wechatOpenIdMasked: 'abcd***mnop',
+      canManageStudentsAndParents: false,
       createdAt: null,
       updatedAt: null,
     });

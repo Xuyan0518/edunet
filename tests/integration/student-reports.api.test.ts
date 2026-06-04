@@ -9,6 +9,12 @@ vi.mock('../../server/db', () => ({
   db: mockDb,
 }));
 
+vi.mock('../../server/services/actionLocks', () => ({
+  withActionLock: async (_options: unknown, callback: () => Promise<unknown>) => callback(),
+  isActionLockConflictError: () => false,
+  buildActionLockConflictPayload: () => ({ error: 'ACTION_LOCKED' }),
+}));
+
 let app: Express;
 let generateToken: typeof import('../../server/utils/auth').generateToken;
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -214,14 +220,14 @@ describe('student report APIs', () => {
         studentParentId: 'parent-1',
       },
     ]); // report with student
-    mockDb.queueDelete([{ id: 'report-del-1' }]); // delete returning
+    mockDb.queueUpdate([{ id: 'report-del-1' }]); // soft delete returning
 
     const res = await request(app)
       .delete('/api/reports/report-del-1')
       .set('Authorization', `Bearer ${token}`);
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ success: true });
+    expect(res.body).toEqual({ success: true, message: 'Report moved to bin' });
   });
 });
 

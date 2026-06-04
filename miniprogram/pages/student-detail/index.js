@@ -71,6 +71,7 @@ Page({
     expandedSubjects: {},
     expandedTopics: {},
     parents: [],
+    canManageStudentsAndParents: false,
     parentNames: ["不指定"],
     selectedParentId: "",
     selectedParentName: "不指定",
@@ -90,8 +91,9 @@ Page({
     const user = wx.getStorageSync("user");
     const isTeacher = user?.role === "teacher";
     const isParent = user?.role === "parent";
-    this.setData({ isTeacher, isParent });
-    if (isTeacher) this.fetchParents();
+    const canManageStudentsAndParents = !!user?.canManageStudentsAndParents;
+    this.setData({ isTeacher, isParent, canManageStudentsAndParents });
+    if (isTeacher && canManageStudentsAndParents) this.fetchParents();
   },
 
   onShow() {
@@ -338,6 +340,10 @@ Page({
     wx.navigateTo({ url: `/pages/reports/index?studentId=${this.studentId}` });
   },
 
+  openBin() {
+    wx.navigateTo({ url: `/pages/student-bin/index?studentId=${this.studentId}` });
+  },
+
   openQuarterlySummary() {
     wx.navigateTo({ url: `/pages/quarterly-summary/index?studentId=${this.studentId}` });
   },
@@ -361,6 +367,7 @@ Page({
   },
 
   onParentChange(e) {
+    if (!this.data.canManageStudentsAndParents) return;
     const index = Number(e.detail.value);
     if (index === 0) {
       this.setData({ selectedParentId: "", selectedParentName: "不指定" });
@@ -372,6 +379,7 @@ Page({
   },
 
   saveParent() {
+    if (!this.data.canManageStudentsAndParents) return;
     const parentId = this.data.selectedParentId || null;
     request({
       url: `/students/${this.studentId}`,

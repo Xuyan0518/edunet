@@ -4,7 +4,8 @@ import bodyParser from 'body-parser';
 import dotenv from 'dotenv';
 import crypto from 'crypto';
 import { db } from './db';
-import { eq, desc, and, isNull, inArray, gte, lte, lt } from 'drizzle-orm';
+import { eq, desc, and, isNull, isNotNull, inArray, gte, lte, lt } from 'drizzle-orm';
+import type { SQLWrapper } from 'drizzle-orm';
 import { format } from 'date-fns';
 import {
   studentsTable,
@@ -189,6 +190,7 @@ import {
 } from './utils/subjectLevels';
 import { sendWeChatSubscribeMessage } from './utils/wechatNotify';
 import { DEFAULT_USER_NAME, pickDisplayName, toPublicUser } from './auth/userIdentity';
+import { canAuthUserManageStudentsAndParents } from './utils/managementPermissions';
 
 dotenv.config();
 
@@ -347,6 +349,152 @@ const enforceReviewerScope = (req: express.Request, res: express.Response, stude
 
 const invalidInput = (res: express.Response, issues: Array<{ field: string; message: string }>) =>
   res.status(400).json({ error: 'INVALID_INPUT', details: issues });
+
+const requireStudentParentManagement = async (
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction,
+) => {
+  try {
+    const allowed = await canAuthUserManageStudentsAndParents(req.user);
+    if (!allowed) {
+      res.status(403).json({ error: 'Forbidden: student and parent management is restricted' });
+      return;
+    }
+    next();
+  } catch (err) {
+    console.error('Management permission check failed:', err);
+    res.status(500).json({ error: 'Authorization check failed' });
+  }
+};
+
+const BIN_RETENTION_DAYS = 30;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+type BinRecordType =
+  | 'dailyProgress'
+  | 'weeklyReport'
+  | 'studentReport'
+  | 'exam'
+  | 'paper'
+  | 'quarterlySummary'
+  | 'yearlySummary';
+
+const activeRecord = (table: { deletedAt: SQLWrapper }) => isNull(table.deletedAt);
+const deletedRecord = (table: { deletedAt: SQLWrapper }) => isNotNull(table.deletedAt);
+
+const softDeletePatch = (req: express.Request) => ({
+  deletedAt: new Date(),
+  deletedBy: req.user?.id || null,
+  deletedByName: req.user?.name || null,
+  updatedAt: new Date(),
+  updatedByName: req.user?.name || null,
+});
+
+const daysRemainingFromDeletedAt = (deletedAt: unknown, now = new Date()) => {
+  const deleted = parseTimestamp(deletedAt);
+  if (!deleted) return BIN_RETENTION_DAYS;
+  const expiresAt = deleted.getTime() + BIN_RETENTION_DAYS * MS_PER_DAY;
+  return Math.max(0, Math.ceil((expiresAt - now.getTime()) / MS_PER_DAY));
+};
+
+const isDeletedWithinRetention = (deletedAt: unknown, now = new Date()) => {
+  const deleted = parseTimestamp(deletedAt);
+  if (!deleted) return false;
+  return now.getTime() - deleted.getTime() < BIN_RETENTION_DAYS * MS_PER_DAY;
+};
+
+const binItem = (input: {
+  recordType: BinRecordType;
+  recordId: string;
+  title: string;
+  summary?: string | null;
+  originalDate?: unknown;
+  deletedAt?: unknown;
+  deletedBy?: string | null;
+  deletedByName?: string | null;
+}) => {
+  const originalDate =
+    typeof input.originalDate === 'string' || input.originalDate instanceof Date
+      ? input.originalDate
+      : null;
+  return {
+    recordType: input.recordType,
+    recordId: input.recordId,
+    title: input.title,
+    summary: input.summary || '',
+    originalDate: toDateString(originalDate) || '',
+    deletedAt: input.deletedAt || null,
+    deletedBy: input.deletedBy || null,
+    deletedByName: input.deletedByName || null,
+    daysRemaining: daysRemainingFromDeletedAt(input.deletedAt),
+  };
+};
+
+const normalizeBinRecordType = (value: unknown): BinRecordType | null => {
+  const raw = String(value || '').trim();
+  if (raw === 'dailyProgress') return 'dailyProgress';
+  if (raw === 'weeklyReport' || raw === 'weeklyReports') return 'weeklyReport';
+  if (raw === 'studentReport' || raw === 'studentReports') return 'studentReport';
+  if (raw === 'exam' || raw === 'exams') return 'exam';
+  if (raw === 'paper' || raw === 'papers') return 'paper';
+  if (raw === 'quarterlySummary') return 'quarterlySummary';
+  if (raw === 'yearlySummary') return 'yearlySummary';
+  return null;
+};
+
+const ensureBinRecord = async (recordType: BinRecordType, studentId: string, recordId: string) => {
+  if (recordType === 'dailyProgress') {
+    const rows = await db.select().from(dailyProgress).where(and(eq(dailyProgress.id, recordId), eq(dailyProgress.studentId, studentId))).limit(1);
+    return rows[0] || null;
+  }
+  if (recordType === 'weeklyReport') {
+    const rows = await db.select().from(weeklyFeedback).where(and(eq(weeklyFeedback.id, recordId), eq(weeklyFeedback.studentId, studentId))).limit(1);
+    return rows[0] || null;
+  }
+  if (recordType === 'studentReport') {
+    const rows = await db.select().from(studentReportsTable).where(and(eq(studentReportsTable.id, recordId), eq(studentReportsTable.studentId, studentId))).limit(1);
+    return rows[0] || null;
+  }
+  if (recordType === 'exam') {
+    const rows = await db.select().from(examsTable).where(and(eq(examsTable.id, recordId), eq(examsTable.studentId, studentId))).limit(1);
+    return rows[0] || null;
+  }
+  if (recordType === 'paper') {
+    const rows = await db.select().from(studentPapersTable).where(and(eq(studentPapersTable.id, recordId), eq(studentPapersTable.studentId, studentId))).limit(1);
+    return rows[0] || null;
+  }
+  if (recordType === 'quarterlySummary') {
+    const rows = await db.select().from(quarterlySummaryTable).where(and(eq(quarterlySummaryTable.id, recordId), eq(quarterlySummaryTable.studentId, studentId))).limit(1);
+    return rows[0] || null;
+  }
+  const rows = await db.select().from(yearlySummaryTable).where(and(eq(yearlySummaryTable.id, recordId), eq(yearlySummaryTable.studentId, studentId))).limit(1);
+  return rows[0] || null;
+};
+
+const restoreBinRecord = async (recordType: BinRecordType, studentId: string, recordId: string) => {
+  const patch = { deletedAt: null, deletedBy: null, deletedByName: null, updatedAt: new Date() };
+  if (recordType === 'dailyProgress') return db.update(dailyProgress).set(patch).where(and(eq(dailyProgress.id, recordId), eq(dailyProgress.studentId, studentId))).returning();
+  if (recordType === 'weeklyReport') return db.update(weeklyFeedback).set(patch).where(and(eq(weeklyFeedback.id, recordId), eq(weeklyFeedback.studentId, studentId))).returning();
+  if (recordType === 'studentReport') return db.update(studentReportsTable).set(patch).where(and(eq(studentReportsTable.id, recordId), eq(studentReportsTable.studentId, studentId))).returning();
+  if (recordType === 'exam') return db.update(examsTable).set(patch).where(and(eq(examsTable.id, recordId), eq(examsTable.studentId, studentId))).returning();
+  if (recordType === 'paper') return db.update(studentPapersTable).set(patch).where(and(eq(studentPapersTable.id, recordId), eq(studentPapersTable.studentId, studentId))).returning();
+  if (recordType === 'quarterlySummary') return db.update(quarterlySummaryTable).set(patch).where(and(eq(quarterlySummaryTable.id, recordId), eq(quarterlySummaryTable.studentId, studentId))).returning();
+  return db.update(yearlySummaryTable).set(patch).where(and(eq(yearlySummaryTable.id, recordId), eq(yearlySummaryTable.studentId, studentId))).returning();
+};
+
+const permanentlyDeleteBinRecord = async (recordType: BinRecordType, studentId: string, recordId: string) => {
+  if (recordType === 'exam') {
+    await db.delete(examScoresTable).where(eq(examScoresTable.examId, recordId));
+    return db.delete(examsTable).where(and(eq(examsTable.id, recordId), eq(examsTable.studentId, studentId))).returning({ id: examsTable.id });
+  }
+  if (recordType === 'dailyProgress') return db.delete(dailyProgress).where(and(eq(dailyProgress.id, recordId), eq(dailyProgress.studentId, studentId))).returning({ id: dailyProgress.id });
+  if (recordType === 'weeklyReport') return db.delete(weeklyFeedback).where(and(eq(weeklyFeedback.id, recordId), eq(weeklyFeedback.studentId, studentId))).returning({ id: weeklyFeedback.id });
+  if (recordType === 'studentReport') return db.delete(studentReportsTable).where(and(eq(studentReportsTable.id, recordId), eq(studentReportsTable.studentId, studentId))).returning({ id: studentReportsTable.id });
+  if (recordType === 'paper') return db.delete(studentPapersTable).where(and(eq(studentPapersTable.id, recordId), eq(studentPapersTable.studentId, studentId))).returning({ id: studentPapersTable.id });
+  if (recordType === 'quarterlySummary') return db.delete(quarterlySummaryTable).where(and(eq(quarterlySummaryTable.id, recordId), eq(quarterlySummaryTable.studentId, studentId))).returning({ id: quarterlySummaryTable.id });
+  return db.delete(yearlySummaryTable).where(and(eq(yearlySummaryTable.id, recordId), eq(yearlySummaryTable.studentId, studentId))).returning({ id: yearlySummaryTable.id });
+};
 
 type WeChatSessionResponse = {
   openid?: string;
@@ -608,7 +756,7 @@ const getReportWithStudent = async (reportId: string) => {
     })
     .from(studentReportsTable)
     .leftJoin(studentsTable, eq(studentReportsTable.studentId, studentsTable.id))
-    .where(eq(studentReportsTable.id, reportId))
+    .where(and(eq(studentReportsTable.id, reportId), activeRecord(studentReportsTable)))
     .limit(1);
   return rows[0] || null;
 };
@@ -800,7 +948,7 @@ app.delete('/api/teachers/:id', authenticate, requireAdmin, async (req, res) => 
 });
 
 // ========== PARENT ROUTES ==========
-app.get('/api/parents/unassigned', async (req, res) => {
+app.get('/api/parents/unassigned', authenticate, requireTeacher, requireStudentParentManagement, async (req, res) => {
   try {
     const unassignedParents = await db
       .select()
@@ -821,7 +969,7 @@ app.get('/api/parents/unassigned', async (req, res) => {
   }
 });
 
-app.get('/api/parents', authenticate, requireTeacher, async (req, res) => {
+app.get('/api/parents', authenticate, requireTeacher, requireStudentParentManagement, async (req, res) => {
   if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot access parent directory' });
   try {
     const result = await db
@@ -834,7 +982,7 @@ app.get('/api/parents', authenticate, requireTeacher, async (req, res) => {
   }
 });
 
-app.get('/api/parents/:id', async (req, res) => {
+app.get('/api/parents/:id', authenticate, requireTeacher, requireStudentParentManagement, async (req, res) => {
   const id = req.params.id;
   try {
     const result = await db.select().from(parentsTable).where(eq(parentsTable.id, id));
@@ -845,7 +993,7 @@ app.get('/api/parents/:id', async (req, res) => {
   }
 });
 
-app.get('/api/parents/:id/students', authenticate, requireTeacher, async (req, res) => {
+app.get('/api/parents/:id/students', authenticate, requireTeacher, requireStudentParentManagement, async (req, res) => {
   const parentId = req.params.id;
   try {
     const result = await db.select().from(studentsTable).where(eq(studentsTable.parentId, parentId));
@@ -861,7 +1009,7 @@ app.post('/api/parents', async (req, res) => {
   });
 });
 
-app.put('/api/parents/:id', async (req, res) => {
+app.put('/api/parents/:id', authenticate, requireTeacher, requireStudentParentManagement, async (req, res) => {
   const id = req.params.id;
   try {
     const nextName = pickDisplayName(req.body?.displayName) || pickDisplayName(req.body?.name);
@@ -892,7 +1040,7 @@ app.put('/api/parents/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/parents/:id', authenticate, requireTeacher, async (req, res) => {
+app.delete('/api/parents/:id', authenticate, requireTeacher, requireStudentParentManagement, async (req, res) => {
   const id = req.params.id;
   try {
     const students = await db.select().from(studentsTable).where(eq(studentsTable.parentId, id));
@@ -969,7 +1117,7 @@ app.get('/api/students/:id', authenticate, verifyParentStudentAccess, async (req
   }
 });
 
-app.post('/api/students', authenticate, requireTeacher, async (req, res) => {
+app.post('/api/students', authenticate, requireTeacher, requireStudentParentManagement, async (req, res) => {
   if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot manage student roster' });
   // Normalize parentId field (handle both parentId and parent_id from frontend)
   const body = { ...req.body };
@@ -1008,7 +1156,7 @@ app.post('/api/students', authenticate, requireTeacher, async (req, res) => {
   }
 });
 
-app.put('/api/students/:id', authenticate, requireTeacher, async (req, res) => {
+app.put('/api/students/:id', authenticate, requireTeacher, requireStudentParentManagement, async (req, res) => {
   if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot manage student roster' });
   const id = req.params.id;
   // Normalize parentId field (handle both parentId and parent_id from frontend)
@@ -1039,7 +1187,7 @@ app.put('/api/students/:id', authenticate, requireTeacher, async (req, res) => {
   }
 });
 
-app.delete('/api/students/:id', authenticate, requireTeacher, async (req, res) => {
+app.delete('/api/students/:id', authenticate, requireTeacher, requireStudentParentManagement, async (req, res) => {
   if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot manage student roster' });
   const id = req.params.id;
   try {
@@ -1070,6 +1218,260 @@ app.delete('/api/students/:id', authenticate, requireTeacher, async (req, res) =
   } catch (err) {
     console.error('Error deleting student:', err);
     res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// ========== STUDENT BIN ROUTES ==========
+app.get('/api/students/:studentId/bin', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
+  const { studentId } = req.params;
+  if (!enforceReviewerScope(req, res, studentId)) return;
+  try {
+    const student = await getStudentById(studentId);
+    if (!student) return res.status(404).json({ error: 'Student not found' });
+    const cutoff = new Date(Date.now() - BIN_RETENTION_DAYS * MS_PER_DAY);
+
+    const dailyRows = await db
+      .select()
+      .from(dailyProgress)
+      .where(and(eq(dailyProgress.studentId, studentId), gte(dailyProgress.deletedAt, cutoff)))
+      .orderBy(desc(dailyProgress.deletedAt));
+    const weeklyRows = await db
+      .select()
+      .from(weeklyFeedback)
+      .where(and(eq(weeklyFeedback.studentId, studentId), gte(weeklyFeedback.deletedAt, cutoff)))
+      .orderBy(desc(weeklyFeedback.deletedAt));
+    const reportRows = await db
+      .select()
+      .from(studentReportsTable)
+      .where(and(eq(studentReportsTable.studentId, studentId), gte(studentReportsTable.deletedAt, cutoff)))
+      .orderBy(desc(studentReportsTable.deletedAt));
+    const examRows = await db
+      .select()
+      .from(examsTable)
+      .where(and(eq(examsTable.studentId, studentId), gte(examsTable.deletedAt, cutoff)))
+      .orderBy(desc(examsTable.deletedAt));
+    const examIds = examRows.map((e) => e.id);
+    const scoreRows = examIds.length
+      ? await db.select().from(examScoresTable).where(inArray(examScoresTable.examId, examIds))
+      : [];
+    const scoreMap = new Map<string, string[]>();
+    scoreRows.forEach((s) => {
+      const list = scoreMap.get(s.examId) || [];
+      list.push(`${s.name}${s.score ? ` ${s.score}` : ''}`);
+      scoreMap.set(s.examId, list);
+    });
+    const paperRows = await db
+      .select({
+        id: studentPapersTable.id,
+        studentId: studentPapersTable.studentId,
+        subjectName: studentPapersTable.subjectName,
+        typeName: paperTypesTable.name,
+        schoolName: paperSchoolsTable.name,
+        description: studentPapersTable.description,
+        date: studentPapersTable.date,
+        score: studentPapersTable.score,
+        total: studentPapersTable.total,
+        deletedAt: studentPapersTable.deletedAt,
+        deletedBy: studentPapersTable.deletedBy,
+        deletedByName: studentPapersTable.deletedByName,
+      })
+      .from(studentPapersTable)
+      .leftJoin(paperTypesTable, eq(studentPapersTable.typeId, paperTypesTable.id))
+      .leftJoin(paperSchoolsTable, eq(studentPapersTable.schoolId, paperSchoolsTable.id))
+      .where(and(eq(studentPapersTable.studentId, studentId), gte(studentPapersTable.deletedAt, cutoff)))
+      .orderBy(desc(studentPapersTable.deletedAt));
+    const quarterlyRows = await db
+      .select()
+      .from(quarterlySummaryTable)
+      .where(and(eq(quarterlySummaryTable.studentId, studentId), gte(quarterlySummaryTable.deletedAt, cutoff)))
+      .orderBy(desc(quarterlySummaryTable.deletedAt));
+    const yearlyRows = await db
+      .select()
+      .from(yearlySummaryTable)
+      .where(and(eq(yearlySummaryTable.studentId, studentId), gte(yearlySummaryTable.deletedAt, cutoff)))
+      .orderBy(desc(yearlySummaryTable.deletedAt));
+
+    const groups = {
+      dailyProgress: dailyRows
+        .filter((row) => isDeletedWithinRetention(row.deletedAt))
+        .map((row) => binItem({
+          recordType: 'dailyProgress',
+          recordId: row.id,
+          title: `每日进度 ${toDateString(row.date)}`,
+          summary: row.summary,
+          originalDate: row.date,
+          deletedAt: row.deletedAt,
+          deletedBy: row.deletedBy,
+          deletedByName: row.deletedByName,
+        })),
+      weeklyReports: weeklyRows
+        .filter((row) => isDeletedWithinRetention(row.deletedAt))
+        .map((row) => binItem({
+          recordType: 'weeklyReport',
+          recordId: row.id,
+          title: `每周汇报 ${toDateString(row.weekStarting)} ~ ${toDateString(row.weekEnding)}`,
+          summary: row.summary,
+          originalDate: row.weekStarting,
+          deletedAt: row.deletedAt,
+          deletedBy: row.deletedBy,
+          deletedByName: row.deletedByName,
+        })),
+      studentReports: [
+        ...reportRows
+          .filter((row) => isDeletedWithinRetention(row.deletedAt))
+          .map((row) => binItem({
+            recordType: 'studentReport',
+            recordId: row.id,
+            title: row.title || (row.reportType === 'yearly' ? '年度学习报告' : '学期学习报告'),
+            summary: row.summaryText,
+            originalDate: row.endDate,
+            deletedAt: row.deletedAt,
+            deletedBy: row.deletedBy,
+            deletedByName: row.deletedByName,
+          })),
+        ...quarterlyRows
+          .filter((row) => isDeletedWithinRetention(row.deletedAt))
+          .map((row) => binItem({
+            recordType: 'quarterlySummary',
+            recordId: row.id,
+            title: `旧版学期总结 ${row.year} Q${row.quarter}`,
+            summary: row.summary,
+            originalDate: row.endDate || row.startDate,
+            deletedAt: row.deletedAt,
+            deletedBy: row.deletedBy,
+            deletedByName: row.deletedByName,
+          })),
+        ...yearlyRows
+          .filter((row) => isDeletedWithinRetention(row.deletedAt))
+          .map((row) => binItem({
+            recordType: 'yearlySummary',
+            recordId: row.id,
+            title: `旧版年度总结 ${row.year}`,
+            summary: row.summary,
+            originalDate: row.createdAt,
+            deletedAt: row.deletedAt,
+            deletedBy: row.deletedBy,
+            deletedByName: row.deletedByName,
+          })),
+      ],
+      exams: examRows
+        .filter((row) => isDeletedWithinRetention(row.deletedAt))
+        .map((row) => binItem({
+          recordType: 'exam',
+          recordId: row.id,
+          title: row.name,
+          summary: scoreMap.get(row.id)?.join('、') || row.examType || '',
+          originalDate: row.examDate,
+          deletedAt: row.deletedAt,
+          deletedBy: row.deletedBy,
+          deletedByName: row.deletedByName,
+        })),
+      papers: paperRows
+        .filter((row) => isDeletedWithinRetention(row.deletedAt))
+        .map((row) => binItem({
+          recordType: 'paper',
+          recordId: row.id,
+          title: `${row.subjectName || '试卷/测验'} ${row.typeName || ''}`.trim(),
+          summary: `${row.schoolName || ''}${row.score != null ? ` ${row.score}/${row.total ?? '-'}` : ''}${row.description ? ` ${row.description}` : ''}`.trim(),
+          originalDate: row.date,
+          deletedAt: row.deletedAt,
+          deletedBy: row.deletedBy,
+          deletedByName: row.deletedByName,
+        })),
+    };
+
+    res.json({ studentId, retentionDays: BIN_RETENTION_DAYS, groups });
+  } catch (err) {
+    console.error('Error fetching student bin:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.post('/api/students/:studentId/bin/restore', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
+  const { studentId } = req.params;
+  const recordType = normalizeBinRecordType(req.body?.recordType);
+  const recordId = String(req.body?.recordId || '').trim();
+  if (!recordType || !recordId) return res.status(400).json({ error: 'Missing recordType or recordId' });
+  if (!enforceReviewerScope(req, res, studentId)) return;
+  try {
+    const record = await ensureBinRecord(recordType, studentId, recordId);
+    if (!record) return res.status(404).json({ error: 'Record not found' });
+    if (!record.deletedAt) return res.status(400).json({ error: 'Record is not in bin' });
+    const restored = await restoreBinRecord(recordType, studentId, recordId);
+    if (!restored.length) return res.status(404).json({ error: 'Record not found' });
+    res.json({ success: true, record: restored[0] });
+  } catch (err) {
+    console.error('Error restoring bin record:', err);
+    res.status(500).json({ error: 'Restore failed', details: getErrorMessage(err) });
+  }
+});
+
+app.delete('/api/students/:studentId/bin/permanent', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
+  const { studentId } = req.params;
+  const recordType = normalizeBinRecordType(req.body?.recordType);
+  const recordId = String(req.body?.recordId || '').trim();
+  if (!recordType || !recordId) return res.status(400).json({ error: 'Missing recordType or recordId' });
+  if (!enforceReviewerScope(req, res, studentId)) return;
+  try {
+    const record = await ensureBinRecord(recordType, studentId, recordId);
+    if (!record) return res.status(404).json({ error: 'Record not found' });
+    if (!record.deletedAt) return res.status(400).json({ error: 'Record is not in bin' });
+    const deleted = await permanentlyDeleteBinRecord(recordType, studentId, recordId);
+    if (!deleted.length) return res.status(404).json({ error: 'Record not found' });
+    res.json({ success: true, recordType, recordId });
+  } catch (err) {
+    console.error('Error permanently deleting bin record:', err);
+    res.status(500).json({ error: 'Permanent delete failed', details: getErrorMessage(err) });
+  }
+});
+
+const cleanupExpiredDeletedRecords = async () => {
+  const cutoff = new Date(Date.now() - BIN_RETENTION_DAYS * MS_PER_DAY);
+  const results: Record<string, { count: number; error?: string }> = {};
+  const run = async (key: string, fn: () => Promise<unknown[]>) => {
+    try {
+      const rows = await fn();
+      results[key] = { count: Array.isArray(rows) ? rows.length : 0 };
+    } catch (err) {
+      results[key] = { count: 0, error: getErrorMessage(err) };
+    }
+  };
+
+  await run('dailyProgress', () => db.delete(dailyProgress).where(and(deletedRecord(dailyProgress), lt(dailyProgress.deletedAt, cutoff))).returning({ id: dailyProgress.id }));
+  await run('weeklyReports', () => db.delete(weeklyFeedback).where(and(deletedRecord(weeklyFeedback), lt(weeklyFeedback.deletedAt, cutoff))).returning({ id: weeklyFeedback.id }));
+  await run('studentReports', () => db.delete(studentReportsTable).where(and(deletedRecord(studentReportsTable), lt(studentReportsTable.deletedAt, cutoff))).returning({ id: studentReportsTable.id }));
+  await run('quarterlySummaries', () => db.delete(quarterlySummaryTable).where(and(deletedRecord(quarterlySummaryTable), lt(quarterlySummaryTable.deletedAt, cutoff))).returning({ id: quarterlySummaryTable.id }));
+  await run('yearlySummaries', () => db.delete(yearlySummaryTable).where(and(deletedRecord(yearlySummaryTable), lt(yearlySummaryTable.deletedAt, cutoff))).returning({ id: yearlySummaryTable.id }));
+  await run('papers', () => db.delete(studentPapersTable).where(and(deletedRecord(studentPapersTable), lt(studentPapersTable.deletedAt, cutoff))).returning({ id: studentPapersTable.id }));
+  await run('exams', async () => {
+    const expired = await db
+      .select({ id: examsTable.id })
+      .from(examsTable)
+      .where(and(deletedRecord(examsTable), lt(examsTable.deletedAt, cutoff)));
+    const ids = expired.map((row) => row.id);
+    if (ids.length) {
+      await db.delete(examScoresTable).where(inArray(examScoresTable.examId, ids));
+      await db.delete(examsTable).where(inArray(examsTable.id, ids));
+    }
+    return expired;
+  });
+  return {
+    retentionDays: BIN_RETENTION_DAYS,
+    cutoff,
+    results,
+    failures: Object.entries(results)
+      .filter(([, value]) => Boolean(value.error))
+      .map(([recordType, value]) => ({ recordType, error: value.error })),
+  };
+};
+
+app.post('/api/admin/bin/cleanup-expired', authenticate, requireAdmin, async (_req, res) => {
+  try {
+    const result = await cleanupExpiredDeletedRecords();
+    res.json(result);
+  } catch (err) {
+    console.error('Error cleaning expired bin records:', err);
+    res.status(500).json({ error: 'Cleanup failed', details: getErrorMessage(err) });
   }
 });
 
@@ -1223,7 +1625,7 @@ app.get('/api/students/:studentId/exams', authenticate, verifyParentStudentAcces
     const exams = await db
       .select()
       .from(examsTable)
-      .where(eq(examsTable.studentId, studentId))
+      .where(and(eq(examsTable.studentId, studentId), activeRecord(examsTable)))
       .orderBy(desc(examsTable.createdAt));
     if (!exams.length) return res.json([]);
     const examIds = exams.map(e => e.id);
@@ -1414,7 +1816,7 @@ app.put('/api/exams/:id', authenticate, requireTeacher, async (req, res) => {
   if (subjectIssues.length) return invalidInput(res, subjectIssues);
 
   try {
-    const existing = await db.select().from(examsTable).where(eq(examsTable.id, id)).limit(1);
+    const existing = await db.select().from(examsTable).where(and(eq(examsTable.id, id), activeRecord(examsTable))).limit(1);
     if (!existing.length) return res.status(404).json({ error: 'Exam not found' });
     if (!enforceReviewerScope(req, res, existing[0].studentId)) return;
     if (studentId && existing[0].studentId !== studentId) {
@@ -1487,7 +1889,7 @@ app.delete('/api/exams/:id', authenticate, requireTeacher, async (req, res) => {
     if (!clientUpdatedAt) {
       return res.status(400).json({ error: 'Missing updatedAt' });
     }
-    const existing = await db.select().from(examsTable).where(eq(examsTable.id, id)).limit(1);
+    const existing = await db.select().from(examsTable).where(and(eq(examsTable.id, id), activeRecord(examsTable))).limit(1);
     if (!existing.length) return res.status(404).json({ error: 'Exam not found' });
     if (!enforceReviewerScope(req, res, existing[0].studentId)) return;
     await withActionLock(
@@ -1507,13 +1909,12 @@ app.delete('/api/exams/:id', authenticate, requireTeacher, async (req, res) => {
           });
           return;
         }
-        await db.delete(examScoresTable).where(eq(examScoresTable.examId, id));
-        const result = await db.delete(examsTable).where(eq(examsTable.id, id)).returning();
+        const result = await db.update(examsTable).set(softDeletePatch(req)).where(eq(examsTable.id, id)).returning();
         if (!result.length) {
           res.status(404).json({ error: 'Exam not found' });
           return;
         }
-        res.json({ message: 'Exam deleted successfully' });
+        res.json({ message: 'Exam moved to bin' });
       },
     );
     return;
@@ -1550,6 +1951,7 @@ app.get('/api/exams/upcoming', authenticate, requireTeacher, async (req, res) =>
         reminderDate: examsTable.reminderDate,
       })
       .from(examsTable)
+      .where(activeRecord(examsTable))
       .orderBy(examsTable.examDate);
 
     if (!allExams.length) return res.json({ date: today, upcoming: [] });
@@ -1624,7 +2026,7 @@ app.get('/api/students/:studentId/quarterly-summary', authenticate, verifyParent
     const rows = await db
       .select()
       .from(quarterlySummaryTable)
-      .where(and(eq(quarterlySummaryTable.studentId, studentId), eq(quarterlySummaryTable.year, year)))
+      .where(and(eq(quarterlySummaryTable.studentId, studentId), eq(quarterlySummaryTable.year, year), activeRecord(quarterlySummaryTable)))
       .orderBy(quarterlySummaryTable.quarter);
     res.json(rows);
   } catch (err) {
@@ -1680,7 +2082,8 @@ app.put('/api/students/:studentId/quarterly-summary', authenticate, requireTeach
             .where(and(
               eq(quarterlySummaryTable.studentId, studentId),
               eq(quarterlySummaryTable.year, year),
-              eq(quarterlySummaryTable.quarter, quarter)
+              eq(quarterlySummaryTable.quarter, quarter),
+              activeRecord(quarterlySummaryTable)
             ))
             .limit(1);
           if (existing.length) {
@@ -1781,7 +2184,7 @@ app.get('/api/students/:studentId/yearly-summary', authenticate, verifyParentStu
     const rows = await db
       .select()
       .from(yearlySummaryTable)
-      .where(and(eq(yearlySummaryTable.studentId, studentId), eq(yearlySummaryTable.year, year)))
+      .where(and(eq(yearlySummaryTable.studentId, studentId), eq(yearlySummaryTable.year, year), activeRecord(yearlySummaryTable)))
       .limit(1);
     res.json(rows[0] || {});
   } catch (err) {
@@ -1820,7 +2223,7 @@ app.put('/api/students/:studentId/yearly-summary', authenticate, requireTeacher,
         const existing = await db
           .select()
           .from(yearlySummaryTable)
-          .where(and(eq(yearlySummaryTable.studentId, studentId), eq(yearlySummaryTable.year, year)))
+          .where(and(eq(yearlySummaryTable.studentId, studentId), eq(yearlySummaryTable.year, year), activeRecord(yearlySummaryTable)))
           .limit(1);
         if (existing.length) {
           if (!clientUpdatedAt) {
@@ -2005,7 +2408,7 @@ app.get('/api/students/:studentId/reports', authenticate, verifyParentStudentAcc
       return res.status(403).json({ error: 'Insufficient permissions' });
     }
 
-    const whereExpr = [eq(studentReportsTable.studentId, studentId)];
+    const whereExpr = [eq(studentReportsTable.studentId, studentId), activeRecord(studentReportsTable)];
     const reportType = normalizeReportType(req.query?.reportType);
     if (reportType) whereExpr.push(eq(studentReportsTable.reportType, reportType));
     if (req.query?.year != null && req.query?.year !== '') {
@@ -2240,14 +2643,18 @@ app.delete('/api/reports/:reportId', authenticate, requireRole('teacher', 'admin
       },
       async () => {
         const deleted = await db
-          .delete(studentReportsTable)
+          .update(studentReportsTable)
+          .set({
+            ...softDeletePatch(req),
+            updatedBy: user.id,
+          })
           .where(eq(studentReportsTable.id, req.params.reportId))
           .returning({ id: studentReportsTable.id });
         if (!deleted.length) {
           res.status(404).json({ error: 'Report not found' });
           return;
         }
-        res.json({ success: true });
+        res.json({ success: true, message: 'Report moved to bin' });
       },
     );
     return;
@@ -2553,6 +2960,7 @@ app.get('/api/students/:studentId/report-export', authenticate, verifyParentStud
             eq(dailyProgress.studentId, studentId),
             gte(dailyProgress.date, startDate),
             lte(dailyProgress.date, endDate),
+            activeRecord(dailyProgress),
           )
         )
         .orderBy(dailyProgress.date),
@@ -2564,6 +2972,7 @@ app.get('/api/students/:studentId/report-export', authenticate, verifyParentStud
             eq(weeklyFeedback.studentId, studentId),
             gte(weeklyFeedback.weekStarting, startDate),
             lte(weeklyFeedback.weekStarting, endDate),
+            activeRecord(weeklyFeedback),
           )
         )
         .orderBy(weeklyFeedback.weekStarting),
@@ -2588,6 +2997,7 @@ app.get('/api/students/:studentId/report-export', authenticate, verifyParentStud
             eq(studentPapersTable.studentId, studentId),
             gte(studentPapersTable.date, startDate),
             lte(studentPapersTable.date, endDate),
+            activeRecord(studentPapersTable),
           )
         )
         .orderBy(studentPapersTable.date),
@@ -2599,6 +3009,7 @@ app.get('/api/students/:studentId/report-export', authenticate, verifyParentStud
             eq(examsTable.studentId, studentId),
             gte(examsTable.examDate, startDate),
             lte(examsTable.examDate, endDate),
+            activeRecord(examsTable),
           )
         )
         .orderBy(examsTable.examDate),
@@ -4037,7 +4448,7 @@ app.get('/api/students/:studentId/papers', authenticate, verifyParentStudentAcce
   const { studentId } = req.params;
   const { date } = req.query as { date?: string };
   try {
-    const conditions = [eq(studentPapersTable.studentId, studentId)];
+    const conditions = [eq(studentPapersTable.studentId, studentId), activeRecord(studentPapersTable)];
     if (date) {
       conditions.push(eq(studentPapersTable.date, date));
     }
@@ -4130,7 +4541,7 @@ app.put('/api/students/:studentId/papers/batch', authenticate, requireTeacher, a
             updatedByName: studentPapersTable.updatedByName,
           })
           .from(studentPapersTable)
-          .where(and(eq(studentPapersTable.studentId, studentId), eq(studentPapersTable.date, date)))
+          .where(and(eq(studentPapersTable.studentId, studentId), eq(studentPapersTable.date, date), activeRecord(studentPapersTable)))
           .orderBy(desc(studentPapersTable.updatedAt))
           .limit(1);
         if (latest.length) {
@@ -4145,7 +4556,7 @@ app.put('/api/students/:studentId/papers/batch', authenticate, requireTeacher, a
         }
         await db
           .delete(studentPapersTable)
-          .where(and(eq(studentPapersTable.studentId, studentId), eq(studentPapersTable.date, date)));
+          .where(and(eq(studentPapersTable.studentId, studentId), eq(studentPapersTable.date, date), activeRecord(studentPapersTable)));
 
         if (papers.length === 0) {
           res.json({ message: 'No papers to save' });
@@ -4272,7 +4683,7 @@ app.put('/api/students/:studentId/papers/:paperId', authenticate, requireTeacher
         const existing = await db
           .select()
           .from(studentPapersTable)
-          .where(and(eq(studentPapersTable.id, paperId), eq(studentPapersTable.studentId, studentId)))
+          .where(and(eq(studentPapersTable.id, paperId), eq(studentPapersTable.studentId, studentId), activeRecord(studentPapersTable)))
           .limit(1);
         if (!existing.length) {
           res.status(404).json({ error: 'Not found' });
@@ -4302,7 +4713,7 @@ app.put('/api/students/:studentId/papers/:paperId', authenticate, requireTeacher
             updatedAt: new Date(),
             updatedByName: req.user?.name || null,
           })
-          .where(and(eq(studentPapersTable.id, paperId), eq(studentPapersTable.studentId, studentId)))
+          .where(and(eq(studentPapersTable.id, paperId), eq(studentPapersTable.studentId, studentId), activeRecord(studentPapersTable)))
           .returning();
         if (!updated.length) {
           res.status(404).json({ error: 'Not found' });
@@ -4341,7 +4752,7 @@ app.delete('/api/students/:studentId/papers/:paperId', authenticate, requireTeac
         const existing = await db
           .select()
           .from(studentPapersTable)
-          .where(and(eq(studentPapersTable.id, paperId), eq(studentPapersTable.studentId, studentId)))
+          .where(and(eq(studentPapersTable.id, paperId), eq(studentPapersTable.studentId, studentId), activeRecord(studentPapersTable)))
           .limit(1);
         if (!existing.length) {
           res.status(404).json({ error: 'Not found' });
@@ -4356,9 +4767,10 @@ app.delete('/api/students/:studentId/papers/:paperId', authenticate, requireTeac
           return;
         }
         await db
-          .delete(studentPapersTable)
+          .update(studentPapersTable)
+          .set(softDeletePatch(req))
           .where(and(eq(studentPapersTable.id, paperId), eq(studentPapersTable.studentId, studentId)));
-        res.json({ message: 'Deleted' });
+        res.json({ message: 'Paper moved to bin' });
       },
     );
     return;
@@ -4452,6 +4864,7 @@ const handleProgressStudent = async (req: any, res: any) => {
         and(
           eq(dailyProgress.studentId, studentIdParam),
           eq(dailyProgress.date, formattedDate),
+          activeRecord(dailyProgress),
         )
       )
       .limit(1);
@@ -4459,7 +4872,7 @@ const handleProgressStudent = async (req: any, res: any) => {
     console.log('Query result:', progress);
 
     // Debug: Check if there's any data in daily_progress table
-    const allProgress = await db.select().from(dailyProgress).limit(5);
+    const allProgress = await db.select().from(dailyProgress).where(activeRecord(dailyProgress)).limit(5);
     console.log('All progress records (first 5):', allProgress);
 
     if (progress.length === 0) {
@@ -4521,7 +4934,7 @@ app.get('/api/students/:studentId/progress', authenticate, verifyParentStudentAc
     const progress = await db
       .select()
       .from(dailyProgress)
-      .where(eq(dailyProgress.studentId, studentId))
+      .where(and(eq(dailyProgress.studentId, studentId), activeRecord(dailyProgress)))
       .orderBy(desc(dailyProgress.date));
 
     console.log(`Found ${progress.length} progress records for student ${studentId}`);
@@ -4544,11 +4957,11 @@ app.get('/api/progress', authenticate, requireTeacher, async (req, res) => {
       const reviewerRows = await db
         .select()
         .from(dailyProgress)
-        .where(eq(dailyProgress.studentId, reviewerStudentId))
+        .where(and(eq(dailyProgress.studentId, reviewerStudentId), activeRecord(dailyProgress)))
         .orderBy(desc(dailyProgress.date));
       return res.json(reviewerRows.map(withV2Activities));
     }
-    const result = await db.select().from(dailyProgress).orderBy(desc(dailyProgress.date));
+    const result = await db.select().from(dailyProgress).where(activeRecord(dailyProgress)).orderBy(desc(dailyProgress.date));
     console.log(`Found ${result.length} progress records`);
     res.json(result.map(withV2Activities));
   } catch (err) {
@@ -4586,6 +4999,7 @@ app.get('/api/daily-progress/missing', authenticate, requireTeacher, async (req,
         and(
           eq(dailyProgress.studentId, studentsTable.id),
           eq(dailyProgress.date, date),
+          activeRecord(dailyProgress),
         ),
       )
       .where(isNull(dailyProgress.id))
@@ -4658,6 +5072,7 @@ app.get('/api/feedback/missing', authenticate, requireTeacher, async (req, res) 
         and(
           eq(weeklyFeedback.studentId, studentsTable.id),
           eq(weeklyFeedback.weekStarting, cycle.startDate),
+          activeRecord(weeklyFeedback),
         ),
       )
       .where(isNull(weeklyFeedback.id))
@@ -4959,6 +5374,7 @@ app.get('/api/weekly-tasks/incomplete', authenticate, requireTeacher, async (req
         and(
           gte(dailyProgress.date, cycle.startDate),
           lte(dailyProgress.date, cycle.endDate),
+          activeRecord(dailyProgress),
         ),
       );
     const progressByStudent = new Map<string, typeof progressRows>();
@@ -5014,7 +5430,7 @@ app.get('/api/weekly-tasks/incomplete', authenticate, requireTeacher, async (req
 app.get('/api/feedback', async (_, res) => {
   try {
     console.log('Fetching weekly feedback...');
-    const result = await db.select().from(weeklyFeedback).orderBy(desc(weeklyFeedback.weekEnding));
+    const result = await db.select().from(weeklyFeedback).where(activeRecord(weeklyFeedback)).orderBy(desc(weeklyFeedback.weekEnding));
     console.log(`Found ${result.length} feedback records`);
     res.json(result);
   } catch (err) {
@@ -5077,7 +5493,7 @@ app.post('/api/progress', authenticate, requireTeacher, async (req, res) => {
         const existingProgress = await db
           .select()
           .from(dailyProgress)
-          .where(and(eq(dailyProgress.studentId, studentId), eq(dailyProgress.date, date)))
+          .where(and(eq(dailyProgress.studentId, studentId), eq(dailyProgress.date, date), activeRecord(dailyProgress)))
           .limit(1);
         
         if (existingProgress.length > 0) {
@@ -5180,14 +5596,14 @@ app.put('/api/progress/:id', authenticate, requireTeacher, async (req, res) => {
         const dup = await db
           .select()
           .from(dailyProgress)
-          .where(and(eq(dailyProgress.studentId, studentId), eq(dailyProgress.date, date)))
+          .where(and(eq(dailyProgress.studentId, studentId), eq(dailyProgress.date, date), activeRecord(dailyProgress)))
           .limit(1);
         if (dup.length > 0 && dup[0].id !== id) {
           res.status(409).json({ error: 'Progress already exists for this student and date' });
           return;
         }
 
-        const existing = await db.select().from(dailyProgress).where(eq(dailyProgress.id, id)).limit(1);
+        const existing = await db.select().from(dailyProgress).where(and(eq(dailyProgress.id, id), activeRecord(dailyProgress))).limit(1);
         if (!existing.length) {
           res.status(404).json({ error: 'Progress not found' });
           return;
@@ -5261,7 +5677,7 @@ app.delete('/api/progress/:id', authenticate, requireTeacher, async (req, res) =
     if (!clientUpdatedAt) {
       return res.status(400).json({ error: 'Missing updatedAt' });
     }
-    const existing = await db.select().from(dailyProgress).where(eq(dailyProgress.id, id)).limit(1);
+    const existing = await db.select().from(dailyProgress).where(and(eq(dailyProgress.id, id), activeRecord(dailyProgress))).limit(1);
     if (!existing.length) return res.status(404).json({ error: 'Progress not found' });
     const studentId = existing[0].studentId;
     if (!enforceReviewerScope(req, res, studentId)) return;
@@ -5282,8 +5698,8 @@ app.delete('/api/progress/:id', authenticate, requireTeacher, async (req, res) =
           });
           return;
         }
-        await db.delete(dailyProgress).where(eq(dailyProgress.id, id)).returning();
-        res.json({ message: 'Progress deleted successfully' });
+        await db.update(dailyProgress).set(softDeletePatch(req)).where(eq(dailyProgress.id, id)).returning();
+        res.json({ message: 'Progress moved to bin' });
       },
     );
   } catch (err) {
@@ -5304,7 +5720,7 @@ app.get('/api/progress/list', authenticate, verifyParentStudentAccess, async (re
     const rows = await db
       .select()
       .from(dailyProgress)
-      .where(eq(dailyProgress.studentId, String(studentId)))
+      .where(and(eq(dailyProgress.studentId, String(studentId)), activeRecord(dailyProgress)))
       .orderBy(desc(dailyProgress.date));
     res.json(rows.map(withV2Activities));
   } catch (err) {
@@ -5326,11 +5742,11 @@ app.get('/api/feedback', authenticate, requireTeacher, async (req, res) => {
       const reviewerRows = await db
         .select()
         .from(weeklyFeedback)
-        .where(eq(weeklyFeedback.studentId, reviewerStudentId))
+        .where(and(eq(weeklyFeedback.studentId, reviewerStudentId), activeRecord(weeklyFeedback)))
         .orderBy(desc(weeklyFeedback.weekStarting));
       return res.json(reviewerRows);
     }
-    const result = await db.select().from(weeklyFeedback).orderBy(desc(weeklyFeedback.weekStarting));
+    const result = await db.select().from(weeklyFeedback).where(activeRecord(weeklyFeedback)).orderBy(desc(weeklyFeedback.weekStarting));
     res.json(result);
   } catch (err) {
     console.error('Error:', err);
@@ -5423,7 +5839,7 @@ app.put('/api/feedback/:id', authenticate, requireTeacher, async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
   try {
-    const existing = await db.select().from(weeklyFeedback).where(eq(weeklyFeedback.id, req.params.id)).limit(1);
+    const existing = await db.select().from(weeklyFeedback).where(and(eq(weeklyFeedback.id, req.params.id), activeRecord(weeklyFeedback))).limit(1);
     if (!existing.length) return res.status(404).json({ error: 'Not found' });
     const clientUpdatedAt = parseTimestamp(req.body?.updatedAt);
     if (!clientUpdatedAt) {
@@ -5484,7 +5900,7 @@ app.put('/api/feedback/:id', authenticate, requireTeacher, async (req, res) => {
         const dup = await db
           .select()
           .from(weeklyFeedback)
-          .where(and(eq(weeklyFeedback.studentId, parsedData.studentId), eq(weeklyFeedback.weekStarting, data.weekStarting)))
+          .where(and(eq(weeklyFeedback.studentId, parsedData.studentId), eq(weeklyFeedback.weekStarting, data.weekStarting), activeRecord(weeklyFeedback)))
           .limit(1);
         if (dup.length > 0 && dup[0].id !== req.params.id) {
           res.status(409).json({ error: 'Weekly feedback already exists for this student and week' });
@@ -5542,7 +5958,8 @@ app.post('/api/ai/weekly-summary', authenticate, requireTeacher, async (req, res
         and(
           eq(dailyProgress.studentId, studentId),
           gte(dailyProgress.date, weekStart),
-          lte(dailyProgress.date, contextWeekEnding)
+          lte(dailyProgress.date, contextWeekEnding),
+          activeRecord(dailyProgress)
         )
       )
       .orderBy(dailyProgress.date);
@@ -5569,7 +5986,8 @@ app.post('/api/ai/weekly-summary', authenticate, requireTeacher, async (req, res
         and(
           eq(studentPapersTable.studentId, studentId),
           gte(studentPapersTable.date, weekStart),
-          lte(studentPapersTable.date, contextWeekEnding)
+          lte(studentPapersTable.date, contextWeekEnding),
+          activeRecord(studentPapersTable)
         )
       )
       .orderBy(studentPapersTable.date);
@@ -5580,7 +5998,8 @@ app.post('/api/ai/weekly-summary', authenticate, requireTeacher, async (req, res
         and(
           eq(examsTable.studentId, studentId),
           gte(examsTable.examDate, weekStart),
-          lte(examsTable.examDate, contextWeekEnding)
+          lte(examsTable.examDate, contextWeekEnding),
+          activeRecord(examsTable)
         )
       )
       .orderBy(examsTable.examDate);
@@ -5611,6 +6030,7 @@ app.post('/api/ai/weekly-summary', authenticate, requireTeacher, async (req, res
         and(
           eq(weeklyFeedback.studentId, studentId),
           eq(weeklyFeedback.weekStarting, weekStart),
+          activeRecord(weeklyFeedback),
         )
       )
       .orderBy(desc(weeklyFeedback.updatedAt));
@@ -5720,7 +6140,8 @@ app.post('/api/ai/quarterly-summary', authenticate, requireRole('teacher', 'admi
         and(
           eq(dailyProgress.studentId, studentId),
           gte(dailyProgress.date, startDate),
-          lte(dailyProgress.date, endDate)
+          lte(dailyProgress.date, endDate),
+          activeRecord(dailyProgress)
         )
       )
       .orderBy(dailyProgress.date);
@@ -5731,7 +6152,8 @@ app.post('/api/ai/quarterly-summary', authenticate, requireRole('teacher', 'admi
         and(
           eq(weeklyFeedback.studentId, studentId),
           gte(weeklyFeedback.weekStarting, startDate),
-          lte(weeklyFeedback.weekEnding, endDate)
+          lte(weeklyFeedback.weekEnding, endDate),
+          activeRecord(weeklyFeedback)
         )
       )
       .orderBy(weeklyFeedback.weekStarting);
@@ -5756,7 +6178,8 @@ app.post('/api/ai/quarterly-summary', authenticate, requireRole('teacher', 'admi
         and(
           eq(studentPapersTable.studentId, studentId),
           gte(studentPapersTable.date, startDate),
-          lte(studentPapersTable.date, endDate)
+          lte(studentPapersTable.date, endDate),
+          activeRecord(studentPapersTable)
         )
       )
       .orderBy(studentPapersTable.date);
@@ -5767,7 +6190,8 @@ app.post('/api/ai/quarterly-summary', authenticate, requireRole('teacher', 'admi
         and(
           eq(examsTable.studentId, studentId),
           gte(examsTable.examDate, startDate),
-          lte(examsTable.examDate, endDate)
+          lte(examsTable.examDate, endDate),
+          activeRecord(examsTable)
         )
       )
       .orderBy(examsTable.examDate);
@@ -5793,7 +6217,8 @@ app.post('/api/ai/quarterly-summary', authenticate, requireRole('teacher', 'admi
       .where(
         and(
           eq(quarterlySummaryTable.studentId, studentId),
-          lt(quarterlySummaryTable.endDate, startDate)
+          lt(quarterlySummaryTable.endDate, startDate),
+          activeRecord(quarterlySummaryTable)
         )
       )
       .orderBy(desc(quarterlySummaryTable.endDate))
@@ -5817,6 +6242,7 @@ app.post('/api/ai/quarterly-summary', authenticate, requireRole('teacher', 'admi
           eq(studentReportsTable.studentId, studentId),
           eq(studentReportsTable.reportType, 'quarterly'),
           lt(studentReportsTable.endDate, startDate),
+          activeRecord(studentReportsTable),
         ),
       )
       .orderBy(desc(studentReportsTable.endDate), desc(studentReportsTable.updatedAt))
@@ -5988,7 +6414,8 @@ app.post('/api/ai/yearly-summary', authenticate, requireRole('teacher', 'admin')
         and(
           eq(dailyProgress.studentId, studentId),
           gte(dailyProgress.date, startDate),
-          lte(dailyProgress.date, endDate)
+          lte(dailyProgress.date, endDate),
+          activeRecord(dailyProgress)
         )
       )
       .orderBy(dailyProgress.date);
@@ -5999,7 +6426,8 @@ app.post('/api/ai/yearly-summary', authenticate, requireRole('teacher', 'admin')
         and(
           eq(weeklyFeedback.studentId, studentId),
           gte(weeklyFeedback.weekStarting, startDate),
-          lte(weeklyFeedback.weekEnding, endDate)
+          lte(weeklyFeedback.weekEnding, endDate),
+          activeRecord(weeklyFeedback)
         )
       )
       .orderBy(weeklyFeedback.weekStarting);
@@ -6024,7 +6452,8 @@ app.post('/api/ai/yearly-summary', authenticate, requireRole('teacher', 'admin')
         and(
           eq(studentPapersTable.studentId, studentId),
           gte(studentPapersTable.date, startDate),
-          lte(studentPapersTable.date, endDate)
+          lte(studentPapersTable.date, endDate),
+          activeRecord(studentPapersTable)
         )
       )
       .orderBy(studentPapersTable.date);
@@ -6035,7 +6464,8 @@ app.post('/api/ai/yearly-summary', authenticate, requireRole('teacher', 'admin')
         and(
           eq(examsTable.studentId, studentId),
           gte(examsTable.examDate, startDate),
-          lte(examsTable.examDate, endDate)
+          lte(examsTable.examDate, endDate),
+          activeRecord(examsTable)
         )
       )
       .orderBy(examsTable.examDate);
@@ -6058,7 +6488,7 @@ app.post('/api/ai/yearly-summary', authenticate, requireRole('teacher', 'admin')
     const quarters = await db
       .select()
       .from(quarterlySummaryTable)
-      .where(and(eq(quarterlySummaryTable.studentId, studentId), eq(quarterlySummaryTable.year, resolvedYear as number)))
+      .where(and(eq(quarterlySummaryTable.studentId, studentId), eq(quarterlySummaryTable.year, resolvedYear as number), activeRecord(quarterlySummaryTable)))
       .orderBy(quarterlySummaryTable.quarter);
     const quarterlyReportRows = await db
       .select({
@@ -6080,6 +6510,7 @@ app.post('/api/ai/yearly-summary', authenticate, requireRole('teacher', 'admin')
           eq(studentReportsTable.reportType, 'quarterly'),
           gte(studentReportsTable.startDate, startDate),
           lte(studentReportsTable.endDate, endDate),
+          activeRecord(studentReportsTable),
         ),
       )
       .orderBy(studentReportsTable.startDate, studentReportsTable.endDate);
@@ -6214,7 +6645,7 @@ app.delete('/api/feedback/:id', authenticate, requireTeacher, async (req, res) =
     if (!clientUpdatedAt) {
       return res.status(400).json({ error: 'Missing updatedAt' });
     }
-    const existing = await db.select().from(weeklyFeedback).where(eq(weeklyFeedback.id, req.params.id)).limit(1);
+    const existing = await db.select().from(weeklyFeedback).where(and(eq(weeklyFeedback.id, req.params.id), activeRecord(weeklyFeedback))).limit(1);
     if (!existing.length) return res.status(404).json({ error: 'Not found' });
     if (!enforceReviewerScope(req, res, existing[0].studentId)) return;
     await withActionLock(
@@ -6234,8 +6665,8 @@ app.delete('/api/feedback/:id', authenticate, requireTeacher, async (req, res) =
           });
           return;
         }
-        await db.delete(weeklyFeedback).where(eq(weeklyFeedback.id, req.params.id)).returning();
-        res.json({ success: true });
+        await db.update(weeklyFeedback).set(softDeletePatch(req)).where(eq(weeklyFeedback.id, req.params.id)).returning();
+        res.json({ success: true, message: 'Weekly report moved to bin' });
       },
     );
   } catch (err) {
@@ -6264,7 +6695,8 @@ app.get('/api/feedback/one', authenticate, verifyParentStudentAccess, async (req
       .from(weeklyFeedback)
       .where(and(
         eq(weeklyFeedback.studentId, String(studentId)),
-        eq(weeklyFeedback.weekStarting, formattedStartDate)
+        eq(weeklyFeedback.weekStarting, formattedStartDate),
+        activeRecord(weeklyFeedback)
       ))
       .limit(1);
 
@@ -6284,7 +6716,7 @@ app.get('/api/feedback/list', authenticate, verifyParentStudentAccess, async (re
     const rows = await db
       .select()
       .from(weeklyFeedback)
-      .where(eq(weeklyFeedback.studentId, String(studentId)))
+      .where(and(eq(weeklyFeedback.studentId, String(studentId)), activeRecord(weeklyFeedback)))
       .orderBy(desc(weeklyFeedback.weekStarting));
     res.json(rows);
   } catch (err) {

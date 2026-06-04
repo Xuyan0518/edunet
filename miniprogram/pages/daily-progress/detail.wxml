@@ -298,7 +298,25 @@
                       <input class="input score-input" type="number" value="{{task.practiceCount}}" data-index="{{index}}" data-task-index="{{taskIndex}}" bindinput="onCustomTaskCountInput" disabled="{{!isEditable}}" />
                     </view>
                   </view>
-                  <view class="row score-row" wx:if="{{task.fieldsUsed && task.fieldsUsed.indexOf('score') !== -1}}">
+                  <block wx:if="{{task.fieldsUsed && task.fieldsUsed.indexOf('practiceCount') !== -1}}">
+                    <block wx:for="{{task.exercises}}" wx:for-item="ex" wx:for-index="exIdx" wx:key="exIdx">
+                      <view class="exercise-block" style="margin-top: 10rpx; padding: 8rpx 0;">
+                        <view class="muted">练习 {{exIdx + 1}}</view>
+                        <view class="row score-row" wx:if="{{task.fieldsUsed.indexOf('score') !== -1}}">
+                          <view class="score-cell">
+                            <view class="muted">得分 / 满分</view>
+                            <input class="input score-input" type="digit" value="{{ex.score}}" data-index="{{index}}" data-task-index="{{taskIndex}}" data-exercise-index="{{exIdx}}" bindinput="onCustomTaskExerciseScoreInput" disabled="{{!isEditable}}" />
+                          </view>
+                          <view class="muted">/</view>
+                          <view class="score-cell">
+                            <input class="input score-input" type="digit" placeholder="100" value="{{ex.totalScore}}" data-index="{{index}}" data-task-index="{{taskIndex}}" data-exercise-index="{{exIdx}}" bindinput="onCustomTaskExerciseTotalInput" disabled="{{!isEditable}}" />
+                          </view>
+                        </view>
+                        <textarea wx:if="{{task.fieldsUsed.indexOf('problems') !== -1 && ex.showProblems}}" class="input" style="min-height: 120rpx; margin-top: 16rpx;" placeholder="出现的问题（非满分必填）" value="{{ex.problems}}" data-index="{{index}}" data-task-index="{{taskIndex}}" data-exercise-index="{{exIdx}}" bindinput="onCustomTaskExerciseProblemsInput" disabled="{{!isEditable}}" />
+                      </view>
+                    </block>
+                  </block>
+                  <view class="row score-row" wx:if="{{task.fieldsUsed && task.fieldsUsed.indexOf('practiceCount') === -1 && task.fieldsUsed.indexOf('score') !== -1}}">
                     <view class="score-cell">
                       <view class="muted">得分 / 满分</view>
                       <input class="input score-input" type="digit" value="{{task.score}}" data-index="{{index}}" data-task-index="{{taskIndex}}" bindinput="onCustomTaskScoreInput" disabled="{{!isEditable}}" />
@@ -308,7 +326,7 @@
                       <input class="input score-input" type="digit" value="{{task.maxScore}}" data-index="{{index}}" data-task-index="{{taskIndex}}" bindinput="onCustomTaskMaxScoreInput" disabled="{{!isEditable}}" />
                     </view>
                   </view>
-                  <textarea wx:if="{{task.fieldsUsed && task.fieldsUsed.indexOf('problems') !== -1 && task.score !== null && task.maxScore !== null && task.score < task.maxScore}}" class="input" style="min-height: 120rpx; margin-top: 16rpx;" placeholder="出现的问题（非满分必填）" value="{{task.problems}}" data-index="{{index}}" data-task-index="{{taskIndex}}" bindinput="onCustomTaskProblemsInput" disabled="{{!isEditable}}" />
+                  <textarea wx:if="{{task.fieldsUsed && task.fieldsUsed.indexOf('practiceCount') === -1 && task.fieldsUsed.indexOf('problems') !== -1 && task.score !== null && task.maxScore !== null && task.score < task.maxScore}}" class="input" style="min-height: 120rpx; margin-top: 16rpx;" placeholder="出现的问题（非满分必填）" value="{{task.problems}}" data-index="{{index}}" data-task-index="{{taskIndex}}" bindinput="onCustomTaskProblemsInput" disabled="{{!isEditable}}" />
                 </view>
               </block>
             </view>

@@ -571,7 +571,7 @@ Page({
     const studentId = this.data.report.studentId;
     wx.showModal({
       title: '确认删除',
-      content: '确认删除这份报告吗？删除后无法恢复。',
+      content: '删除后将进入该学生的回收站，可在 30 天内恢复。',
       confirmColor: '#dc2626',
       success: async (result) => {
         if (!result.confirm) return;

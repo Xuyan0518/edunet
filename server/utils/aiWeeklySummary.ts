@@ -404,6 +404,21 @@ export function aggregateWeeklySubjectAndEnglishBreakdown(
         const taskPct = toPercentage(taskScore, taskMax);
         const taskCompleted = rawTask.completed === true;
         const taskProblems = String(rawTask.problems || '').trim();
+        const taskExercises = Array.isArray(rawTask.exercises)
+          ? rawTask.exercises
+              .filter((ex) => isPlainObject(ex))
+              .map((ex) => {
+                const exScore = toOptionalNumber(ex.score);
+                const exMax = toOptionalNumber(ex.totalScore ?? ex.maxScore ?? rawTask.maxScore);
+                return {
+                  score: exScore,
+                  maxScore: exMax,
+                  percentage: toPercentage(exScore, exMax),
+                  problems: String(ex.problems || '').trim(),
+                };
+              })
+          : [];
+        const scoredTaskExercises = taskExercises.filter((ex) => ex.percentage != null);
 
         const lowerName = displayName.toLowerCase();
         const targetSkill = lowerName.includes('editing') || displayName.includes('改错')
@@ -419,16 +434,23 @@ export function aggregateWeeklySubjectAndEnglishBreakdown(
         const target = englishBreakdown[targetSkill];
         const delta = practiceCount > 0 ? Math.floor(practiceCount) : taskCompleted ? 1 : 0;
         target.totalAttempts += delta;
-        if (taskPct != null) {
-          target.scoredAttempts += 1;
-          scoreBuffer[targetSkill].push(taskPct);
+        const scorePercentages = scoredTaskExercises.length
+          ? scoredTaskExercises.map((ex) => ex.percentage).filter((value): value is number => value != null)
+          : (taskPct != null ? [taskPct] : []);
+        if (scorePercentages.length) {
+          target.scoredAttempts += scorePercentages.length;
+          scorePercentages.forEach((percentage) => scoreBuffer[targetSkill].push(percentage));
         }
-        if (target.attempts.length < 50) {
+        const attemptRows = scoredTaskExercises.length
+          ? scoredTaskExercises
+          : [{ percentage: taskPct, problems: taskProblems }];
+        for (const attempt of attemptRows) {
+          if (target.attempts.length >= 50) break;
           target.attempts.push({
             date: date || '',
             attemptIndex: target.attempts.length + 1,
-            accuracy: taskPct,
-            issues: (taskProblems || displayName || '无').slice(0, 120),
+            accuracy: attempt.percentage,
+            issues: (attempt.problems || taskProblems || displayName || '无').slice(0, 120),
           });
         }
 
@@ -718,6 +740,16 @@ export function buildCompactWeeklySummaryContext(input: WeeklyContextInput) {
             maxScore: task.maxScore ?? null,
             completed: task.completed === true,
             problems: clip(task.problems, 80) || null,
+            exercises: Array.isArray(task.exercises)
+              ? task.exercises
+                  .filter((ex) => isPlainObject(ex))
+                  .slice(0, 12)
+                  .map((ex) => ({
+                    score: ex.score ?? null,
+                    maxScore: ex.totalScore ?? ex.maxScore ?? task.maxScore ?? null,
+                    problems: clip(ex.problems, 80) || null,
+                  }))
+              : [],
           }));
         return {
           subjectName: a.subjectDisplayName || a.subjectName || a.subject || null,

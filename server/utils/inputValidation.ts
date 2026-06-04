@@ -190,6 +190,46 @@ export const validateDailyProgressExtremes = (activitiesRaw: unknown): Validatio
           message: `文本过长（最多 ${INPUT_LIMITS.activityTextMax} 字）`,
         });
       }
+      const taskExercises = Array.isArray(task.exercises) ? task.exercises : [];
+      if (taskExercises.length > INPUT_LIMITS.englishExerciseMax) {
+        issues.push({
+          field: `${path}.englishTasks[${taskIndex}].exercises`,
+          message: '练习条数过多',
+        });
+      }
+      taskExercises.forEach((ex, exIndex) => {
+        const exObj = safeObject(ex);
+        const exScoreIssue = validateNumberRange({
+          field: `${path}.englishTasks[${taskIndex}].exercises[${exIndex}].score`,
+          value: exObj.score,
+          min: INPUT_LIMITS.englishScoreMin,
+          max: INPUT_LIMITS.englishScoreMax,
+          integer: false,
+        });
+        if (exScoreIssue) issues.push(exScoreIssue);
+        const exTotalIssue = validateNumberRange({
+          field: `${path}.englishTasks[${taskIndex}].exercises[${exIndex}].totalScore`,
+          value: exObj.totalScore,
+          min: 1,
+          max: INPUT_LIMITS.englishScoreMax,
+          integer: false,
+        });
+        if (exTotalIssue) issues.push(exTotalIssue);
+        const exScore = parseFiniteNumber(exObj.score);
+        const exTotal = parseFiniteNumber(exObj.totalScore);
+        if (exScore !== null && exTotal !== null && exScore > exTotal) {
+          issues.push({
+            field: `${path}.englishTasks[${taskIndex}].exercises[${exIndex}].score`,
+            message: '得分不能超过满分',
+          });
+        }
+        if (textTooLong(exObj.problems, INPUT_LIMITS.activityTextMax)) {
+          issues.push({
+            field: `${path}.englishTasks[${taskIndex}].exercises[${exIndex}].problems`,
+            message: `文本过长（最多 ${INPUT_LIMITS.activityTextMax} 字）`,
+          });
+        }
+      });
     });
 
     const editing = safeObject(english.editing);

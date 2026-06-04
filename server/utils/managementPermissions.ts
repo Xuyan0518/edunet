@@ -3,14 +3,18 @@ import { db } from '../db';
 import { adminsTable, parentsTable, teachersTable } from '../schema';
 import type { AuthUser } from './auth';
 
-export const MANAGEMENT_ALLOWED_WECHAT_OPEN_ID = 'o-zVF3carqsMGxDM0OhAVBc0stcI';
+export const MANAGEMENT_ALLOWED_WECHAT_OPEN_IDS = [
+  'o-zVF3carqsMGxDM0OhAVBc0stcI',
+  'o-zVF3YX1px9ZOZGXJ4BCwXItoDY',
+] as const;
+export const MANAGEMENT_ALLOWED_WECHAT_OPEN_ID = MANAGEMENT_ALLOWED_WECHAT_OPEN_IDS[0];
 
 export const canManageStudentsAndParents = (user?: {
   role?: string | null;
   wechatOpenId?: string | null;
 }) =>
   user?.role === 'teacher' &&
-  user.wechatOpenId === MANAGEMENT_ALLOWED_WECHAT_OPEN_ID;
+  MANAGEMENT_ALLOWED_WECHAT_OPEN_IDS.includes(user.wechatOpenId as typeof MANAGEMENT_ALLOWED_WECHAT_OPEN_IDS[number]);
 
 export const getAuthUserWithWechatOpenId = async (user: AuthUser) => {
   if (user.role === 'teacher') {

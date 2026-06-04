@@ -121,6 +121,45 @@ describe('aggregateWeeklySubjectAndEnglishBreakdown', () => {
     expect(englishBreakdown.reading.attempts).toHaveLength(2);
   });
 
+  it('does not double count canonical Editing when it also appears in customEnglishTasks', () => {
+    const { englishBreakdown } = aggregateWeeklySubjectAndEnglishBreakdown([
+      {
+        date: '2026-06-03',
+        attendance: 'present',
+        activities: [
+          {
+            type: 'english',
+            english: {
+              editing: {
+                exerciseCount: 2,
+                exercises: [
+                  { score: 80, totalScore: 100, problems: '挺好的' },
+                  { score: 100, totalScore: 100, problems: '' },
+                ],
+              },
+            },
+            customEnglishTasks: [
+              {
+                key: 'editing',
+                displayName: '改错 (Editing)',
+                practiceCount: 2,
+                exercises: [
+                  { score: 80, totalScore: 100, problems: '挺好的' },
+                  { score: 100, totalScore: 100, problems: '' },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+
+    expect(englishBreakdown.editing.totalAttempts).toBe(2);
+    expect(englishBreakdown.editing.scoredAttempts).toBe(2);
+    expect(englishBreakdown.editing.averageAccuracy).toBe(90);
+    expect(englishBreakdown.customTasks).toEqual([]);
+  });
+
   it('feeds meaningful custom English tasks into a dedicated custom breakdown', () => {
     const { englishBreakdown } = aggregateWeeklySubjectAndEnglishBreakdown([
       {

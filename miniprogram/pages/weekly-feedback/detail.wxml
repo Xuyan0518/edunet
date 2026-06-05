@@ -23,19 +23,19 @@
     <block wx:if="{{!progressLoading && progressEntries.length === 0}}">
       <view class="muted">本周暂无每日进度</view>
     </block>
-    <block wx:for="{{progressEntries}}" wx:for-item="day" wx:key="id">
-      <view class="daily-card">
+    <block wx:for="{{progressEntries}}" wx:for-item="day" wx:for-index="dayIndex" wx:key="id">
+      <view class="daily-card {{dayIndex % 2 === 1 ? 'daily-card-alt' : ''}} {{day.isAbsentDay ? 'daily-card-absent' : day.attendance === 'late' ? 'daily-card-late' : 'daily-card-present'}} {{expandedProgressMap[day.id || day.date] ? 'daily-card-expanded' : ''}}">
         <view class="row-between daily-head" data-key="{{day.id || day.date}}" bindtap="toggleProgressEntry">
-          <view>
+          <view class="daily-title-area">
             <view class="title-small">{{day.date}}</view>
             <view class="muted daily-preview">{{day.previewText}}</view>
           </view>
-          <view class="row">
-            <view class="chip">{{day.attendanceLabel}}</view>
-            <view class="muted">{{expandedProgressMap[day.id || day.date] ? "收起" : "展开"}}</view>
+          <view class="daily-actions">
+            <view class="status-chip {{day.isAbsentDay ? 'status-chip-absent' : day.attendance === 'late' ? 'status-chip-late' : 'status-chip-present'}}">{{day.attendanceLabel}}</view>
+            <view class="toggle-text">{{expandedProgressMap[day.id || day.date] ? "收起" : "展开"}}</view>
           </view>
         </view>
-        <view class="muted" wx:if="{{!day.isAbsentDay && (day.attendanceStart || day.attendanceEnd)}}">
+        <view class="daily-time" wx:if="{{!day.isAbsentDay && (day.attendanceStart || day.attendanceEnd)}}">
           时间 {{day.attendanceStart || "--"}} - {{day.attendanceEnd || "--"}}
         </view>
         <block wx:if="{{expandedProgressMap[day.id || day.date]}}">

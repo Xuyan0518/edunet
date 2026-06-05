@@ -1,11 +1,158 @@
-<view class="container">
-  <view class="hero">
-    <view class="title">管理员面板</view>
-    <view class="subtitle">审批与教师管理</view>
+<view class="container admin-page">
+  <view class="hero admin-hero">
+    <view class="row-between">
+      <view>
+        <view class="title">管理员数据中心</view>
+        <view class="subtitle">学生数据、进度、报告与账号审批</view>
+      </view>
+      <button class="btn-outline refresh-btn" size="mini" bindtap="fetchAll" loading="{{loading}}">刷新</button>
+    </view>
+    <view class="cycle-text">本周周期：{{currentCycleText || "加载中"}}</view>
+  </view>
+
+  <view class="metric-grid">
+    <view class="metric-card">
+      <view class="metric-label">学生</view>
+      <view class="metric-value">{{metrics.totalStudents || 0}}</view>
+    </view>
+    <view class="metric-card">
+      <view class="metric-label">缺今日记录</view>
+      <view class="metric-value warn">{{metrics.missingDailyToday || 0}}</view>
+    </view>
+    <view class="metric-card">
+      <view class="metric-label">缺本周反馈</view>
+      <view class="metric-value warn">{{metrics.missingCurrentWeekly || 0}}</view>
+    </view>
+    <view class="metric-card">
+      <view class="metric-label">待审批</view>
+      <view class="metric-value">{{pendingAccessCount}}</view>
+    </view>
   </view>
 
   <view class="section card">
-    <view class="section-title">待审批账号</view>
+    <view class="row-between header-row">
+      <view>
+        <view class="section-title">学生管理</view>
+        <view class="muted small-text">搜索、筛选并选择学生查看完整数据</view>
+      </view>
+      <button class="btn-outline" size="mini" bindtap="exportStudents">导出列表</button>
+    </view>
+
+    <input class="input" placeholder="搜索学生、年级、家长..." value="{{studentQuery}}" bindinput="onSearchStudent" />
+
+    <view class="filter-row">
+      <picker mode="selector" range="{{gradeOptions}}" value="{{gradeFilterIndex}}" bindchange="onGradeFilterChange">
+        <view class="filter-pill">{{gradeOptions[gradeFilterIndex]}}</view>
+      </picker>
+      <button class="filter-pill {{statusFilter === 'all' ? 'active' : ''}}" size="mini" data-value="all" bindtap="setStatusFilter">全部</button>
+      <button class="filter-pill {{statusFilter === 'missingDaily' ? 'active' : ''}}" size="mini" data-value="missingDaily" bindtap="setStatusFilter">缺今日</button>
+      <button class="filter-pill {{statusFilter === 'missingWeekly' ? 'active' : ''}}" size="mini" data-value="missingWeekly" bindtap="setStatusFilter">缺本周</button>
+      <button class="filter-pill {{statusFilter === 'noParent' ? 'active' : ''}}" size="mini" data-value="noParent" bindtap="setStatusFilter">未绑家长</button>
+    </view>
+
+    <block wx:if="{{filteredStudents.length === 0}}">
+      <view class="list-item muted">暂无符合条件的学生</view>
+    </block>
+    <block wx:else>
+      <scroll-view scroll-y class="student-list">
+        <block wx:for="{{filteredStudents}}" wx:key="id">
+          <view class="student-row {{selectedStudentId === item.id ? 'selected' : ''}}" data-id="{{item.id}}" bindtap="selectStudent">
+            <view class="row-between">
+              <view class="subject-text">
+                <view class="subject-name">{{item.name}}</view>
+                <view class="muted subject-meta">{{item.grade}} · {{item.parentName}}</view>
+              </view>
+              <view class="chip {{item.statusClass}}">{{item.statusText}}</view>
+            </view>
+            <view class="record-strip">
+              <text>日 {{item.dailyCount}}</text>
+              <text>周 {{item.weeklyCount}}</text>
+              <text>学期 {{item.termCount}}</text>
+              <text>年度 {{item.yearlyCount}}</text>
+              <text>报告 {{item.reportCount}}</text>
+            </view>
+          </view>
+        </block>
+      </scroll-view>
+    </block>
+  </view>
+
+  <view wx:if="{{selectedStudent}}" class="section card selected-panel">
+    <view class="row-between header-row">
+      <view>
+        <view class="section-title">{{selectedStudent.name}}</view>
+        <view class="muted small-text">{{selectedStudent.grade}} · {{selectedStudent.parentName}}</view>
+      </view>
+      <button class="btn-outline" size="mini" bindtap="exportSelectedStudent">导出学生</button>
+    </view>
+
+    <view class="summary-grid">
+      <view class="summary-cell">
+        <view class="metric-label">最新日记录</view>
+        <view class="summary-value">{{selectedStudent.latestDailyText}}</view>
+      </view>
+      <view class="summary-cell">
+        <view class="metric-label">最新周反馈</view>
+        <view class="summary-value">{{selectedStudent.latestWeeklyText}}</view>
+      </view>
+      <view class="summary-cell">
+        <view class="metric-label">最新报告</view>
+        <view class="summary-value">{{selectedStudent.latestReportText}}</view>
+      </view>
+    </view>
+
+    <view class="edit-box">
+      <view class="subheader">学生资料快速编辑</view>
+      <input class="input compact-input" placeholder="学生姓名" value="{{editStudentName}}" bindinput="onEditName" />
+      <input class="input compact-input" placeholder="年级" value="{{editStudentGrade}}" bindinput="onEditGrade" />
+      <picker mode="selector" range="{{parentNames}}" value="{{editParentIndex}}" bindchange="onParentChange">
+        <view class="input picker-input">家长：{{parentNames[editParentIndex]}}</view>
+      </picker>
+      <button class="btn-primary save-btn" bindtap="saveStudentProfile">保存学生资料</button>
+    </view>
+
+    <view class="quick-actions">
+      <button class="btn-outline" size="mini" bindtap="goStudentDetail">总览</button>
+      <button class="btn-outline" size="mini" bindtap="goDailyProgress">日进度</button>
+      <button class="btn-outline" size="mini" bindtap="goWeeklyFeedback">周反馈</button>
+      <button class="btn-outline" size="mini" bindtap="goQuarterly">学期</button>
+      <button class="btn-outline" size="mini" bindtap="goYearly">年度</button>
+      <button class="btn-outline" size="mini" bindtap="goReports">报告</button>
+    </view>
+
+    <view class="record-section">
+      <view class="subheader">近期日进度</view>
+      <block wx:if="{{selectedStudent.dailyProgress.length === 0}}">
+        <view class="muted small-text">暂无日进度</view>
+      </block>
+      <block wx:else>
+        <block wx:for="{{selectedStudent.dailyProgress}}" wx:key="id">
+          <view wx:if="{{index < 3}}" class="record-line">
+            <view class="record-title">{{item.date}} · {{item.attendance}}</view>
+            <view class="muted record-summary">{{item.summary || "暂无摘要"}}</view>
+          </view>
+        </block>
+      </block>
+    </view>
+
+    <view class="record-section">
+      <view class="subheader">近期周反馈</view>
+      <block wx:if="{{selectedStudent.weeklyFeedback.length === 0}}">
+        <view class="muted small-text">暂无周反馈</view>
+      </block>
+      <block wx:else>
+        <block wx:for="{{selectedStudent.weeklyFeedback}}" wx:key="id">
+          <view wx:if="{{index < 3}}" class="record-line">
+            <view class="record-title">{{item.weekStarting}} - {{item.weekEnding}}</view>
+            <view class="muted record-summary">{{item.summary}}</view>
+          </view>
+        </block>
+      </block>
+    </view>
+  </view>
+
+  <view class="section card">
+    <view class="section-title">账号审批</view>
 
     <view class="subheader">家长</view>
     <block wx:if="{{pendingParents.length === 0}}">
@@ -15,8 +162,8 @@
       <block wx:for="{{pendingParents}}" wx:key="id">
         <view class="list-item row-between">
           <view class="subject-text">
-            <view class="subject-name">{{item.displayName || item.name || "未命名用户"}}</view>
-            <view class="muted subject-meta">{{item.wechatOpenIdMasked || "未绑定微信"}}</view>
+            <view class="subject-name">{{item.displayLabel}}</view>
+            <view class="muted subject-meta">{{item.identityLabel}}</view>
           </view>
           <view class="row">
             <button class="btn-outline" size="mini" data-id="{{item.id}}" data-role="parent" bindtap="handleApprove">批准</button>
@@ -36,8 +183,8 @@
       <block wx:for="{{pendingTeachers}}" wx:key="id">
         <view class="list-item row-between">
           <view class="subject-text">
-            <view class="subject-name">{{item.displayName || item.name || "未命名用户"}}</view>
-            <view class="muted subject-meta">{{item.wechatOpenIdMasked || "未绑定微信"}}</view>
+            <view class="subject-name">{{item.displayLabel}}</view>
+            <view class="muted subject-meta">{{item.identityLabel}}</view>
           </view>
           <view class="row">
             <button class="btn-outline" size="mini" data-id="{{item.id}}" data-role="teacher" bindtap="handleApprove">批准</button>
@@ -49,11 +196,11 @@
   </view>
 
   <view class="section card">
-    <view class="row-between">
+    <view class="row-between header-row">
       <view class="section-title">教师管理</view>
-      <view class="muted">删除教师账号</view>
+      <view class="muted small-text">删除教师账号</view>
     </view>
-    <input class="input" placeholder="搜索教师..." bindinput="onSearchTeacher" />
+    <input class="input" placeholder="搜索教师..." value="{{teacherQuery}}" bindinput="onSearchTeacher" />
     <block wx:if="{{filteredTeachers.length === 0}}">
       <view class="list-item muted">暂无教师</view>
     </block>
@@ -61,8 +208,8 @@
       <block wx:for="{{filteredTeachers}}" wx:key="id">
         <view class="list-item row-between">
           <view class="subject-text">
-            <view class="subject-name">{{item.displayName || item.name || "未命名用户"}}</view>
-            <view class="muted subject-meta">{{item.wechatOpenIdMasked || "未绑定微信"}} · {{item.status}}</view>
+            <view class="subject-name">{{item.displayLabel}}</view>
+            <view class="muted subject-meta">{{item.identityLabel}} · {{item.status}}</view>
           </view>
           <button class="btn-outline" size="mini" data-id="{{item.id}}" bindtap="deleteTeacher">删除</button>
         </view>

@@ -1117,7 +1117,7 @@ app.get('/api/students/:id', authenticate, verifyParentStudentAccess, async (req
   }
 });
 
-app.post('/api/students', authenticate, requireTeacher, requireStudentParentManagement, async (req, res) => {
+app.post('/api/students', authenticate, requireRole('teacher', 'admin'), requireStudentParentManagement, async (req, res) => {
   if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot manage student roster' });
   // Normalize parentId field (handle both parentId and parent_id from frontend)
   const body = { ...req.body };
@@ -1156,7 +1156,7 @@ app.post('/api/students', authenticate, requireTeacher, requireStudentParentMana
   }
 });
 
-app.put('/api/students/:id', authenticate, requireTeacher, requireStudentParentManagement, async (req, res) => {
+app.put('/api/students/:id', authenticate, requireRole('teacher', 'admin'), requireStudentParentManagement, async (req, res) => {
   if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot manage student roster' });
   const id = req.params.id;
   // Normalize parentId field (handle both parentId and parent_id from frontend)
@@ -1187,7 +1187,7 @@ app.put('/api/students/:id', authenticate, requireTeacher, requireStudentParentM
   }
 });
 
-app.delete('/api/students/:id', authenticate, requireTeacher, requireStudentParentManagement, async (req, res) => {
+app.delete('/api/students/:id', authenticate, requireRole('teacher', 'admin'), requireStudentParentManagement, async (req, res) => {
   if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot manage student roster' });
   const id = req.params.id;
   try {
@@ -2035,7 +2035,7 @@ app.get('/api/students/:studentId/quarterly-summary', authenticate, verifyParent
   }
 });
 
-app.put('/api/students/:studentId/quarterly-summary', authenticate, requireTeacher, async (req, res) => {
+app.put('/api/students/:studentId/quarterly-summary', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
   const { studentId } = req.params;
   if (!enforceReviewerScope(req, res, studentId)) return;
   const year = parseFiniteInteger(req.body?.year || new Date().getFullYear());
@@ -2193,7 +2193,7 @@ app.get('/api/students/:studentId/yearly-summary', authenticate, verifyParentStu
   }
 });
 
-app.put('/api/students/:studentId/yearly-summary', authenticate, requireTeacher, async (req, res) => {
+app.put('/api/students/:studentId/yearly-summary', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
   const { studentId } = req.params;
   if (!enforceReviewerScope(req, res, studentId)) return;
   const year = parseFiniteInteger(req.body?.year || new Date().getFullYear());
@@ -4799,6 +4799,145 @@ app.get('/api/admin/pending', authenticate, requireAdmin, async (req, res) => {
   });
 });
 
+app.get('/api/admin/student-management', authenticate, requireAdmin, async (_req, res) => {
+  try {
+    const today = chinaTodayDateString();
+    const currentYear = new Date().getFullYear();
+    const cycle = await resolveCycleForDate(today);
+
+    const [
+      students,
+      parents,
+      teachers,
+      dailyRows,
+      weeklyRows,
+      quarterlyRows,
+      yearlyRows,
+      reportRows,
+    ] = await Promise.all([
+      db.select().from(studentsTable).orderBy(studentsTable.name),
+      db.select().from(parentsTable).orderBy(parentsTable.name),
+      db.select().from(teachersTable).orderBy(teachersTable.name),
+      db.select().from(dailyProgress).where(activeRecord(dailyProgress)).orderBy(desc(dailyProgress.date)),
+      db.select().from(weeklyFeedback).where(activeRecord(weeklyFeedback)).orderBy(desc(weeklyFeedback.weekStarting)),
+      db.select().from(quarterlySummaryTable).where(activeRecord(quarterlySummaryTable)).orderBy(desc(quarterlySummaryTable.year), desc(quarterlySummaryTable.quarter)),
+      db.select().from(yearlySummaryTable).where(activeRecord(yearlySummaryTable)).orderBy(desc(yearlySummaryTable.year)),
+      db.select().from(studentReportsTable).where(activeRecord(studentReportsTable)).orderBy(desc(studentReportsTable.updatedAt)),
+    ]);
+
+    const parentsById = new Map(parents.map((parent) => [parent.id, parent]));
+    const dailyByStudent = new Map<string, typeof dailyRows>();
+    const weeklyByStudent = new Map<string, typeof weeklyRows>();
+    const quarterlyByStudent = new Map<string, typeof quarterlyRows>();
+    const yearlyByStudent = new Map<string, typeof yearlyRows>();
+    const reportsByStudent = new Map<string, typeof reportRows>();
+
+    for (const row of dailyRows) {
+      const list = dailyByStudent.get(row.studentId) ?? [];
+      list.push(withV2Activities(row));
+      dailyByStudent.set(row.studentId, list);
+    }
+    for (const row of weeklyRows) {
+      const list = weeklyByStudent.get(row.studentId) ?? [];
+      list.push(row);
+      weeklyByStudent.set(row.studentId, list);
+    }
+    for (const row of quarterlyRows) {
+      const list = quarterlyByStudent.get(row.studentId) ?? [];
+      list.push(row);
+      quarterlyByStudent.set(row.studentId, list);
+    }
+    for (const row of yearlyRows) {
+      const list = yearlyByStudent.get(row.studentId) ?? [];
+      list.push(row);
+      yearlyByStudent.set(row.studentId, list);
+    }
+    for (const row of reportRows) {
+      const list = reportsByStudent.get(row.studentId) ?? [];
+      list.push(row);
+      reportsByStudent.set(row.studentId, list);
+    }
+
+    const missingDaily = students.filter((student) => {
+      const rows = dailyByStudent.get(student.id) ?? [];
+      return !rows.some((row) => String(row.date).slice(0, 10) === today);
+    });
+    const missingWeekly = students.filter((student) => {
+      const rows = weeklyByStudent.get(student.id) ?? [];
+      return !rows.some((row) => String(row.weekStarting).slice(0, 10) === cycle.startDate);
+    });
+
+    const enrichedStudents = students.map((student) => {
+      const parent = student.parentId ? parentsById.get(student.parentId) : null;
+      const daily = dailyByStudent.get(student.id) ?? [];
+      const weekly = weeklyByStudent.get(student.id) ?? [];
+      const quarterly = quarterlyByStudent.get(student.id) ?? [];
+      const yearly = yearlyByStudent.get(student.id) ?? [];
+      const reports = reportsByStudent.get(student.id) ?? [];
+      const latestDaily = daily[0] ?? null;
+      const latestWeekly = weekly[0] ?? null;
+      const latestReport = reports[0] ?? null;
+
+      return {
+        ...student,
+        parent: parent ? toPublicUser(parent, 'parent') : null,
+        dailyProgress: daily,
+        weeklyFeedback: weekly,
+        quarterlySummaries: quarterly,
+        yearlySummaries: yearly,
+        reports,
+        stats: {
+          dailyCount: daily.length,
+          weeklyCount: weekly.length,
+          quarterlyCount: quarterly.length,
+          yearlyCount: yearly.length,
+          reportCount: reports.length,
+          latestDailyDate: latestDaily ? String(latestDaily.date).slice(0, 10) : null,
+          latestWeeklyStart: latestWeekly ? String(latestWeekly.weekStarting).slice(0, 10) : null,
+          latestReportTitle: latestReport?.title || null,
+          latestReportUpdatedAt: latestReport?.updatedAt || null,
+          missingDailyToday: !latestDaily || String(latestDaily.date).slice(0, 10) !== today,
+          missingCurrentWeekly: !weekly.some((row) => String(row.weekStarting).slice(0, 10) === cycle.startDate),
+        },
+      };
+    });
+
+    res.json({
+      generatedAt: new Date().toISOString(),
+      today,
+      currentYear,
+      currentCycle: {
+        id: cycle.id || null,
+        startDate: cycle.startDate,
+        endDate: cycle.endDate,
+        notes: cycle.notes || null,
+      },
+      metrics: {
+        totalStudents: students.length,
+        totalParents: parents.length,
+        approvedParents: parents.filter((parent) => parent.status === 'approved').length,
+        pendingParents: parents.filter((parent) => parent.status === 'pending').length,
+        pendingTeachers: teachers.filter((teacher) => teacher.status === 'pending').length,
+        missingDailyToday: missingDaily.length,
+        missingCurrentWeekly: missingWeekly.length,
+        totalDailyRecords: dailyRows.length,
+        totalWeeklyRecords: weeklyRows.length,
+        totalReports: reportRows.length,
+      },
+      access: {
+        parents: parents.map((item) => toPublicUser(item, 'parent')),
+        teachers: teachers.map((item) => toPublicUser(item, 'teacher')),
+        pendingParents: parents.filter((item) => item.status === 'pending').map((item) => toPublicUser(item, 'parent')),
+        pendingTeachers: teachers.filter((item) => item.status === 'pending').map((item) => toPublicUser(item, 'teacher')),
+      },
+      students: enrichedStudents,
+    });
+  } catch (err) {
+    console.error('Error loading admin student-management dashboard:', err);
+    res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
+  }
+});
+
 app.post('/api/admin/approve', authenticate, requireAdmin, async (req, res) => {
   const { id, role } = req.body;
   if (role === 'parent') {
@@ -4946,7 +5085,7 @@ app.get('/api/students/:studentId/progress', authenticate, verifyParentStudentAc
 });
 
 // Return empty array for now until tables are created
-app.get('/api/progress', authenticate, requireTeacher, async (req, res) => {
+app.get('/api/progress', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
   try {
     console.log('Fetching all daily progress...');
     if (isReviewerSession(req)) {
@@ -4974,7 +5113,7 @@ app.get('/api/progress', authenticate, requireTeacher, async (req, res) => {
 // which students still have no daily_progress row for today, so they can
 // finish records before evening study ends at 21:00. ?date= overrides the
 // default of "today in Asia/Shanghai".
-app.get('/api/daily-progress/missing', authenticate, requireTeacher, async (req, res) => {
+app.get('/api/daily-progress/missing', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
   if (isReviewerSession(req)) {
     return res.status(403).json({ error: 'Reviewer account cannot access cross-student reminders' });
   }
@@ -5015,7 +5154,7 @@ app.get('/api/daily-progress/missing', authenticate, requireTeacher, async (req,
 // Weekly feedback missing-record reminder. Mirrors daily missing behavior but
 // checks the active study cycle's weekStarting as the expected weekly feedback
 // key, so teachers can quickly see who still lacks a weekly report.
-app.get('/api/feedback/missing', authenticate, requireTeacher, async (req, res) => {
+app.get('/api/feedback/missing', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
   if (isReviewerSession(req)) {
     return res.status(403).json({ error: 'Reviewer account cannot access cross-student reminders' });
   }
@@ -5449,7 +5588,7 @@ app.get('/api/feedback', async (_, res) => {
 });
 */
 
-app.post('/api/progress', authenticate, requireTeacher, async (req, res) => {
+app.post('/api/progress', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
   try {
     console.log('Received progress data:', req.body);
 
@@ -5553,7 +5692,7 @@ app.post('/api/progress', authenticate, requireTeacher, async (req, res) => {
   }
 });
 
-app.put('/api/progress/:id', authenticate, requireTeacher, async (req, res) => {
+app.put('/api/progress/:id', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
   const id = req.params.id;
   try {
     // Part 9: same Zod validation as POST. updatedAt is checked separately
@@ -5670,7 +5809,7 @@ app.put('/api/progress/:id', authenticate, requireTeacher, async (req, res) => {
   }
 });
 
-app.delete('/api/progress/:id', authenticate, requireTeacher, async (req, res) => {
+app.delete('/api/progress/:id', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
   const id = req.params.id;
   try {
     const clientUpdatedAt = parseTimestamp((req.query as any).updatedAt || req.body?.updatedAt);
@@ -5732,7 +5871,7 @@ app.get('/api/progress/list', authenticate, verifyParentStudentAccess, async (re
 
 // ========== WEEKLY FEEDBACK ROUTES ==========
 
-app.get('/api/feedback', authenticate, requireTeacher, async (req, res) => {
+app.get('/api/feedback', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
   try {
     if (isReviewerSession(req)) {
       const reviewerStudentId = String(req.user?.reviewerStudentId || '').trim();
@@ -5754,7 +5893,7 @@ app.get('/api/feedback', authenticate, requireTeacher, async (req, res) => {
   }
 });
 
-app.post('/api/feedback', authenticate, requireTeacher, async (req, res) => {
+app.post('/api/feedback', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
   const body = {...req.body, weekStarting: new Date(req.body.weekStarting), weekEnding: new Date(req.body.weekEnding)}
   const parsed = WeeklyFeedbackSchema.safeParse(body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
@@ -5833,7 +5972,7 @@ app.post('/api/feedback', authenticate, requireTeacher, async (req, res) => {
   }
 });
 
-app.put('/api/feedback/:id', authenticate, requireTeacher, async (req, res) => {
+app.put('/api/feedback/:id', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
   const body = {...req.body, id: req.params.id, weekStarting: new Date(req.body.weekStarting), weekEnding: new Date(req.body.weekEnding)}
   const parsed = WeeklyFeedbackSchema.safeParse(body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
@@ -5928,7 +6067,7 @@ app.put('/api/feedback/:id', authenticate, requireTeacher, async (req, res) => {
 });
 
 // ====== AI SUMMARY ROUTES ======
-app.post('/api/ai/weekly-summary', authenticate, requireTeacher, async (req, res) => {
+app.post('/api/ai/weekly-summary', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
   const { studentId, weekStarting, weekEnding } = req.body || {};
   if (!studentId || !weekStarting) {
     return res.status(400).json({ error: 'Missing required fields: studentId, weekStarting' });
@@ -6636,7 +6775,7 @@ app.post('/api/ai/yearly-summary', authenticate, requireRole('teacher', 'admin')
   }
 });
 
-app.delete('/api/feedback/:id', authenticate, requireTeacher, async (req, res) => {
+app.delete('/api/feedback/:id', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
   try {
     const clientUpdatedAt = parseTimestamp((req.query as any).updatedAt || req.body?.updatedAt);
     if (!clientUpdatedAt) {

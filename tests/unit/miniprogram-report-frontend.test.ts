@@ -498,3 +498,90 @@ describe('miniprogram report view helpers', () => {
     expect(markdown).toContain('继续保持每周精读训练');
   });
 });
+
+describe('miniprogram weekly feedback detail page', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    (globalThis as any).getApp = () => ({ globalData: { apiBaseUrl: 'https://api.example.com/api' } });
+    (globalThis as any).wx = {
+      getStorageSync: vi.fn((key: string) => (key === 'token' ? 'token-123' : key === 'user' ? { role: 'teacher' } : null)),
+      request: vi.fn(),
+      showToast: vi.fn(),
+      navigateBack: vi.fn(),
+      navigateTo: vi.fn(),
+      setStorageSync: vi.fn(),
+      showModal: vi.fn(),
+    };
+  });
+
+  it('hides custom English task placeholders with no practice in weekly progress', async () => {
+    let pageConfig: any = null;
+    (globalThis as any).Page = vi.fn((config: any) => {
+      pageConfig = config;
+    });
+
+    require('../../miniprogram/pages/weekly-feedback/detail.js');
+
+    (globalThis as any).wx.request.mockImplementation((options: any) => {
+      options.success({
+        statusCode: 200,
+        data: [
+          {
+            id: 'daily-1',
+            date: '2026-06-04',
+            attendance: 'present',
+            activities: [
+              {
+                type: 'english',
+                subjectName: 'English',
+                customEnglishTasks: [
+                  {
+                    key: 'vocab_book',
+                    displayName: '词汇书 (Vocab Book)',
+                    fieldsUsed: ['practiceCount', 'score', 'problems'],
+                    practiceCount: 0,
+                    score: null,
+                    maxScore: 100,
+                    targetCount: 5,
+                    problems: '',
+                    exercises: [],
+                  },
+                  {
+                    key: 'listening',
+                    displayName: '听力 (Listening)',
+                    fieldsUsed: ['practiceCount', 'score', 'problems'],
+                    practiceCount: 2,
+                    score: 80,
+                    maxScore: 100,
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      });
+    });
+
+    const page = {
+      ...pageConfig,
+      studentId: 's-1',
+      data: {
+        ...pageConfig.data,
+        isTeacher: true,
+        weekStarting: '2026-05-31',
+        weekEnding: '2026-06-06',
+        expandedProgressMap: {},
+      },
+      setData(patch: Record<string, unknown>) {
+        this.data = { ...this.data, ...patch };
+      },
+    };
+
+    pageConfig.fetchWeeklyProgress.call(page);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const titles = page.data.progressEntries[0].activities[0].sections.map((section: any) => section.title);
+    expect(titles).not.toContain('词汇书 (Vocab Book)');
+    expect(titles).toContain('听力 (Listening)');
+  });
+});

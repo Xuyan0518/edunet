@@ -270,6 +270,18 @@ const buildCustomScoredSection = ({ title, task, role = "teacher" }) => {
   };
 };
 
+const customTaskHasPracticeEvidence = (task = {}) => {
+  const count = toInt(task.practiceCount);
+  if (count > 0 || task.completed === true) return true;
+  if (formatScorePair(task.score, task.maxScore)) return true;
+  if (asText(task.problems)) return true;
+  const exercises = Array.isArray(task.exercises) ? task.exercises : [];
+  return exercises.some((ex) => {
+    if (!isPlainObject(ex)) return false;
+    return formatScorePair(ex.score, ex.totalScore || ex.maxScore || task.maxScore) || asText(ex.problems);
+  });
+};
+
 const buildParentEnglishSections = (english = {}, activity = {}) => {
   const sections = [];
   const pushIf = (title, rows) => {
@@ -362,6 +374,7 @@ const buildParentEnglishSections = (english = {}, activity = {}) => {
   customTasks.forEach((task) => {
     const taskKey = asText(task.key).toLowerCase();
     if (canonicalKeys.has(taskKey)) return;
+    if (!customTaskHasPracticeEvidence(task)) return;
     const displayName = asText(task.displayName || task.chineseName || task.englishName || task.key || "自定义项目");
     const scoredSection = buildCustomScoredSection({ title: displayName, task, role: "parent" });
     if (scoredSection) {
@@ -465,6 +478,7 @@ const buildEnglishSections = (english = {}, activity = {}, role = "teacher") => 
   customTasks.forEach((task) => {
     const taskKey = asText(task.key).toLowerCase();
     if (canonicalKeys.has(taskKey)) return;
+    if (!customTaskHasPracticeEvidence(task)) return;
     const displayName = asText(task.displayName || task.chineseName || task.englishName || task.key || "自定义项目");
     const scoredSection = buildCustomScoredSection({ title: displayName, task, role: "teacher" });
     if (scoredSection) {

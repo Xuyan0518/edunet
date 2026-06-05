@@ -903,7 +903,7 @@ export function buildStudentReportAnalytics(params: BuildParams): StudentReportA
           score: number | null;
           total: number | null;
           count: number;
-          exercises: Array<{ score: number | null; problems: string }>;
+          exercises: Array<{ score: number | null; totalScore?: number | null; maxScore?: number | null; problems: string }>;
           title: string;
           textualHint: string;
         }> = [
@@ -952,7 +952,7 @@ export function buildStudentReportAnalytics(params: BuildParams): StudentReportA
           activitySkills.add(section.key);
           const exercisePoints = section.exercises
             .map((ex) => {
-              const parsed = parseScoreAndMax(ex?.score, section.total);
+              const parsed = parseScoreAndMax(ex?.score, ex?.totalScore ?? ex?.maxScore ?? section.total);
               const pct = calcPercentage(parsed.score, parsed.maxScore);
               if (parsed.score === null) return null;
               return {

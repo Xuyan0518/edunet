@@ -160,6 +160,34 @@ describe('aggregateWeeklySubjectAndEnglishBreakdown', () => {
     expect(englishBreakdown.customTasks).toEqual([]);
   });
 
+  it('normalizes canonical English scores by their own max score', () => {
+    const { englishBreakdown } = aggregateWeeklySubjectAndEnglishBreakdown([
+      {
+        date: '2026-06-03',
+        attendance: 'present',
+        activities: [
+          {
+            type: 'english',
+            english: {
+              editing: {
+                exerciseCount: 2,
+                totalScore: 30,
+                exercises: [
+                  { score: 28, totalScore: 30, problems: '' },
+                  { score: 14, totalScore: 28, problems: '时态' },
+                ],
+              },
+            },
+          },
+        ],
+      },
+    ]);
+
+    expect(englishBreakdown.editing.attempts[0]).toMatchObject({ accuracy: 93.3, scoreText: '28/30' });
+    expect(englishBreakdown.editing.attempts[1]).toMatchObject({ accuracy: 50, scoreText: '14/28' });
+    expect(englishBreakdown.editing.averageAccuracy).toBe(71.7);
+  });
+
   it('feeds meaningful custom English tasks into a dedicated custom breakdown', () => {
     const { englishBreakdown } = aggregateWeeklySubjectAndEnglishBreakdown([
       {
@@ -247,6 +275,44 @@ describe('buildCompactWeeklySummaryContext', () => {
     const customTasks = context.dailyProgress[0].activities[0].customEnglishTasks;
     expect(customTasks).toHaveLength(1);
     expect(customTasks[0].displayName).toBe('词汇');
+  });
+
+  it('keeps raw score pairs and percentages for non-100 English scores in compact context', () => {
+    const context = buildCompactWeeklySummaryContext({
+      student: { id: 'student-1', name: '徐湘涵' },
+      weekStarting: '2026-05-24',
+      weekEnding: '2026-05-30',
+      recordWeekEnding: '2026-05-30',
+      attendance: { totalDays: 1, present: 1, late: 0, absent: 0 },
+      englishStats: {},
+      subjectBreakdown: [],
+      englishBreakdown: {},
+      weeklyPaperBreakdown: { totalPapers: 0, subjectPapers: [] },
+      weeklyExamBreakdown: { totalExams: 0, subjectExams: [] },
+      lossPoints: { byEntry: [] },
+      dailyProgress: [
+        {
+          date: '2026-05-25',
+          attendance: 'present',
+          activities: [
+            {
+              type: 'english',
+              english: {
+                editing: { score: 28, totalScore: 30, exerciseCount: 1 },
+                reading: { score: 14, totalScore: 28, articleCount: 1 },
+              },
+            },
+          ],
+        },
+      ],
+      papers: [],
+      exams: [],
+      weeklyFeedback: [],
+    });
+
+    const english = context.dailyProgress[0].activities[0].english;
+    expect(english.editing).toMatchObject({ score: 28, totalScore: 30, percentage: 93.3, scoreText: '28/30' });
+    expect(english.reading).toMatchObject({ score: 14, totalScore: 28, percentage: 50, scoreText: '14/28' });
   });
 });
 

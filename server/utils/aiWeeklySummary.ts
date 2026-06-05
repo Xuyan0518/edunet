@@ -201,6 +201,7 @@ export type WeeklyEnglishAttempt = {
   date: string;
   attemptIndex: number;
   accuracy: number | null;
+  scoreText: string | null;
   issues: string;
 };
 
@@ -370,6 +371,7 @@ export function aggregateWeeklySubjectAndEnglishBreakdown(
       const pushAttempt = (
         skill: Exclude<WeeklyEnglishCoreSkill, 'essay'>,
         accuracy: number | null,
+        scoreText: string | null,
         issues: string,
         attemptIndex: number,
       ) => {
@@ -384,6 +386,7 @@ export function aggregateWeeklySubjectAndEnglishBreakdown(
             date: date || '',
             attemptIndex,
             accuracy: typeof accuracy === 'number' ? accuracy : null,
+            scoreText,
             issues: (issues || '').slice(0, 120),
           });
         }
@@ -418,17 +421,21 @@ export function aggregateWeeklySubjectAndEnglishBreakdown(
           meaningfulExercises.forEach((ex, idx) => {
             const exRecord = isPlainObject(ex) ? ex : {};
             const score = typeof exRecord.score === 'number' ? exRecord.score : null;
+            const maxScore = toOptionalNumber(exRecord.totalScore ?? exRecord.maxScore ?? blockRecord.totalScore);
             const issue = String(exRecord.problems || '').trim() || ids.join('、') || commonIssue || '无';
-            pushAttempt(skill, score, issue, idx + 1);
+            pushAttempt(skill, toPercentage(score, maxScore), toScoreText(score, maxScore), issue, idx + 1);
           });
         } else if (count > 0) {
           const issue = ids.join('、') || commonIssue || blockText || '无';
+          const maxScore = toOptionalNumber(blockRecord.totalScore);
+          const accuracy = toPercentage(blockScore, maxScore);
           for (let idx = 0; idx < count; idx += 1) {
-            pushAttempt(skill, idx === 0 ? blockScore : null, issue, idx + 1);
+            pushAttempt(skill, idx === 0 ? accuracy : null, idx === 0 ? toScoreText(blockScore, maxScore) : null, issue, idx + 1);
           }
         } else {
           const issue = ids.join('、') || commonIssue || blockText || '无';
-          pushAttempt(skill, blockScore, issue, 1);
+          const maxScore = toOptionalNumber(blockRecord.totalScore);
+          pushAttempt(skill, toPercentage(blockScore, maxScore), toScoreText(blockScore, maxScore), issue, 1);
         }
       });
 
@@ -437,9 +444,11 @@ export function aggregateWeeklySubjectAndEnglishBreakdown(
         const target = englishBreakdown.essay;
         target.totalAttempts += 1;
         const score = typeof eng.essay.score === 'number' ? eng.essay.score : null;
-        if (typeof score === 'number') {
+        const maxScore = toOptionalNumber(eng.essay.totalScore);
+        const accuracy = toPercentage(score, maxScore);
+        if (typeof accuracy === 'number') {
           target.scoredAttempts += 1;
-          scoreBuffer.essay.push(score);
+          scoreBuffer.essay.push(accuracy);
         }
         const issue =
           (Array.isArray(eng.essay.lossPointLabelsSnapshot) ? eng.essay.lossPointLabelsSnapshot.join('、') : '') ||
@@ -449,7 +458,8 @@ export function aggregateWeeklySubjectAndEnglishBreakdown(
           target.attempts.push({
             date: date || '',
             attemptIndex: target.totalAttempts,
-            accuracy: score,
+            accuracy,
+            scoreText: toScoreText(score, maxScore),
             issues: issue.slice(0, 120),
           });
         }
@@ -481,6 +491,7 @@ export function aggregateWeeklySubjectAndEnglishBreakdown(
                   score: exScore,
                   maxScore: exMax,
                   percentage: toPercentage(exScore, exMax),
+                  scoreText: toScoreText(exScore, exMax),
                   problems: String(ex.problems || '').trim(),
                 };
               })
@@ -503,7 +514,7 @@ export function aggregateWeeklySubjectAndEnglishBreakdown(
         if (inferredAttempts === 0) continue;
         const attemptRows = meaningfulTaskExercises.length
           ? meaningfulTaskExercises
-          : [{ percentage: taskPct, problems: taskProblems }];
+          : [{ percentage: taskPct, scoreText: toScoreText(taskScore, taskMax), problems: taskProblems }];
 
         if (!targetSkill) {
           const customKey = hasMeaningfulText(rawTask.key) ? String(rawTask.key).trim() : null;
@@ -520,6 +531,7 @@ export function aggregateWeeklySubjectAndEnglishBreakdown(
               date: date || '',
               attemptIndex: customTask.attempts.length + 1,
               accuracy: attempt.percentage,
+              scoreText: attempt.scoreText ?? null,
               issues: (attempt.problems || taskProblems || displayName || '无').slice(0, 120),
             });
           }
@@ -538,6 +550,7 @@ export function aggregateWeeklySubjectAndEnglishBreakdown(
               date: date || '',
               attemptIndex: target.attempts.length + 1,
               accuracy: attempt.percentage,
+              scoreText: attempt.scoreText ?? null,
               issues: (attempt.problems || taskProblems || displayName || '无').slice(0, 120),
             });
           }
@@ -589,6 +602,12 @@ const toPercentage = (score: number | null, total: number | null): number | null
   if (total != null && total > 0) return Number(((score / total) * 100).toFixed(1));
   if (score >= 0 && score <= 100) return Number(score.toFixed(1));
   return null;
+};
+
+const toScoreText = (score: number | null, total: number | null): string | null => {
+  if (score == null) return null;
+  if (total != null && total > 0) return `${score}/${total}`;
+  return `${score}`;
 };
 
 const hasMeaningfulText = (value: unknown): boolean => String(value ?? '').trim().length > 0;
@@ -882,14 +901,41 @@ export function buildCompactWeeklySummaryContext(input: WeeklyContextInput) {
               ? {
                   editing: {
                     score: typeof english.editing.score === 'number' ? english.editing.score : null,
+                    totalScore: toOptionalNumber(english.editing.totalScore),
+                    percentage: toPercentage(
+                      typeof english.editing.score === 'number' ? english.editing.score : null,
+                      toOptionalNumber(english.editing.totalScore),
+                    ),
+                    scoreText: toScoreText(
+                      typeof english.editing.score === 'number' ? english.editing.score : null,
+                      toOptionalNumber(english.editing.totalScore),
+                    ),
                     exerciseCount: Number(english.editing.exerciseCount || 0),
                   },
                   reading: {
                     score: typeof english.reading.score === 'number' ? english.reading.score : null,
+                    totalScore: toOptionalNumber(english.reading.totalScore),
+                    percentage: toPercentage(
+                      typeof english.reading.score === 'number' ? english.reading.score : null,
+                      toOptionalNumber(english.reading.totalScore),
+                    ),
+                    scoreText: toScoreText(
+                      typeof english.reading.score === 'number' ? english.reading.score : null,
+                      toOptionalNumber(english.reading.totalScore),
+                    ),
                     articleCount: Number(english.reading.articleCount || 0),
                   },
                   grammar: {
                     score: typeof english.grammar.score === 'number' ? english.grammar.score : null,
+                    totalScore: toOptionalNumber(english.grammar.totalScore),
+                    percentage: toPercentage(
+                      typeof english.grammar.score === 'number' ? english.grammar.score : null,
+                      toOptionalNumber(english.grammar.totalScore),
+                    ),
+                    scoreText: toScoreText(
+                      typeof english.grammar.score === 'number' ? english.grammar.score : null,
+                      toOptionalNumber(english.grammar.totalScore),
+                    ),
                     exerciseCount: Number(english.grammar.exerciseCount || 0),
                   },
                   vocab: {
@@ -1038,6 +1084,7 @@ OUTPUT RULES (HARD):
 11. If englishBreakdown.customTasks or dailyProgress activities include customEnglishTasks, summarize their concrete completion/score status as part of English learning. Treat custom English tasks such as oral practice, vocabulary book, recitation, and teacher-defined tasks as English learning evidence when they have practiceCount, score, completed, problems, or exercise data.
 12. If weeklyExamBreakdown has data, include exam performance by subject with concrete scores/percentages from that object.
 13. If a day is marked absent, do not describe that day as learning activity.
+14. When an attempt or record has scoreText and percentage, cite scoreText for the concrete mark (for example 28/30) and use percentage only for accuracy/trend. Never treat raw score=28 as 28% when totalScore/maxScore is present.
 
 Now produce the JSON.`;
 
@@ -1051,6 +1098,7 @@ ADDITIONAL NON-NEGOTIABLE CONSTRAINTS:
 - For subjects with paperCount > 0 in weeklyPaperBreakdown, include at least one concrete paper/test score statement.
 - For subjects with examCount > 0 in weeklyExamBreakdown, include at least one concrete exam score statement.
 - If englishBreakdown.customTasks or customEnglishTasks exist, include them in English summary coverage with their concrete names/counts/scores/problems.
+- If scoreText exists, use it for concrete score wording and use percentage/accuracy only after it has been calculated from scoreText.
 - Days marked absent must not be narrated as completed study tasks.
 - Do not summarize English as one generic sentence.
 - If any required field lacks data, explicitly state "本周无有效记录/数据不足以判断", never fabricate.

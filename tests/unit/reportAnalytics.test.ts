@@ -225,6 +225,37 @@ describe('buildStudentReportAnalytics', () => {
     expect(out.englishAnalytics.overallEnglishScoreTrend.points.length).toBeGreaterThan(0);
   });
 
+  it('uses per-exercise totalScore for English daily progress percentages', () => {
+    const out = buildStudentReportAnalytics({
+      ...baseInput,
+      dailyProgress: [
+        {
+          date: '2026-01-04',
+          activities: [
+            {
+              subjectName: 'English',
+              english: {
+                editing: {
+                  exerciseCount: 2,
+                  totalScore: 100,
+                  exercises: [
+                    { score: 28, totalScore: 30, problems: '' },
+                    { score: 14, totalScore: 28, problems: 'tense' },
+                  ],
+                },
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    const editing = out.englishAnalytics.skillBreakdown.editing;
+    expect(editing.scorePoints[0]).toMatchObject({ score: 28, maxScore: 30, percentage: 93.33 });
+    expect(editing.scorePoints[1]).toMatchObject({ score: 14, maxScore: 28, percentage: 50 });
+    expect(editing.averageScore).toBeCloseTo(71.67, 1);
+  });
+
   it('handles custom englishTasks records without breaking legacy analytics', () => {
     const out = buildStudentReportAnalytics({
       ...baseInput,

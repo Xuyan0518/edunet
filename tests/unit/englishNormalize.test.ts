@@ -53,9 +53,9 @@ describe('normalizeEnglishFields', () => {
       totalScore: 100,
       articleCount: 3,
       exercises: [
-        { score: 8, problems: 'A' },
-        { score: null, problems: '' },
-        { score: null, problems: '' },
+        { score: 8, totalScore: 100, problems: 'A' },
+        { score: null, totalScore: 100, problems: '' },
+        { score: null, totalScore: 100, problems: '' },
       ],
       lossPointIds: [],
       lossPointLabelsSnapshot: [],

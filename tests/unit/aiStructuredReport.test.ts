@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildCompactReportContext,
   buildCompatibilitySummary,
   parseAiStructuredReportResponse,
 } from '../../server/utils/aiStructuredReport';
@@ -97,5 +98,41 @@ describe('buildCompatibilitySummary', () => {
     expect(summary).toContain('年度成长亮点：成长1');
     expect(summary).toContain('数学：数学年度表现有起伏');
     expect(summary).toContain('年度评语B');
+  });
+});
+
+describe('buildCompactReportContext', () => {
+  it('keeps score pairs and percentages for non-100 daily English scores', () => {
+    const context = buildCompactReportContext({
+      student: { id: 's-1', name: 'Alice' },
+      startDate: '2026-01-01',
+      endDate: '2026-03-31',
+      reportType: 'quarterly',
+      dailyProgress: [
+        {
+          date: '2026-01-04',
+          activities: [
+            {
+              type: 'english',
+              subjectName: 'English',
+              english: {
+                editing: { score: 28, totalScore: 30, exerciseCount: 1 },
+                grammar: { score: 14, totalScore: 28, exerciseCount: 1 },
+              },
+            },
+          ],
+        },
+      ],
+      weeklyReports: [],
+      papers: [],
+      exams: [],
+      analytics: {},
+      previousQuarterSummary: null,
+      quarterlySummaries: [],
+    });
+
+    const english = context.dailyProgress[0].activities[0].english;
+    expect(english.editing).toMatchObject({ score: 28, totalScore: 30, scoreText: '28/30', percentage: 93.3 });
+    expect(english.grammar).toMatchObject({ score: 14, totalScore: 28, scoreText: '14/28', percentage: 50 });
   });
 });

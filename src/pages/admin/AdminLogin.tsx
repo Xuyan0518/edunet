@@ -36,8 +36,9 @@ const AdminLogin: React.FC = () => {
         return;
       }
 
-      // Store admin token (if using JWT)
+      // Keep both keys so legacy admin pages and shared authenticated API helpers work.
       localStorage.setItem('adminToken', data.token);
+      localStorage.setItem('edunet-token', data.token);
 
       toast({
         title: 'Welcome back, admin!',

@@ -13,8 +13,9 @@ export const canManageStudentsAndParents = (user?: {
   role?: string | null;
   wechatOpenId?: string | null;
 }) =>
-  user?.role === 'teacher' &&
-  MANAGEMENT_ALLOWED_WECHAT_OPEN_IDS.includes(user.wechatOpenId as typeof MANAGEMENT_ALLOWED_WECHAT_OPEN_IDS[number]);
+  user?.role === 'admin' ||
+  (user?.role === 'teacher' &&
+    MANAGEMENT_ALLOWED_WECHAT_OPEN_IDS.includes(user.wechatOpenId as typeof MANAGEMENT_ALLOWED_WECHAT_OPEN_IDS[number]));
 
 export const getAuthUserWithWechatOpenId = async (user: AuthUser) => {
   if (user.role === 'teacher') {

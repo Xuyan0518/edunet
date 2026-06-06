@@ -1,0 +1,18 @@
+<view class="container">
+  <view class="hero">
+    <view class="row-between">
+      <view>
+        <view class="title">待审批的反馈</view>
+        <view class="subtitle">周反馈审核与发布流程预留页面</view>
+      </view>
+      <button class="btn-outline" size="mini" bindtap="goBack">返回</button>
+    </view>
+  </view>
+
+  <view class="section card">
+    <view class="section-title">暂未启用</view>
+    <view class="muted placeholder-copy">
+      这里将用于显示老师提交、等待管理员审核并发布给家长的周反馈。当前仅作为占位入口，待 stakeholder 确认流程后再实现。
+    </view>
+  </view>
+</view>

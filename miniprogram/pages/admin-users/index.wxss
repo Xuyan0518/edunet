@@ -1,0 +1,126 @@
+.admin-users-page {
+  padding-bottom: 48rpx;
+}
+
+.compact-hero {
+  margin-bottom: 20rpx;
+}
+
+.section-head {
+  align-items: flex-start;
+  margin-bottom: 12rpx;
+}
+
+.pending-badge {
+  min-width: 52rpx;
+  height: 52rpx;
+  border-radius: 999rpx;
+  background: #dbeafe;
+  color: #1d4ed8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+}
+
+.pending-group-title {
+  color: #334155;
+  font-size: 26rpx;
+  font-weight: 700;
+  margin: 18rpx 0 6rpx;
+}
+
+.pending-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14rpx;
+  padding: 18rpx 0;
+  border-bottom: 1rpx solid #e2e8f0;
+}
+
+.approval-actions {
+  display: flex;
+  gap: 10rpx;
+  flex-shrink: 0;
+}
+
+.approval-actions button {
+  margin: 0;
+}
+
+.user-row {
+  padding: 24rpx 0;
+  border-bottom: 1rpx solid #e2e8f0;
+}
+
+.user-head {
+  gap: 16rpx;
+}
+
+.subject-text {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4rpx;
+}
+
+.subject-name {
+  color: #0f172a;
+  font-size: 30rpx;
+  font-weight: 700;
+}
+
+.subject-meta {
+  font-size: 24rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.role-editor {
+  margin-top: 18rpx;
+  padding: 18rpx;
+  border: 1rpx solid #dbeafe;
+  border-radius: 18rpx;
+  background: #f8fbff;
+}
+
+.helper-text {
+  font-size: 24rpx;
+  margin-bottom: 14rpx;
+}
+
+.role-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+}
+
+.role-chip {
+  margin: 0;
+  border: 1rpx solid #cbd5e1;
+  border-radius: 999rpx;
+  background: #fff;
+  color: #334155;
+  font-size: 24rpx;
+  min-width: 130rpx;
+}
+
+.role-chip.selected {
+  border-color: #2563eb;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-weight: 700;
+}
+
+.editor-actions {
+  display: flex;
+  gap: 12rpx;
+  margin-top: 18rpx;
+}
+
+.editor-actions button {
+  margin: 0;
+}

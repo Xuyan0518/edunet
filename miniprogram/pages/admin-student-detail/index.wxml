@@ -1,0 +1,77 @@
+<view class="container admin-student-detail-page">
+  <view class="hero compact-hero" wx:if="{{selectedStudent}}">
+    <view class="title">{{selectedStudent.name}}</view>
+    <view class="subtitle">{{selectedStudent.grade}} · {{selectedStudent.parentName}}</view>
+  </view>
+
+  <view wx:if="{{loading && !selectedStudent}}" class="section card muted">
+    正在加载学生数据...
+  </view>
+
+  <view wx:if="{{selectedStudent}}" class="section card selected-panel">
+    <view class="summary-grid">
+      <view class="summary-cell">
+        <view class="metric-label">最新日记录</view>
+        <view class="summary-value">{{selectedStudent.latestDailyText}}</view>
+      </view>
+      <view class="summary-cell">
+        <view class="metric-label">最新周反馈</view>
+        <view class="summary-value">{{selectedStudent.latestWeeklyText}}</view>
+      </view>
+      <view class="summary-cell">
+        <view class="metric-label">最新报告</view>
+        <view class="summary-value">{{selectedStudent.latestReportText}}</view>
+      </view>
+    </view>
+
+    <view class="edit-box">
+      <view class="subheader">学生资料快速编辑</view>
+      <input class="input compact-input" placeholder="学生姓名" value="{{editStudentName}}" bindinput="onEditName" />
+      <input class="input compact-input" placeholder="年级" value="{{editStudentGrade}}" bindinput="onEditGrade" />
+      <picker mode="selector" range="{{parentNames}}" value="{{editParentIndex}}" bindchange="onParentChange">
+        <view class="input picker-input">家长：{{parentNames[editParentIndex]}}</view>
+      </picker>
+      <button class="btn-primary save-btn" bindtap="saveStudentProfile">保存学生资料</button>
+    </view>
+
+    <view class="quick-actions">
+      <button class="btn-outline" size="mini" bindtap="goStudentDetail">总览</button>
+      <button class="btn-outline" size="mini" bindtap="goDailyProgress">日进度</button>
+      <button class="btn-outline" size="mini" bindtap="goWeeklyFeedback">周反馈</button>
+      <button class="btn-outline" size="mini" bindtap="goQuarterly">学期</button>
+      <button class="btn-outline" size="mini" bindtap="goYearly">年度</button>
+      <button class="btn-outline" size="mini" bindtap="goReports">报告</button>
+      <button class="btn-primary" size="mini" bindtap="exportSelectedStudentWorkbook">导出表格</button>
+    </view>
+
+    <view class="record-section">
+      <view class="subheader">近期日进度</view>
+      <block wx:if="{{selectedStudent.dailyProgress.length === 0}}">
+        <view class="muted small-text">暂无日进度</view>
+      </block>
+      <block wx:else>
+        <block wx:for="{{selectedStudent.dailyProgress}}" wx:key="id">
+          <view wx:if="{{index < 3}}" class="record-line">
+            <view class="record-title">{{item.date}} · {{item.attendance}}</view>
+            <view class="muted record-summary">{{item.summary || "暂无摘要"}}</view>
+          </view>
+        </block>
+      </block>
+    </view>
+
+    <view class="record-section">
+      <view class="subheader">近期周反馈</view>
+      <block wx:if="{{selectedStudent.weeklyFeedback.length === 0}}">
+        <view class="muted small-text">暂无周反馈</view>
+      </block>
+      <block wx:else>
+        <block wx:for="{{selectedStudent.weeklyFeedback}}" wx:key="id">
+          <view wx:if="{{index < 3}}" class="record-line">
+            <view class="record-title">{{item.weekStarting}} - {{item.weekEnding}}</view>
+            <view class="muted record-summary">{{item.summary}}</view>
+          </view>
+        </block>
+      </block>
+    </view>
+  </view>
+</view>

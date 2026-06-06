@@ -1,0 +1,98 @@
+.admin-students-page {
+  padding-bottom: 48rpx;
+}
+
+.compact-hero {
+  margin-bottom: 20rpx;
+}
+
+.small-text {
+  font-size: 24rpx;
+}
+
+.student-controls {
+  margin-top: 20rpx;
+}
+
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  margin: 16rpx 0;
+}
+
+.filter-pill {
+  border: 1rpx solid #cbd5e1;
+  border-radius: 999rpx;
+  color: #334155;
+  background: #f8fafc;
+  font-size: 24rpx;
+  line-height: 52rpx;
+  min-height: 52rpx;
+  padding: 0 18rpx;
+}
+
+.filter-pill.active {
+  border-color: #2563eb;
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.student-list {
+  padding-bottom: 16rpx;
+}
+
+.student-row {
+  border: 1rpx solid #e2e8f0;
+  border-radius: 18rpx;
+  padding: 20rpx;
+  margin-bottom: 14rpx;
+  background: #fff;
+}
+
+.student-row:active {
+  border-color: #93c5fd;
+  background: #eff6ff;
+}
+
+.subject-text {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4rpx;
+}
+
+.subject-name {
+  color: #0f172a;
+  font-size: 30rpx;
+  font-weight: 700;
+}
+
+.subject-meta {
+  font-size: 24rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.record-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14rpx;
+  color: #64748b;
+  font-size: 22rpx;
+  margin-top: 14rpx;
+}
+
+.chip {
+  flex-shrink: 0;
+  max-width: 190rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+button[size="mini"] {
+  font-size: 24rpx;
+}

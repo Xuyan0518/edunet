@@ -1,0 +1,4 @@
+.placeholder-copy {
+  font-size: 26rpx;
+  line-height: 1.6;
+}

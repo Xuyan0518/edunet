@@ -24,6 +24,10 @@
     "pages/subjects-manage/index",
     "pages/admin-login/index",
     "pages/admin-dashboard/index",
+    "pages/admin-students/index",
+    "pages/admin-student-detail/index",
+    "pages/admin-users/index",
+    "pages/admin-feedback-review/index",
     "pages/settings/index",
     "pages/profile/index"
   ],

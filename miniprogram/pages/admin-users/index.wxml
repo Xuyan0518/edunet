@@ -1,0 +1,91 @@
+<view class="container admin-users-page">
+  <view class="hero compact-hero">
+    <view class="title">用户管理</view>
+    <view class="subtitle">审批新账号，并为同一用户勾选多个角色</view>
+  </view>
+
+  <view class="section card">
+    <view class="row-between section-head">
+      <view>
+        <view class="section-title">待审批账号</view>
+        <view class="muted helper-text">新用户微信登录后会先出现在这里</view>
+      </view>
+      <view class="pending-badge">{{pendingCount}}</view>
+    </view>
+
+    <block wx:if="{{pendingParents.length === 0 && pendingTeachers.length === 0}}">
+      <view class="list-item muted">暂无待审批账号</view>
+    </block>
+    <block wx:else>
+      <view wx:if="{{pendingParents.length}}" class="pending-group-title">家长</view>
+      <block wx:for="{{pendingParents}}" wx:key="id">
+        <view class="pending-row">
+          <view class="subject-text">
+            <view class="subject-name">{{item.displayLabel}}</view>
+            <view class="muted subject-meta">{{item.identityLabel}}</view>
+          </view>
+          <view class="approval-actions">
+            <button class="btn-primary" size="mini" data-id="{{item.id}}" data-role="parent" bindtap="handleApprove">批准</button>
+            <button class="btn-outline" size="mini" data-id="{{item.id}}" data-role="parent" bindtap="handleReject">拒绝</button>
+          </view>
+        </view>
+      </block>
+
+      <view wx:if="{{pendingTeachers.length}}" class="pending-group-title">教师</view>
+      <block wx:for="{{pendingTeachers}}" wx:key="id">
+        <view class="pending-row">
+          <view class="subject-text">
+            <view class="subject-name">{{item.displayLabel}}</view>
+            <view class="muted subject-meta">{{item.identityLabel}}</view>
+          </view>
+          <view class="approval-actions">
+            <button class="btn-primary" size="mini" data-id="{{item.id}}" data-role="teacher" bindtap="handleApprove">批准</button>
+            <button class="btn-outline" size="mini" data-id="{{item.id}}" data-role="teacher" bindtap="handleReject">拒绝</button>
+          </view>
+        </view>
+      </block>
+    </block>
+  </view>
+
+  <view class="section card">
+    <view class="section-title">角色管理</view>
+    <input class="input" placeholder="搜索用户或角色..." value="{{query}}" bindinput="onSearch" />
+
+    <block wx:if="{{filteredUsers.length === 0}}">
+      <view class="list-item muted">暂无用户</view>
+    </block>
+    <block wx:else>
+      <block wx:for="{{filteredUsers}}" wx:key="identityKey">
+        <view class="user-row">
+          <view class="row-between user-head">
+            <view class="subject-text">
+              <view class="subject-name">{{item.displayName}}</view>
+              <view class="muted subject-meta">当前角色：{{item.roleText}}</view>
+            </view>
+            <button wx:if="{{editingIdentityKey !== item.identityKey}}" class="btn-outline" size="mini" data-index="{{index}}" bindtap="startEdit">编辑</button>
+          </view>
+
+          <view wx:if="{{editingIdentityKey === item.identityKey}}" class="role-editor">
+            <view class="muted helper-text">点选角色。取消勾选即可删除该角色。</view>
+            <view class="role-chip-row">
+              <block wx:for="{{draftRoleOptions}}" wx:key="value">
+                <button
+                  class="role-chip {{item.selected ? 'selected' : ''}}"
+                  size="mini"
+                  data-role="{{item.value}}"
+                  bindtap="toggleDraftRole"
+                >
+                  {{item.selected ? "✓ " : ""}}{{item.label}}
+                </button>
+              </block>
+            </view>
+            <view class="editor-actions">
+              <button class="btn-primary" size="mini" data-index="{{index}}" bindtap="saveRoles" loading="{{saving}}">保存角色</button>
+              <button class="btn-outline" size="mini" bindtap="cancelEdit">取消</button>
+            </view>
+          </view>
+        </view>
+      </block>
+    </block>
+  </view>
+</view>

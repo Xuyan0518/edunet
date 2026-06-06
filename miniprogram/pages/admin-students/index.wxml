@@ -1,0 +1,50 @@
+<view class="container admin-students-page">
+  <view class="hero compact-hero">
+    <view class="row-between">
+      <view>
+        <view class="title">学生管理</view>
+        <view class="subtitle">搜索学生并查看进度、报告与资料</view>
+      </view>
+    </view>
+  </view>
+
+  <view class="student-controls">
+    <input class="input" placeholder="搜索学生、年级、家长..." value="{{studentQuery}}" bindinput="onSearchStudent" />
+
+    <view class="filter-row">
+      <picker mode="selector" range="{{gradeOptions}}" value="{{gradeFilterIndex}}" bindchange="onGradeFilterChange">
+        <view class="filter-pill">{{gradeOptions[gradeFilterIndex]}}</view>
+      </picker>
+      <button class="filter-pill {{statusFilter === 'all' ? 'active' : ''}}" size="mini" data-value="all" bindtap="setStatusFilter">全部</button>
+      <button class="filter-pill {{statusFilter === 'missingDaily' ? 'active' : ''}}" size="mini" data-value="missingDaily" bindtap="setStatusFilter">缺今日</button>
+      <button class="filter-pill {{statusFilter === 'missingWeekly' ? 'active' : ''}}" size="mini" data-value="missingWeekly" bindtap="setStatusFilter">缺本周</button>
+      <button class="filter-pill {{statusFilter === 'noParent' ? 'active' : ''}}" size="mini" data-value="noParent" bindtap="setStatusFilter">未绑家长</button>
+    </view>
+
+    <block wx:if="{{filteredStudents.length === 0}}">
+      <view class="list-item muted">暂无符合条件的学生</view>
+    </block>
+    <block wx:else>
+      <view class="student-list">
+        <block wx:for="{{filteredStudents}}" wx:key="id">
+          <view class="student-row" data-id="{{item.id}}" bindtap="openStudent">
+            <view class="row-between">
+              <view class="subject-text">
+                <view class="subject-name">{{item.name}}</view>
+                <view class="muted subject-meta">{{item.grade}} · {{item.parentName}}</view>
+              </view>
+              <view class="chip {{item.statusClass}}">{{item.statusText}}</view>
+            </view>
+            <view class="record-strip">
+              <text>日 {{item.dailyCount}}</text>
+              <text>周 {{item.weeklyCount}}</text>
+              <text>学期 {{item.termCount}}</text>
+              <text>年度 {{item.yearlyCount}}</text>
+              <text>报告 {{item.reportCount}}</text>
+            </view>
+          </view>
+        </block>
+      </view>
+    </block>
+  </view>
+</view>

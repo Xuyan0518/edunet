@@ -16,6 +16,9 @@ import {
   quarterlySummaryTable,
   yearlySummaryTable,
   studentReportsTable,
+  studentPapersTable,
+  paperTypesTable,
+  paperSchoolsTable,
   teachersTable,
   parentsTable,
   StudentSchema,
@@ -875,6 +878,369 @@ const buildMarkdownReport = (params: {
   }
   lines.push('');
   return lines.join('\n');
+};
+
+const excelXmlEscape = (value: unknown) =>
+  String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+
+const excelDate = (value: unknown) => (value ? String(value).slice(0, 10) : '');
+
+const clipCell = (value: unknown, max = 1200) => {
+  const text = String(value ?? '').replace(/\s+/g, ' ').trim();
+  return text.length > max ? `${text.slice(0, max)}...` : text;
+};
+
+const stringifyCell = (value: unknown) => {
+  if (value == null) return '';
+  if (Array.isArray(value)) return value.map((item) => String(item ?? '')).filter(Boolean).join('; ');
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+};
+
+const buildWorksheet = (name: string, headers: string[], rows: unknown[][]) => {
+  const safeName = excelXmlEscape(name.slice(0, 31));
+  const renderCell = (value: unknown) =>
+    `<Cell><Data ss:Type="String">${excelXmlEscape(clipCell(stringifyCell(value)))}</Data></Cell>`;
+  const headerRow = `<Row>${headers.map(renderCell).join('')}</Row>`;
+  const bodyRows = rows.map((row) => `<Row>${row.map(renderCell).join('')}</Row>`).join('');
+  return `<Worksheet ss:Name="${safeName}"><Table>${headerRow}${bodyRows}</Table></Worksheet>`;
+};
+
+const flattenDailyActivitiesForExport = (row: any) => {
+  const activities = Array.isArray(row.activities) ? row.activities : [];
+  if (!activities.length) {
+    return [[
+      excelDate(row.date),
+      row.attendance || '',
+      row.attendanceStart || '',
+      row.attendanceEnd || '',
+      '',
+      '',
+      '',
+      '',
+      row.summary || '',
+      row.updatedByName || '',
+      row.updatedAt || '',
+    ]];
+  }
+  return activities.map((activity: any) => {
+    const subject =
+      activity?.subjectDisplayName ||
+      activity?.subjectName ||
+      activity?.subject ||
+      activity?.type ||
+      '';
+    const description =
+      activity?.description ||
+      activity?.practiceProgress ||
+      activity?.definitionRecitation ||
+      activity?.comment ||
+      '';
+    const performance = activity?.performance || activity?.status || '';
+    const notes = activity?.notes || activity?.comment || '';
+    const english = activity?.english ? clipCell(JSON.stringify(activity.english), 800) : '';
+    return [
+      excelDate(row.date),
+      row.attendance || '',
+      row.attendanceStart || '',
+      row.attendanceEnd || '',
+      subject,
+      description,
+      performance,
+      notes || english,
+      row.summary || '',
+      row.updatedByName || '',
+      row.updatedAt || '',
+    ];
+  });
+};
+
+const buildStudentExcelWorkbook = (params: {
+  student: any;
+  parent: any | null;
+  dailyRows: any[];
+  weeklyRows: any[];
+  quarterlyRows: any[];
+  yearlyRows: any[];
+  reportRows: any[];
+}) => {
+  const { student, parent, dailyRows, weeklyRows, quarterlyRows, yearlyRows, reportRows } = params;
+  const today = chinaTodayDateString();
+  const latestDaily = dailyRows[0] || null;
+  const latestWeekly = weeklyRows[0] || null;
+  const publishedReports = reportRows.filter((r) => r.visibleToParent);
+  const finalReports = reportRows.filter((r) => r.status === 'final');
+  const weeklyImprovementText = weeklyRows
+    .flatMap((row) => Array.isArray(row.areasToImprove) ? row.areasToImprove : [])
+    .filter(Boolean)
+    .slice(0, 30)
+    .join('; ');
+  const weakActivityText = dailyRows
+    .flatMap((row) => (Array.isArray(row.activities) ? row.activities : []).map((activity: any) => ({
+      subject: activity?.subjectDisplayName || activity?.subjectName || activity?.subject || '',
+      performance: activity?.performance || activity?.comment || activity?.notes || '',
+    })))
+    .filter((item) => /weak|poor|improve|错|弱|需|差|不熟|未掌握/i.test(`${item.subject} ${item.performance}`))
+    .slice(0, 30)
+    .map((item) => `${item.subject}: ${item.performance}`)
+    .join('; ');
+
+  const overviewRows = [
+    ['Student ID', student.id],
+    ['Name', student.name],
+    ['Grade', student.grade],
+    ['Parent', parent?.displayName || parent?.name || ''],
+    ['Parent WeChat', parent?.wechatOpenId ? maskOpenIdForExport(parent.wechatOpenId) : ''],
+    ['Latest Daily Progress', latestDaily ? excelDate(latestDaily.date) : ''],
+    ['Latest Weekly Feedback', latestWeekly ? excelDate(latestWeekly.weekStarting) : ''],
+    ['Daily Records', dailyRows.length],
+    ['Weekly Records', weeklyRows.length],
+    ['Term Records', quarterlyRows.length],
+    ['Yearly Records', yearlyRows.length],
+    ['Reports', reportRows.length],
+    ['Published Reports', publishedReports.length],
+    ['Exported At', new Date().toISOString()],
+  ];
+
+  const dailyActivityRows = dailyRows.flatMap(flattenDailyActivitiesForExport);
+  const weeklyExportRows = weeklyRows.map((row) => [
+    excelDate(row.weekStarting),
+    excelDate(row.weekEnding),
+    row.summary || '',
+    row.strengths || [],
+    row.areasToImprove || [],
+    row.nextWeekFocus || '',
+    row.teacherNotes || '',
+    row.updatedByName || '',
+    row.updatedAt || '',
+  ]);
+  const termRows = quarterlyRows.map((row) => [
+    row.year,
+    row.quarter,
+    excelDate(row.startDate),
+    excelDate(row.endDate),
+    row.summary || '',
+    row.updatedByName || '',
+    row.updatedAt || '',
+  ]);
+  const yearRows = yearlyRows.map((row) => [
+    row.year,
+    row.summary || '',
+    row.updatedByName || '',
+    row.updatedAt || '',
+  ]);
+  const signalRows = [
+    ['Daily record count', dailyRows.length],
+    ['Weekly feedback count', weeklyRows.length],
+    ['Missing today daily progress', latestDaily && excelDate(latestDaily.date) === today ? 'No' : 'Yes'],
+    ['Latest weekly feedback', latestWeekly ? excelDate(latestWeekly.weekStarting) : ''],
+    ['Final reports', finalReports.length],
+    ['Parent-visible reports', publishedReports.length],
+    ['Repeated improvement themes', weeklyImprovementText],
+    ['Possible weak-subject signals', weakActivityText],
+    ['Management note', 'Use this sheet as a first-pass wellbeing signal list; verify with source sheets before acting.'],
+  ];
+
+  const worksheets = [
+    buildWorksheet('Overview', ['Field', 'Value'], overviewRows),
+    buildWorksheet(
+      'Daily Progress',
+      ['Date', 'Attendance', 'Start Time', 'End Time', 'Subject/Activity', 'Description', 'Performance', 'Notes', 'Daily Summary', 'Updated By', 'Updated At'],
+      dailyActivityRows.length ? dailyActivityRows : [['', '', '', '', '', '', '', '', '', '', '']],
+    ),
+    buildWorksheet(
+      'Weekly Feedback',
+      ['Week Start', 'Week End', 'Summary', 'Strengths', 'Areas To Improve', 'Next Focus', 'Teacher Notes', 'Updated By', 'Updated At'],
+      weeklyExportRows.length ? weeklyExportRows : [['', '', '', '', '', '', '', '', '']],
+    ),
+    buildWorksheet(
+      'Term Progress',
+      ['Year', 'Term/Quarter', 'Start Date', 'End Date', 'Summary', 'Updated By', 'Updated At'],
+      termRows.length ? termRows : [['', '', '', '', '', '', '']],
+    ),
+    buildWorksheet(
+      'Yearly Progress',
+      ['Year', 'Annual Summary', 'Updated By', 'Updated At'],
+      yearRows.length ? yearRows : [['', '', '', '']],
+    ),
+    buildWorksheet(
+      'Academic Wellbeing Signals',
+      ['Signal', 'Value'],
+      signalRows,
+    ),
+  ];
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+  xmlns:o="urn:schemas-microsoft-com:office:office"
+  xmlns:x="urn:schemas-microsoft-com:office:excel"
+  xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+  <DocumentProperties xmlns="urn:schemas-microsoft-com:office:office">
+    <Title>${excelXmlEscape(student.name)} Academic Wellbeing Export</Title>
+    <Created>${new Date().toISOString()}</Created>
+  </DocumentProperties>
+  ${worksheets.join('')}
+</Workbook>`;
+};
+
+const maskOpenIdForExport = (openid?: string | null) => {
+  if (!openid) return '';
+  if (openid.length <= 8) return openid;
+  return `${openid.slice(0, 4)}***${openid.slice(-4)}`;
+};
+
+const csvEscape = (value: unknown) => {
+  const text = stringifyCell(value).replace(/\r?\n/g, ' ').trim();
+  if (/[",\n\r]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
+  return text;
+};
+
+const isEnglishSubjectName = (value: unknown) => {
+  const text = String(value ?? '').trim();
+  const lower = text.toLowerCase();
+  return lower === 'english' || lower.includes('english') || text.includes('英语') || text.includes('英文');
+};
+
+const inDateRange = (value: unknown, start: string, end: string) => {
+  const date = excelDate(value);
+  return !!date && date >= start && date <= end;
+};
+
+const summarizeSubjectProgress = (item: any) => {
+  const evidence = Array.isArray(item?.evidence) ? item.evidence.filter(Boolean) : [];
+  if (evidence.length) return evidence.join('；');
+  return item?.activityCount ? `${item.activityCount}次学习记录` : '';
+};
+
+const summarizePaperForCsv = (paper: any) => {
+  const subject = paper.subjectName || '未指定科目';
+  const parts = [
+    excelDate(paper.date),
+    subject,
+    paper.typeName || '',
+    paper.schoolName || '',
+    paper.score != null || paper.total != null ? `${paper.score ?? '-'}/${paper.total ?? '-'}` : '',
+    paper.description || '',
+  ].filter(Boolean);
+  return parts.join(' ');
+};
+
+const summarizeWeeklyFeedbackForCsv = (row: any) => {
+  const parts = [
+    row.summary ? `总结：${row.summary}` : '',
+    Array.isArray(row.strengths) && row.strengths.length ? `优势：${row.strengths.join('；')}` : '',
+    Array.isArray(row.areasToImprove) && row.areasToImprove.length ? `待提升：${row.areasToImprove.join('；')}` : '',
+    row.nextWeekFocus ? `下周重点：${row.nextWeekFocus}` : '',
+    row.teacherNotes ? `教师备注：${row.teacherNotes}` : '',
+  ].filter(Boolean);
+  return parts.join(' | ');
+};
+
+const buildWeeklyReportsTable = (params: {
+  student: any;
+  dailyRows: any[];
+  weeklyRows: any[];
+  paperRows: any[];
+}) => {
+  const { student, dailyRows, weeklyRows, paperRows } = params;
+  const weeklySummaries = weeklyRows.map((weekly) => {
+    const start = excelDate(weekly.weekStarting);
+    const end = excelDate(weekly.weekEnding);
+    const weekDailyRows = dailyRows.filter((row) => inDateRange(row.date, start, end));
+    const weekPaperRows = paperRows.filter((row) => inDateRange(row.date, start, end));
+    const { subjectBreakdown, englishBreakdown } = aggregateWeeklySubjectAndEnglishBreakdown(weekDailyRows);
+    const subjectMap = new Map(
+      subjectBreakdown
+        .filter((item) => !isEnglishSubjectName(item.subjectName))
+        .map((item) => [String(item.subjectName), summarizeSubjectProgress(item)]),
+    );
+    return {
+      weekly,
+      start,
+      end,
+      englishBreakdown,
+      subjectMap,
+      extraHomework: weekPaperRows.map(summarizePaperForCsv).filter(Boolean).join('；'),
+    };
+  });
+
+  const subjectNames = Array.from(
+    new Set(weeklySummaries.flatMap((item) => Array.from(item.subjectMap.keys()))),
+  ).sort((a, b) => a.localeCompare(b));
+  const headers = [
+    'Student name',
+    'Weekly report date range',
+    '阅读完成数',
+    '改错完成数',
+    '语法完成数',
+    '词汇单词数',
+    '词汇句子数',
+    '作文完成数',
+    '自定义英文练习',
+    ...subjectNames.map((subject) => `${subject} progress`),
+    '额外作业',
+    'Weekly feedback',
+    'Teacher',
+  ];
+  const rows = weeklySummaries.map((item) => {
+    const customEnglish = (item.englishBreakdown.customTasks || [])
+      .map((task: any) => `${task.displayName}: ${task.totalAttempts}`)
+      .join('；');
+    return [
+      student.name,
+      `${item.start} - ${item.end}`,
+      item.englishBreakdown.reading?.totalAttempts || 0,
+      item.englishBreakdown.editing?.totalAttempts || 0,
+      item.englishBreakdown.grammar?.totalAttempts || 0,
+      item.englishBreakdown.vocabularyWordCount || 0,
+      item.englishBreakdown.vocabularySentenceCount || 0,
+      item.englishBreakdown.essay?.totalAttempts || 0,
+      customEnglish,
+      ...subjectNames.map((subject) => item.subjectMap.get(subject) || ''),
+      item.extraHomework,
+      summarizeWeeklyFeedbackForCsv(item.weekly),
+      item.weekly.updatedByName || '',
+    ];
+  });
+  return { headers, rows };
+};
+
+const buildWeeklyReportsCsv = (params: {
+  student: any;
+  dailyRows: any[];
+  weeklyRows: any[];
+  paperRows: any[];
+}) => {
+  const { headers, rows } = buildWeeklyReportsTable(params);
+  return `\uFEFF${[headers, ...rows].map((row) => row.map(csvEscape).join(',')).join('\n')}`;
+};
+
+const buildWeeklyReportsExcelWorkbook = (params: {
+  student: any;
+  dailyRows: any[];
+  weeklyRows: any[];
+  paperRows: any[];
+}) => {
+  const { headers, rows } = buildWeeklyReportsTable(params);
+  const worksheetRows = rows.length ? rows : [headers.map(() => '')];
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+  xmlns:o="urn:schemas-microsoft-com:office:office"
+  xmlns:x="urn:schemas-microsoft-com:office:excel"
+  xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+  <DocumentProperties xmlns="urn:schemas-microsoft-com:office:office">
+    <Title>${excelXmlEscape(params.student.name)} Weekly Reports Export</Title>
+    <Created>${new Date().toISOString()}</Created>
+  </DocumentProperties>
+  ${buildWorksheet('Weekly Reports', headers, worksheetRows)}
+</Workbook>`;
 };
 
 // ========== TEACHER ROUTES ==========
@@ -4934,6 +5300,327 @@ app.get('/api/admin/student-management', authenticate, requireAdmin, async (_req
     });
   } catch (err) {
     console.error('Error loading admin student-management dashboard:', err);
+    res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
+  }
+});
+
+app.get('/api/admin/users', authenticate, requireAdmin, async (_req, res) => {
+  try {
+    const [admins, teachers, parents] = await Promise.all([
+      db.select().from(adminsTable).orderBy(adminsTable.name),
+      db.select().from(teachersTable).orderBy(teachersTable.name),
+      db.select().from(parentsTable).orderBy(parentsTable.name),
+    ]);
+    const grouped = new Map<string, { identityKey: string; displayName: string; roles: any[] }>();
+    const addRole = (row: any, role: 'admin' | 'teacher' | 'parent') => {
+      const publicUser = toPublicUser(row, role);
+      const identityKey = row.wechatUnionId || row.wechatOpenId || `${role}:${row.id}`;
+      const existing = grouped.get(identityKey) || {
+        identityKey,
+        displayName: publicUser.displayName,
+        roles: [],
+      };
+      existing.displayName = existing.displayName || publicUser.displayName;
+      existing.roles.push(publicUser);
+      grouped.set(identityKey, existing);
+    };
+    admins.forEach((row) => addRole(row, 'admin'));
+    teachers.forEach((row) => addRole(row, 'teacher'));
+    parents.forEach((row) => addRole(row, 'parent'));
+    res.json({
+      users: Array.from(grouped.values()).sort((a, b) => a.displayName.localeCompare(b.displayName)),
+      roles: {
+        admins: admins.map((row) => toPublicUser(row, 'admin')),
+        teachers: teachers.map((row) => toPublicUser(row, 'teacher')),
+        parents: parents.map((row) => toPublicUser(row, 'parent')),
+      },
+    });
+  } catch (err) {
+    console.error('Error loading admin users:', err);
+    res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
+  }
+});
+
+app.post('/api/admin/users/assign-role', authenticate, requireAdmin, async (req, res) => {
+  const sourceRole = String(req.body?.sourceRole || '');
+  const sourceId = String(req.body?.sourceId || '');
+  const targetRole = String(req.body?.targetRole || '');
+  if (!sourceId || !['admin', 'teacher', 'parent'].includes(sourceRole) || !['admin', 'teacher', 'parent'].includes(targetRole)) {
+    return res.status(400).json({ error: 'Invalid role assignment request' });
+  }
+
+  const loadByRole = async (role: string, id: string) => {
+    if (role === 'admin') return (await db.select().from(adminsTable).where(eq(adminsTable.id, id)).limit(1))[0];
+    if (role === 'teacher') return (await db.select().from(teachersTable).where(eq(teachersTable.id, id)).limit(1))[0];
+    return (await db.select().from(parentsTable).where(eq(parentsTable.id, id)).limit(1))[0];
+  };
+
+  try {
+    const source = await loadByRole(sourceRole, sourceId);
+    if (!source) return res.status(404).json({ error: 'Source user not found' });
+    if (!source.wechatOpenId && !source.wechatUnionId) {
+      return res.status(400).json({ error: 'User has no WeChat identity to assign' });
+    }
+
+    const values = {
+      name: source.displayName || source.name || DEFAULT_USER_NAME,
+      displayName: source.displayName || source.name || DEFAULT_USER_NAME,
+      avatarUrl: source.avatarUrl || null,
+      email: source.email || null,
+      password: null,
+      authProvider: 'wechat',
+      wechatOpenId: source.wechatOpenId || null,
+      wechatUnionId: source.wechatUnionId || null,
+      updatedAt: new Date(),
+    };
+
+    const findExisting = async (role: string) => {
+      const table = role === 'admin' ? adminsTable : role === 'teacher' ? teachersTable : parentsTable;
+      const openIdColumn = role === 'admin' ? adminsTable.wechatOpenId : role === 'teacher' ? teachersTable.wechatOpenId : parentsTable.wechatOpenId;
+      const unionIdColumn = role === 'admin' ? adminsTable.wechatUnionId : role === 'teacher' ? teachersTable.wechatUnionId : parentsTable.wechatUnionId;
+      if (source.wechatOpenId) {
+        const byOpenId = await db.select().from(table).where(eq(openIdColumn, source.wechatOpenId)).limit(1);
+        if (byOpenId.length) return byOpenId[0];
+      }
+      if (source.wechatUnionId) {
+        const byUnionId = await db.select().from(table).where(eq(unionIdColumn, source.wechatUnionId)).limit(1);
+        if (byUnionId.length) return byUnionId[0];
+      }
+      return null;
+    };
+
+    const existing = await findExisting(targetRole);
+    let result: any[] = [];
+    if (targetRole === 'admin') {
+      if (existing) {
+        result = await db.update(adminsTable).set(values).where(eq(adminsTable.id, existing.id)).returning();
+      } else {
+        result = await db.insert(adminsTable).values(values).returning();
+      }
+    } else if (targetRole === 'teacher') {
+      const teacherValues = { ...values, status: 'approved', emailVerified: 'true' };
+      if (existing) {
+        result = await db.update(teachersTable).set(teacherValues).where(eq(teachersTable.id, existing.id)).returning();
+      } else {
+        result = await db.insert(teachersTable).values(teacherValues).returning();
+      }
+    } else {
+      const parentValues = { ...values, status: 'approved', emailVerified: 'true' };
+      if (existing) {
+        result = await db.update(parentsTable).set(parentValues).where(eq(parentsTable.id, existing.id)).returning();
+      } else {
+        result = await db.insert(parentsTable).values(parentValues).returning();
+      }
+    }
+
+    res.json({ success: true, user: toPublicUser(result[0], targetRole as 'admin' | 'teacher' | 'parent') });
+  } catch (err) {
+    console.error('Error assigning user role:', err);
+    res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
+  }
+});
+
+app.post('/api/admin/users/set-roles', authenticate, requireAdmin, async (req, res) => {
+  const sourceRole = String(req.body?.sourceRole || '');
+  const sourceId = String(req.body?.sourceId || '');
+  const roles = Array.isArray(req.body?.roles) ? req.body.roles.map((role: unknown) => String(role)) : [];
+  const validRoles = ['admin', 'teacher', 'parent'] as const;
+  if (!sourceId || !validRoles.includes(sourceRole as any) || roles.some((role) => !validRoles.includes(role as any))) {
+    return res.status(400).json({ error: 'Invalid role update request' });
+  }
+  const nextRoles = Array.from(new Set(roles));
+  if (!nextRoles.length) {
+    return res.status(400).json({ error: 'At least one role is required' });
+  }
+
+  const loadByRole = async (role: string, id: string) => {
+    if (role === 'admin') return (await db.select().from(adminsTable).where(eq(adminsTable.id, id)).limit(1))[0];
+    if (role === 'teacher') return (await db.select().from(teachersTable).where(eq(teachersTable.id, id)).limit(1))[0];
+    return (await db.select().from(parentsTable).where(eq(parentsTable.id, id)).limit(1))[0];
+  };
+
+  try {
+    const source = await loadByRole(sourceRole, sourceId);
+    if (!source) return res.status(404).json({ error: 'Source user not found' });
+    if (!source.wechatOpenId && !source.wechatUnionId) {
+      return res.status(400).json({ error: 'User has no WeChat identity to update' });
+    }
+
+    const findExisting = async (role: string) => {
+      if (role === 'admin') {
+        if (source.wechatOpenId) {
+          const rows = await db.select().from(adminsTable).where(eq(adminsTable.wechatOpenId, source.wechatOpenId)).limit(1);
+          if (rows.length) return rows[0];
+        }
+        if (source.wechatUnionId) {
+          const rows = await db.select().from(adminsTable).where(eq(adminsTable.wechatUnionId, source.wechatUnionId)).limit(1);
+          if (rows.length) return rows[0];
+        }
+      }
+      if (role === 'teacher') {
+        if (source.wechatOpenId) {
+          const rows = await db.select().from(teachersTable).where(eq(teachersTable.wechatOpenId, source.wechatOpenId)).limit(1);
+          if (rows.length) return rows[0];
+        }
+        if (source.wechatUnionId) {
+          const rows = await db.select().from(teachersTable).where(eq(teachersTable.wechatUnionId, source.wechatUnionId)).limit(1);
+          if (rows.length) return rows[0];
+        }
+      }
+      if (role === 'parent') {
+        if (source.wechatOpenId) {
+          const rows = await db.select().from(parentsTable).where(eq(parentsTable.wechatOpenId, source.wechatOpenId)).limit(1);
+          if (rows.length) return rows[0];
+        }
+        if (source.wechatUnionId) {
+          const rows = await db.select().from(parentsTable).where(eq(parentsTable.wechatUnionId, source.wechatUnionId)).limit(1);
+          if (rows.length) return rows[0];
+        }
+      }
+      return null;
+    };
+
+    const existing = {
+      admin: await findExisting('admin'),
+      teacher: await findExisting('teacher'),
+      parent: await findExisting('parent'),
+    };
+
+    if (existing.admin && !nextRoles.includes('admin')) {
+      const allAdmins = await db.select({ id: adminsTable.id }).from(adminsTable);
+      if (allAdmins.length <= 1) {
+        return res.status(400).json({ error: 'Cannot remove the last admin role' });
+      }
+      if (existing.admin.id === req.user?.id) {
+        return res.status(400).json({ error: 'Cannot remove your own admin role' });
+      }
+    }
+
+    if (existing.parent && !nextRoles.includes('parent')) {
+      const linkedStudents = await db
+        .select({ id: studentsTable.id })
+        .from(studentsTable)
+        .where(eq(studentsTable.parentId, existing.parent.id))
+        .limit(1);
+      if (linkedStudents.length) {
+        return res.status(400).json({ error: 'Cannot remove parent role while students are linked' });
+      }
+    }
+
+    const baseValues = {
+      name: source.displayName || source.name || DEFAULT_USER_NAME,
+      displayName: source.displayName || source.name || DEFAULT_USER_NAME,
+      avatarUrl: source.avatarUrl || null,
+      email: source.email || null,
+      password: null,
+      authProvider: 'wechat',
+      wechatOpenId: source.wechatOpenId || null,
+      wechatUnionId: source.wechatUnionId || null,
+      updatedAt: new Date(),
+    };
+
+    if (nextRoles.includes('admin')) {
+      if (existing.admin) {
+        await db.update(adminsTable).set(baseValues).where(eq(adminsTable.id, existing.admin.id));
+      } else {
+        await db.insert(adminsTable).values(baseValues);
+      }
+    } else if (existing.admin) {
+      await db.delete(adminsTable).where(eq(adminsTable.id, existing.admin.id));
+    }
+
+    if (nextRoles.includes('teacher')) {
+      const values = { ...baseValues, status: 'approved', emailVerified: 'true' };
+      if (existing.teacher) {
+        await db.update(teachersTable).set(values).where(eq(teachersTable.id, existing.teacher.id));
+      } else {
+        await db.insert(teachersTable).values(values);
+      }
+    } else if (existing.teacher) {
+      await db.delete(teachersTable).where(eq(teachersTable.id, existing.teacher.id));
+    }
+
+    if (nextRoles.includes('parent')) {
+      const values = { ...baseValues, status: 'approved', emailVerified: 'true' };
+      if (existing.parent) {
+        await db.update(parentsTable).set(values).where(eq(parentsTable.id, existing.parent.id));
+      } else {
+        await db.insert(parentsTable).values(values);
+      }
+    } else if (existing.parent) {
+      await db.delete(parentsTable).where(eq(parentsTable.id, existing.parent.id));
+    }
+
+    res.json({ success: true, roles: nextRoles });
+  } catch (err) {
+    console.error('Error setting user roles:', err);
+    res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
+  }
+});
+
+app.get('/api/admin/students/:studentId/wellbeing-export', authenticate, requireAdmin, async (req, res) => {
+  const { studentId } = req.params;
+  try {
+    const studentRows = await db
+      .select()
+      .from(studentsTable)
+      .where(eq(studentsTable.id, studentId))
+      .limit(1);
+    if (!studentRows.length) return res.status(404).json({ error: 'Student not found' });
+    const student = studentRows[0];
+    const [dailyRows, weeklyRows, paperRows] = await Promise.all([
+      db
+        .select()
+        .from(dailyProgress)
+        .where(and(eq(dailyProgress.studentId, studentId), activeRecord(dailyProgress)))
+        .orderBy(desc(dailyProgress.date)),
+      db
+        .select()
+        .from(weeklyFeedback)
+        .where(and(eq(weeklyFeedback.studentId, studentId), activeRecord(weeklyFeedback)))
+        .orderBy(desc(weeklyFeedback.weekStarting)),
+      db
+        .select({
+          date: studentPapersTable.date,
+          subjectName: studentPapersTable.subjectName,
+          score: studentPapersTable.score,
+          total: studentPapersTable.total,
+          description: studentPapersTable.description,
+          strengths: studentPapersTable.strengths,
+          improvements: studentPapersTable.improvements,
+          updatedByName: studentPapersTable.updatedByName,
+          typeName: paperTypesTable.name,
+          schoolName: paperSchoolsTable.name,
+        })
+        .from(studentPapersTable)
+        .leftJoin(paperTypesTable, eq(studentPapersTable.typeId, paperTypesTable.id))
+        .leftJoin(paperSchoolsTable, eq(studentPapersTable.schoolId, paperSchoolsTable.id))
+        .where(and(eq(studentPapersTable.studentId, studentId), activeRecord(studentPapersTable)))
+        .orderBy(desc(studentPapersTable.date)),
+    ]);
+
+    const workbook = buildWeeklyReportsExcelWorkbook({
+      student,
+      dailyRows: dailyRows.map(withV2Activities),
+      weeklyRows,
+      paperRows,
+    });
+    const asciiStudentName = String(student.name || 'student')
+      .normalize('NFKD')
+      .replace(/[^\x20-\x7E]/g, '')
+      .replace(/[\\/:*?"<>|\s]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 40) || 'student';
+    const asciiFileName = `${asciiStudentName}_weekly_reports_${chinaTodayDateString()}.xls`;
+    const displayFileName = `${String(student.name || 'student').replace(/[\\/:*?"<>|]+/g, '_')}_weekly_reports_${chinaTodayDateString()}.xls`;
+    res.setHeader('Content-Type', 'application/vnd.ms-excel; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${asciiFileName}"; filename*=UTF-8''${encodeURIComponent(displayFileName)}`,
+    );
+    res.send(workbook);
+  } catch (err) {
+    console.error('Error exporting student weekly reports Excel:', err);
     res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
   }
 });

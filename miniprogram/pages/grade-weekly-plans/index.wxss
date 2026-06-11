@@ -1,0 +1,23 @@
+.weekly-plan-page {
+  padding-bottom: 48rpx;
+}
+
+.plan-card {
+  margin-bottom: 20rpx;
+}
+
+.plan-head {
+  align-items: flex-start;
+  gap: 16rpx;
+}
+
+.field {
+  margin-top: 18rpx;
+}
+
+.label {
+  color: #334155;
+  font-size: 26rpx;
+  font-weight: 700;
+  margin-bottom: 10rpx;
+}

@@ -26,7 +26,13 @@
     <view class="nav-card warning" bindtap="goFeedbackReview">
       <view class="card-label">待审批的反馈</view>
       <view class="card-value">{{pendingFeedbackCount}}</view>
-      <view class="card-copy">预留给周反馈审核发布流程</view>
+      <view class="card-copy">审核老师提交的周、学期、年度反馈</view>
+    </view>
+
+    <view class="nav-card" bindtap="goWeeklyPlans">
+      <view class="card-label">周计划汇总</view>
+      <view class="card-value">{{metrics.incompleteWeeklyPlanRecords || 0}}</view>
+      <view class="card-copy">按年级查看本周任务完成、分数与学期统计</view>
     </view>
 
     <view class="nav-card muted-card">

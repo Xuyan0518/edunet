@@ -1,0 +1,47 @@
+.weekly-record-page {
+  padding-bottom: 48rpx;
+}
+
+.field {
+  margin-top: 18rpx;
+}
+
+.field:first-child {
+  margin-top: 0;
+}
+
+.label {
+  color: #334155;
+  font-size: 26rpx;
+  font-weight: 700;
+  margin-bottom: 10rpx;
+}
+
+.picker {
+  border: 2rpx solid #bfdbfe;
+  border-radius: 14rpx;
+  padding: 16rpx 20rpx;
+  background: #fff;
+}
+
+.hint {
+  margin-top: 8rpx;
+  font-size: 24rpx;
+}
+
+.no-plan {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.plan-summary {
+  align-items: flex-start;
+  gap: 16rpx;
+}
+
+.switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20rpx;
+}

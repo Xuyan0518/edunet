@@ -223,6 +223,20 @@
       "when": 1780590000000,
       "tag": "0031_add_student_bin_soft_delete",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1781193000000,
+      "tag": "0032_add_feedback_review_workflow",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1781193120000,
+      "tag": "0033_add_grade_weekly_plans",
+      "breakpoints": true
     }
   ]
 }

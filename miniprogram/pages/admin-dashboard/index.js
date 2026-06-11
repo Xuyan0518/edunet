@@ -28,7 +28,7 @@ Page({
           metrics,
           currentCycleText: data?.currentCycle ? `${data.currentCycle.startDate} 至 ${data.currentCycle.endDate}` : "",
           pendingAccessCount: (metrics.pendingParents || 0) + (metrics.pendingTeachers || 0),
-          pendingFeedbackCount: 0,
+          pendingFeedbackCount: metrics.pendingFeedback || 0,
         });
       })
       .catch(() => wx.showToast({ title: "获取管理数据失败", icon: "error" }))
@@ -45,5 +45,9 @@ Page({
 
   goFeedbackReview() {
     wx.navigateTo({ url: "/pages/admin-feedback-review/index" });
+  },
+
+  goWeeklyPlans() {
+    wx.navigateTo({ url: "/pages/admin-weekly-plans/index" });
   },
 });

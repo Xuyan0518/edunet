@@ -356,6 +356,14 @@ Page({
     wx.navigateTo({ url: "/pages/weekly-feedback/index" });
   },
 
+  goGradeWeeklyPlans() {
+    wx.navigateTo({ url: "/pages/grade-weekly-plans/index" });
+  },
+
+  goStudentWeeklyPlanRecord() {
+    wx.navigateTo({ url: "/pages/student-weekly-plan-record/index" });
+  },
+
   goSettings() {
     wx.navigateTo({ url: "/pages/settings/index" });
   },

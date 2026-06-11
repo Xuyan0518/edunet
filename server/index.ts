@@ -177,6 +177,10 @@ import {
   TOPIC_STATUS,
   subjectLevelsTable,
   studentEnglishTaskConfigsTable,
+  gradeWeeklyPlansTable,
+  studentWeeklyPlanRecordsTable,
+  GradeWeeklyPlanSchema,
+  StudentWeeklyPlanRecordSchema,
 } from './schema';
 
 import { generateToken } from './utils/auth';
@@ -385,6 +389,8 @@ type BinRecordType =
 
 const activeRecord = (table: { deletedAt: SQLWrapper }) => isNull(table.deletedAt);
 const deletedRecord = (table: { deletedAt: SQLWrapper }) => isNotNull(table.deletedAt);
+const parentVisibleRecord = (table: { visibleToParent: SQLWrapper }) => eq(table.visibleToParent, true);
+const shouldFilterForParent = (req: express.Request) => req.user?.role === 'parent';
 
 const softDeletePatch = (req: express.Request) => ({
   deletedAt: new Date(),
@@ -1240,6 +1246,254 @@ const buildWeeklyReportsExcelWorkbook = (params: {
     <Created>${new Date().toISOString()}</Created>
   </DocumentProperties>
   ${buildWorksheet('Weekly Reports', headers, worksheetRows)}
+</Workbook>`;
+};
+
+const isCompletedWeeklyPlanRecord = (record: any | null | undefined) =>
+  !!record && record.completed === true && record.score != null;
+
+const safeExportName = (value: string, fallback: string) =>
+  String(value || fallback)
+    .normalize('NFKD')
+    .replace(/[^\x20-\x7E]/g, '')
+    .replace(/[\\/:*?"<>|\s]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 48) || fallback;
+
+const buildWeeklyPlanSummary = async (weekStarting: string) => {
+  const cycle = await resolveCycleForDate(weekStarting);
+  const [students, plans, records] = await Promise.all([
+    db.select().from(studentsTable).orderBy(studentsTable.grade, studentsTable.name),
+    db
+      .select()
+      .from(gradeWeeklyPlansTable)
+      .where(eq(gradeWeeklyPlansTable.weekStarting, cycle.startDate))
+      .orderBy(gradeWeeklyPlansTable.grade),
+    db
+      .select()
+      .from(studentWeeklyPlanRecordsTable)
+      .orderBy(studentWeeklyPlanRecordsTable.updatedAt),
+  ]);
+
+  const recordsByStudentPlan = new Map<string, any>();
+  for (const record of records) {
+    recordsByStudentPlan.set(`${record.studentId}:${record.gradeWeeklyPlanId}`, record);
+  }
+  const studentsByGrade = new Map<string, any[]>();
+  for (const student of students) {
+    const list = studentsByGrade.get(student.grade) ?? [];
+    list.push(student);
+    studentsByGrade.set(student.grade, list);
+  }
+  const grades = Array.from(new Set([
+    ...students.map((student) => student.grade).filter(Boolean),
+    ...plans.map((plan) => plan.grade).filter(Boolean),
+  ])).sort((a, b) => a.localeCompare(b));
+  const plansByGrade = new Map(plans.map((plan) => [plan.grade, plan]));
+
+  const groups = grades.map((grade) => {
+    const plan = plansByGrade.get(grade) || null;
+    const rows = (studentsByGrade.get(grade) ?? []).map((student) => {
+      const record = plan ? recordsByStudentPlan.get(`${student.id}:${plan.id}`) || null : null;
+      const completed = isCompletedWeeklyPlanRecord(record);
+      return {
+        studentId: student.id,
+        studentName: student.name,
+        grade: student.grade,
+        planId: plan?.id || null,
+        recordId: record?.id || null,
+        score: record?.score ?? null,
+        completed,
+        flagged: !completed,
+        comment: record?.comment || '',
+        updatedAt: record?.updatedAt || null,
+        updatedByName: record?.updatedByName || '',
+      };
+    });
+    return {
+      grade,
+      plan,
+      totalStudents: rows.length,
+      completedCount: rows.filter((row) => row.completed).length,
+      incompleteCount: rows.filter((row) => !row.completed).length,
+      rows,
+    };
+  });
+
+  return {
+    cycle,
+    groups,
+    metrics: {
+      totalGrades: groups.length,
+      totalStudents: groups.reduce((sum, group) => sum + group.totalStudents, 0),
+      completedCount: groups.reduce((sum, group) => sum + group.completedCount, 0),
+      incompleteCount: groups.reduce((sum, group) => sum + group.incompleteCount, 0),
+      planCount: plans.length,
+    },
+  };
+};
+
+const buildTermPlanSummary = async (startDate: string, endDate: string) => {
+  const [students, plans, records] = await Promise.all([
+    db.select().from(studentsTable).orderBy(studentsTable.grade, studentsTable.name),
+    db
+      .select()
+      .from(gradeWeeklyPlansTable)
+      .where(and(gte(gradeWeeklyPlansTable.weekStarting, startDate), lte(gradeWeeklyPlansTable.weekStarting, endDate)))
+      .orderBy(gradeWeeklyPlansTable.grade, gradeWeeklyPlansTable.weekStarting),
+    db
+      .select()
+      .from(studentWeeklyPlanRecordsTable)
+      .orderBy(studentWeeklyPlanRecordsTable.updatedAt),
+  ]);
+  const recordsByStudentPlan = new Map<string, any>();
+  for (const record of records) {
+    recordsByStudentPlan.set(`${record.studentId}:${record.gradeWeeklyPlanId}`, record);
+  }
+  const plansByGrade = new Map<string, any[]>();
+  for (const plan of plans) {
+    const list = plansByGrade.get(plan.grade) ?? [];
+    list.push(plan);
+    plansByGrade.set(plan.grade, list);
+  }
+  const studentsByGrade = new Map<string, any[]>();
+  for (const student of students) {
+    const list = studentsByGrade.get(student.grade) ?? [];
+    list.push(student);
+    studentsByGrade.set(student.grade, list);
+  }
+  const grades = Array.from(new Set([
+    ...students.map((student) => student.grade).filter(Boolean),
+    ...plans.map((plan) => plan.grade).filter(Boolean),
+  ])).sort((a, b) => a.localeCompare(b));
+
+  const groups = grades.map((grade) => {
+    const gradePlans = plansByGrade.get(grade) ?? [];
+    const rows = (studentsByGrade.get(grade) ?? []).map((student) => {
+      const planStatuses = gradePlans.map((plan) => {
+        const record = recordsByStudentPlan.get(`${student.id}:${plan.id}`) || null;
+        const completed = isCompletedWeeklyPlanRecord(record);
+        return {
+          planId: plan.id,
+          weekStarting: excelDate(plan.weekStarting),
+          weekEnding: excelDate(plan.weekEnding),
+          topic: plan.topic,
+          score: record?.score ?? null,
+          completed,
+          comment: record?.comment || '',
+        };
+      });
+      const completedPlans = planStatuses.filter((item) => item.completed);
+      const scored = planStatuses.filter((item) => item.score != null);
+      const averageScore = scored.length
+        ? Math.round((scored.reduce((sum, item) => sum + Number(item.score), 0) / scored.length) * 10) / 10
+        : null;
+      const incompletePlans = planStatuses.filter((item) => !item.completed);
+      return {
+        studentId: student.id,
+        studentName: student.name,
+        grade: student.grade,
+        totalPlans: gradePlans.length,
+        completedCount: completedPlans.length,
+        incompleteCount: incompletePlans.length,
+        averageScore,
+        flagged: incompletePlans.length > 0,
+        incompleteTopics: incompletePlans.map((item) => `${item.weekStarting} ${item.topic}`),
+        planStatuses,
+      };
+    });
+    return {
+      grade,
+      planCount: gradePlans.length,
+      totalStudents: rows.length,
+      completedCount: rows.reduce((sum, row) => sum + row.completedCount, 0),
+      incompleteCount: rows.reduce((sum, row) => sum + row.incompleteCount, 0),
+      rows,
+    };
+  });
+
+  return {
+    startDate,
+    endDate,
+    groups,
+    metrics: {
+      totalGrades: groups.length,
+      totalPlans: plans.length,
+      totalStudents: groups.reduce((sum, group) => sum + group.totalStudents, 0),
+      incompleteStudentCount: groups.reduce((sum, group) => sum + group.rows.filter((row: any) => row.flagged).length, 0),
+    },
+  };
+};
+
+const buildWeeklyPlanSummaryWorkbook = (summary: Awaited<ReturnType<typeof buildWeeklyPlanSummary>>) => {
+  const rows = summary.groups.flatMap((group: any) => {
+    if (!group.rows.length) {
+      return [[group.grade, '', summary.cycle.startDate, summary.cycle.endDate, group.plan?.topic || '未制定计划', '未完成', '', '', '年级暂无学生']];
+    }
+    return group.rows.map((row: any) => [
+      group.grade,
+      row.studentName,
+      summary.cycle.startDate,
+      summary.cycle.endDate,
+      group.plan?.topic || '未制定计划',
+      row.completed ? '已完成' : '未完成',
+      row.score ?? '',
+      row.comment || '',
+      row.updatedByName || '',
+    ]);
+  });
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+  xmlns:o="urn:schemas-microsoft-com:office:office"
+  xmlns:x="urn:schemas-microsoft-com:office:excel"
+  xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+  <DocumentProperties xmlns="urn:schemas-microsoft-com:office:office">
+    <Title>Weekly Plan Summary</Title>
+    <Created>${new Date().toISOString()}</Created>
+  </DocumentProperties>
+  ${buildWorksheet('Weekly Plan Summary', ['年级', '学生', '周开始', '周结束', '计划课题', '完成状态', '分数', '评语', '记录老师'], rows.length ? rows : [['', '', '', '', '', '', '', '', '']])}
+</Workbook>`;
+};
+
+const buildTermPlanSummaryWorkbook = (summary: Awaited<ReturnType<typeof buildTermPlanSummary>>) => {
+  const rows = summary.groups.flatMap((group: any) =>
+    group.rows.map((row: any) => [
+      group.grade,
+      row.studentName,
+      row.totalPlans,
+      row.completedCount,
+      row.incompleteCount,
+      row.averageScore ?? '',
+      row.incompleteTopics.join('；'),
+    ]),
+  );
+  const detailRows = summary.groups.flatMap((group: any) =>
+    group.rows.flatMap((row: any) =>
+      row.planStatuses.map((item: any) => [
+        group.grade,
+        row.studentName,
+        item.weekStarting,
+        item.weekEnding,
+        item.topic,
+        item.completed ? '已完成' : '未完成',
+        item.score ?? '',
+        item.comment || '',
+      ]),
+    ),
+  );
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+  xmlns:o="urn:schemas-microsoft-com:office:office"
+  xmlns:x="urn:schemas-microsoft-com:office:excel"
+  xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+  <DocumentProperties xmlns="urn:schemas-microsoft-com:office:office">
+    <Title>Term Plan Summary</Title>
+    <Created>${new Date().toISOString()}</Created>
+  </DocumentProperties>
+  ${buildWorksheet('Term Summary', ['年级', '学生', '任务总数', '完成数', '未完成数', '平均分', '未完成课题列表'], rows.length ? rows : [['', '', '', '', '', '', '']])}
+  ${buildWorksheet('Plan Details', ['年级', '学生', '周开始', '周结束', '计划课题', '完成状态', '分数', '评语'], detailRows.length ? detailRows : [['', '', '', '', '', '', '', '']])}
 </Workbook>`;
 };
 
@@ -2389,10 +2643,16 @@ app.get('/api/students/:studentId/quarterly-summary', authenticate, verifyParent
   const yearIssue = validateYearRange(year, 'year');
   if (yearIssue) return invalidInput(res, [yearIssue]);
   try {
+    const whereExpr = [
+      eq(quarterlySummaryTable.studentId, studentId),
+      eq(quarterlySummaryTable.year, year),
+      activeRecord(quarterlySummaryTable),
+    ];
+    if (shouldFilterForParent(req)) whereExpr.push(parentVisibleRecord(quarterlySummaryTable));
     const rows = await db
       .select()
       .from(quarterlySummaryTable)
-      .where(and(eq(quarterlySummaryTable.studentId, studentId), eq(quarterlySummaryTable.year, year), activeRecord(quarterlySummaryTable)))
+      .where(and(...whereExpr))
       .orderBy(quarterlySummaryTable.quarter);
     res.json(rows);
   } catch (err) {
@@ -2472,6 +2732,8 @@ app.put('/api/students/:studentId/quarterly-summary', authenticate, requireRole(
                 summary,
                 startDate: start || existing[0].startDate,
                 endDate: end || existing[0].endDate,
+                reviewStatus: 'pending',
+                visibleToParent: false,
                 updatedAt: new Date(),
                 updatedByName,
               })
@@ -2484,6 +2746,8 @@ app.put('/api/students/:studentId/quarterly-summary', authenticate, requireRole(
               summary,
               startDate: start,
               endDate: end,
+              reviewStatus: 'pending',
+              visibleToParent: false,
               updatedAt: new Date(),
               updatedByName,
             });
@@ -2500,27 +2764,7 @@ app.put('/api/students/:studentId/quarterly-summary', authenticate, requireRole(
             await upsert(quarter, summary, item.startDate || null, item.endDate || null);
           }
         }
-        if (insertedQuarters.length) {
-          const studentRows = await db.select().from(studentsTable).where(eq(studentsTable.id, studentId));
-          const student = studentRows[0];
-          if (student) {
-            const label = `第 ${insertedQuarters[0]} 学期`;
-            const timeValue = startDate || format(new Date(), 'yyyy-MM-dd');
-            await notifyParent({
-              studentId,
-              parentId: student.parentId ?? null,
-              templateId: semesterTemplateId,
-              page: `/pages/quarterly-summary/index?studentId=${studentId}`,
-              data: buildTemplateData(
-                semesterTemplateContentKey,
-                `学期总结已发布 ${label}`,
-                semesterTemplateTimeKey,
-                timeValue,
-              ),
-            });
-          }
-        }
-        res.json({ message: 'Quarterly summaries saved' });
+        res.json({ message: 'Quarterly summaries saved for admin review' });
       },
     );
     return;
@@ -2547,10 +2791,16 @@ app.get('/api/students/:studentId/yearly-summary', authenticate, verifyParentStu
   const yearIssue = validateYearRange(year, 'year');
   if (yearIssue) return invalidInput(res, [yearIssue]);
   try {
+    const whereExpr = [
+      eq(yearlySummaryTable.studentId, studentId),
+      eq(yearlySummaryTable.year, year),
+      activeRecord(yearlySummaryTable),
+    ];
+    if (shouldFilterForParent(req)) whereExpr.push(parentVisibleRecord(yearlySummaryTable));
     const rows = await db
       .select()
       .from(yearlySummaryTable)
-      .where(and(eq(yearlySummaryTable.studentId, studentId), eq(yearlySummaryTable.year, year), activeRecord(yearlySummaryTable)))
+      .where(and(...whereExpr))
       .limit(1);
     res.json(rows[0] || {});
   } catch (err) {
@@ -2609,9 +2859,15 @@ app.put('/api/students/:studentId/yearly-summary', authenticate, requireRole('te
             return;
           }
           await db.update(yearlySummaryTable)
-            .set({ summary, updatedAt: new Date(), updatedByName: req.user?.name || null })
+            .set({
+              summary,
+              reviewStatus: 'pending',
+              visibleToParent: false,
+              updatedAt: new Date(),
+              updatedByName: req.user?.name || null,
+            })
             .where(eq(yearlySummaryTable.id, existing[0].id));
-          res.json({ message: 'Yearly summary updated' });
+          res.json({ message: 'Yearly summary saved for admin review' });
         } else {
           const result = await db
             .insert(yearlySummaryTable)
@@ -2619,26 +2875,12 @@ app.put('/api/students/:studentId/yearly-summary', authenticate, requireRole('te
               studentId,
               year,
               summary,
+              reviewStatus: 'pending',
+              visibleToParent: false,
               updatedAt: new Date(),
               updatedByName: req.user?.name || null,
             })
             .returning();
-          const studentRows = await db.select().from(studentsTable).where(eq(studentsTable.id, studentId));
-          const student = studentRows[0];
-          if (student) {
-            await notifyParent({
-              studentId,
-              parentId: student.parentId ?? null,
-              templateId: yearlyTemplateId,
-              page: `/pages/yearly-summary/index?studentId=${studentId}`,
-              data: buildTemplateData(
-                yearlyTemplateContentKey,
-                '年度总结已发布',
-                yearlyTemplateTimeKey,
-                `${year}-12-31`,
-              ),
-            });
-          }
           res.status(201).json(result[0]);
         }
       },
@@ -2874,7 +3116,13 @@ app.patch('/api/reports/:reportId', authenticate, requireRole('teacher', 'admin'
         if (req.body?.summary !== undefined) updates.summaryText = String(req.body.summary || '');
         if (req.body?.status !== undefined) updates.status = normalizeReportStatus(req.body.status);
         const visible = parseBooleanLike(req.body?.visibleToParent);
-        if (visible != null) updates.visibleToParent = visible;
+        if (visible != null) {
+          if (user.role !== 'admin') {
+            res.status(403).json({ error: 'Only admins can publish reports to parents' });
+            return;
+          }
+          updates.visibleToParent = visible;
+        }
 
         const reportType = normalizeReportType(report.reportType);
         if (reportType && req.body?.finalReport !== undefined) {
@@ -2932,7 +3180,7 @@ app.patch('/api/reports/:reportId', authenticate, requireRole('teacher', 'admin'
   }
 });
 
-app.patch('/api/reports/:reportId/visibility', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
+app.patch('/api/reports/:reportId/visibility', authenticate, requireAdmin, async (req, res) => {
   const user = req.user;
   if (!user) return res.status(401).json({ error: 'Authentication required' });
   const visible = parseBooleanLike(req.body?.visibleToParent);
@@ -3315,6 +3563,13 @@ app.get('/api/students/:studentId/report-export', authenticate, verifyParentStud
       return res.status(404).json({ error: 'Student not found' });
     }
     const student = studentRows[0];
+    const weeklyExportWhere = [
+      eq(weeklyFeedback.studentId, studentId),
+      gte(weeklyFeedback.weekStarting, startDate),
+      lte(weeklyFeedback.weekStarting, endDate),
+      activeRecord(weeklyFeedback),
+    ];
+    if (shouldFilterForParent(req)) weeklyExportWhere.push(parentVisibleRecord(weeklyFeedback));
 
     const [subjectProgress, dailyRows, weeklyRows, paperRows, examRows] = await Promise.all([
       getSubjectProgressSummary(studentId),
@@ -3333,14 +3588,7 @@ app.get('/api/students/:studentId/report-export', authenticate, verifyParentStud
       db
         .select()
         .from(weeklyFeedback)
-        .where(
-          and(
-            eq(weeklyFeedback.studentId, studentId),
-            gte(weeklyFeedback.weekStarting, startDate),
-            lte(weeklyFeedback.weekStarting, endDate),
-            activeRecord(weeklyFeedback),
-          )
-        )
+        .where(and(...weeklyExportWhere))
         .orderBy(weeklyFeedback.weekStarting),
       db
         .select({
@@ -5232,6 +5480,12 @@ app.get('/api/admin/student-management', authenticate, requireAdmin, async (_req
       const rows = weeklyByStudent.get(student.id) ?? [];
       return !rows.some((row) => String(row.weekStarting).slice(0, 10) === cycle.startDate);
     });
+    const pendingFeedbackCount =
+      weeklyRows.filter((row) => row.reviewStatus === 'pending' || !row.visibleToParent).length +
+      quarterlyRows.filter((row) => row.reviewStatus === 'pending' || !row.visibleToParent).length +
+      yearlyRows.filter((row) => row.reviewStatus === 'pending' || !row.visibleToParent).length +
+      reportRows.filter((row) => !row.visibleToParent).length;
+    const currentWeeklyPlanSummary = await buildWeeklyPlanSummary(today);
 
     const enrichedStudents = students.map((student) => {
       const parent = student.parentId ? parentsById.get(student.parentId) : null;
@@ -5289,6 +5543,8 @@ app.get('/api/admin/student-management', authenticate, requireAdmin, async (_req
         totalDailyRecords: dailyRows.length,
         totalWeeklyRecords: weeklyRows.length,
         totalReports: reportRows.length,
+        pendingFeedback: pendingFeedbackCount,
+        incompleteWeeklyPlanRecords: currentWeeklyPlanSummary.metrics.incompleteCount,
       },
       access: {
         parents: parents.map((item) => toPublicUser(item, 'parent')),
@@ -5338,6 +5594,165 @@ app.get('/api/admin/users', authenticate, requireAdmin, async (_req, res) => {
   } catch (err) {
     console.error('Error loading admin users:', err);
     res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
+  }
+});
+
+app.get('/api/admin/feedback-review', authenticate, requireAdmin, async (_req, res) => {
+  try {
+    const [students, weeklyRows, quarterlyRows, yearlyRows, reportRows] = await Promise.all([
+      db.select().from(studentsTable),
+      db.select().from(weeklyFeedback).where(activeRecord(weeklyFeedback)).orderBy(desc(weeklyFeedback.updatedAt)),
+      db.select().from(quarterlySummaryTable).where(activeRecord(quarterlySummaryTable)).orderBy(desc(quarterlySummaryTable.updatedAt)),
+      db.select().from(yearlySummaryTable).where(activeRecord(yearlySummaryTable)).orderBy(desc(yearlySummaryTable.updatedAt)),
+      db.select().from(studentReportsTable).where(activeRecord(studentReportsTable)).orderBy(desc(studentReportsTable.updatedAt)),
+    ]);
+    const studentsById = new Map(students.map((student) => [student.id, student]));
+    const pending = [
+      ...weeklyRows
+        .filter((row) => row.reviewStatus === 'pending' || !row.visibleToParent)
+        .map((row) => ({
+          id: row.id,
+          type: 'weekly',
+          typeLabel: '周反馈',
+          studentId: row.studentId,
+          studentName: studentsById.get(row.studentId)?.name || '',
+          title: `${row.weekStarting} - ${row.weekEnding}`,
+          summary: row.summary || '',
+          updatedAt: row.updatedAt,
+          updatedByName: row.updatedByName || '',
+          visibleToParent: row.visibleToParent,
+          reviewStatus: row.reviewStatus,
+        })),
+      ...quarterlyRows
+        .filter((row) => row.reviewStatus === 'pending' || !row.visibleToParent)
+        .map((row) => ({
+          id: row.id,
+          type: 'quarterly',
+          typeLabel: '学期反馈',
+          studentId: row.studentId,
+          studentName: studentsById.get(row.studentId)?.name || '',
+          title: `${row.year} 年 第 ${row.quarter} 学期`,
+          summary: row.summary || '',
+          updatedAt: row.updatedAt,
+          updatedByName: row.updatedByName || '',
+          visibleToParent: row.visibleToParent,
+          reviewStatus: row.reviewStatus,
+        })),
+      ...yearlyRows
+        .filter((row) => row.reviewStatus === 'pending' || !row.visibleToParent)
+        .map((row) => ({
+          id: row.id,
+          type: 'yearly',
+          typeLabel: '年度反馈',
+          studentId: row.studentId,
+          studentName: studentsById.get(row.studentId)?.name || '',
+          title: `${row.year} 年度总结`,
+          summary: row.summary || '',
+          updatedAt: row.updatedAt,
+          updatedByName: row.updatedByName || '',
+          visibleToParent: row.visibleToParent,
+          reviewStatus: row.reviewStatus,
+        })),
+      ...reportRows
+        .filter((row) => !row.visibleToParent)
+        .map((row) => ({
+          id: row.id,
+          type: 'report',
+          typeLabel: row.reportType === 'yearly' ? '年度报告' : '学期报告',
+          studentId: row.studentId,
+          studentName: studentsById.get(row.studentId)?.name || '',
+          title: row.title || `${row.startDate} - ${row.endDate}`,
+          summary: row.summaryText || '',
+          updatedAt: row.updatedAt,
+          updatedByName: row.updatedByName || '',
+          visibleToParent: row.visibleToParent,
+          reviewStatus: row.status || 'draft',
+        })),
+    ].sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+    res.json({ pending });
+  } catch (err) {
+    console.error('Error loading feedback review queue:', err);
+    res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
+  }
+});
+
+app.post('/api/admin/feedback-review/:type/:id/publish', authenticate, requireAdmin, async (req, res) => {
+  const type = String(req.params.type || '');
+  const id = String(req.params.id || '');
+  try {
+    if (type === 'weekly') {
+      const rows = await db.update(weeklyFeedback)
+        .set({ reviewStatus: 'published', visibleToParent: true, updatedAt: new Date(), updatedByName: req.user?.name || null })
+        .where(eq(weeklyFeedback.id, id))
+        .returning();
+      if (!rows.length) return res.status(404).json({ error: 'Feedback not found' });
+      const row = rows[0];
+      const studentRows = await db.select().from(studentsTable).where(eq(studentsTable.id, row.studentId)).limit(1);
+      const student = studentRows[0];
+      if (student) {
+        await notifyParent({
+          studentId: row.studentId,
+          parentId: student.parentId ?? null,
+          templateId: weeklyTemplateId,
+          page: `/pages/student-detail/index?id=${row.studentId}`,
+          data: buildTemplateData(weeklyTemplateContentKey, '每周反馈已发布', weeklyTemplateTimeKey, String(row.weekStarting).slice(0, 10)),
+        });
+      }
+      return res.json({ success: true });
+    }
+    if (type === 'quarterly') {
+      const rows = await db.update(quarterlySummaryTable)
+        .set({ reviewStatus: 'published', visibleToParent: true, updatedAt: new Date(), updatedByName: req.user?.name || null })
+        .where(eq(quarterlySummaryTable.id, id))
+        .returning();
+      if (!rows.length) return res.status(404).json({ error: 'Feedback not found' });
+      const row = rows[0];
+      const studentRows = await db.select().from(studentsTable).where(eq(studentsTable.id, row.studentId)).limit(1);
+      const student = studentRows[0];
+      if (student) {
+        await notifyParent({
+          studentId: row.studentId,
+          parentId: student.parentId ?? null,
+          templateId: semesterTemplateId,
+          page: `/pages/quarterly-summary/index?studentId=${row.studentId}`,
+          data: buildTemplateData(semesterTemplateContentKey, `学期总结已发布 第 ${row.quarter} 学期`, semesterTemplateTimeKey, String(row.startDate || row.updatedAt).slice(0, 10)),
+        });
+      }
+      return res.json({ success: true });
+    }
+    if (type === 'yearly') {
+      const rows = await db.update(yearlySummaryTable)
+        .set({ reviewStatus: 'published', visibleToParent: true, updatedAt: new Date(), updatedByName: req.user?.name || null })
+        .where(eq(yearlySummaryTable.id, id))
+        .returning();
+      if (!rows.length) return res.status(404).json({ error: 'Feedback not found' });
+      const row = rows[0];
+      const studentRows = await db.select().from(studentsTable).where(eq(studentsTable.id, row.studentId)).limit(1);
+      const student = studentRows[0];
+      if (student) {
+        await notifyParent({
+          studentId: row.studentId,
+          parentId: student.parentId ?? null,
+          templateId: yearlyTemplateId,
+          page: `/pages/yearly-summary/index?studentId=${row.studentId}`,
+          data: buildTemplateData(yearlyTemplateContentKey, '年度总结已发布', yearlyTemplateTimeKey, `${row.year}-12-31`),
+        });
+      }
+      return res.json({ success: true });
+    }
+    if (type === 'report') {
+      const existing = await getReportWithStudent(id);
+      if (!existing) return res.status(404).json({ error: 'Report not found' });
+      await db.update(studentReportsTable)
+        .set({ visibleToParent: true, updatedAt: new Date(), updatedBy: req.user?.id || null, updatedByName: req.user?.name || null })
+        .where(eq(studentReportsTable.id, id));
+      if (!existing.visibleToParent) await notifyParentStudentReportPublished(existing);
+      return res.json({ success: true });
+    }
+    return res.status(400).json({ error: 'Invalid feedback type' });
+  } catch (err) {
+    console.error('Error publishing feedback review item:', err);
+    return res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
   }
 });
 
@@ -6249,6 +6664,228 @@ app.get('/api/weekly-tasks/incomplete', authenticate, requireTeacher, async (req
   }
 });
 
+// ========== GRADE WEEKLY PLANS & STUDENT PLAN RECORDS ==========
+
+app.get('/api/grade-weekly-plans', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
+  try {
+    const requested = typeof req.query.weekStarting === 'string' ? req.query.weekStarting : '';
+    const date = requested ? parseDateString(requested) : chinaTodayDateString();
+    if (!date) return res.status(400).json({ error: 'Invalid weekStarting; expected YYYY-MM-DD' });
+    const cycle = await resolveCycleForDate(date);
+    const plans = await db
+      .select()
+      .from(gradeWeeklyPlansTable)
+      .where(eq(gradeWeeklyPlansTable.weekStarting, cycle.startDate))
+      .orderBy(gradeWeeklyPlansTable.grade);
+    res.json({ cycle, plans });
+  } catch (err) {
+    console.error('Error loading grade weekly plans:', err);
+    res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
+  }
+});
+
+app.post('/api/grade-weekly-plans', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
+  try {
+    const parsed = GradeWeeklyPlanSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'INVALID_PAYLOAD', details: parsed.error.flatten() });
+    }
+    const cycle = await resolveCycleForDate(parsed.data.weekStarting);
+    const values = {
+      grade: parsed.data.grade.trim(),
+      weekStarting: cycle.startDate,
+      weekEnding: parsed.data.weekEnding || cycle.endDate,
+      topic: parsed.data.topic.trim(),
+      notes: parsed.data.notes?.trim() || null,
+      updatedAt: new Date(),
+      updatedByName: req.user?.name || null,
+    };
+    const rows = await db
+      .insert(gradeWeeklyPlansTable)
+      .values(values)
+      .onConflictDoUpdate({
+        target: [gradeWeeklyPlansTable.grade, gradeWeeklyPlansTable.weekStarting],
+        set: {
+          weekEnding: values.weekEnding,
+          topic: values.topic,
+          notes: values.notes,
+          updatedAt: values.updatedAt,
+          updatedByName: values.updatedByName,
+        },
+      })
+      .returning();
+    res.status(201).json({ plan: rows[0], cycle });
+  } catch (err) {
+    console.error('Error saving grade weekly plan:', err);
+    res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
+  }
+});
+
+app.get('/api/students/:studentId/weekly-plan-record', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
+  const studentId = req.params.studentId;
+  if (!enforceReviewerScope(req, res, studentId)) return;
+  try {
+    const requested = typeof req.query.weekStarting === 'string' ? req.query.weekStarting : '';
+    const date = requested ? parseDateString(requested) : chinaTodayDateString();
+    if (!date) return res.status(400).json({ error: 'Invalid weekStarting; expected YYYY-MM-DD' });
+    const cycle = await resolveCycleForDate(date);
+    const studentRows = await db.select().from(studentsTable).where(eq(studentsTable.id, studentId)).limit(1);
+    if (!studentRows.length) return res.status(404).json({ error: 'Student not found' });
+    const student = studentRows[0];
+    const planRows = await db
+      .select()
+      .from(gradeWeeklyPlansTable)
+      .where(and(eq(gradeWeeklyPlansTable.grade, student.grade), eq(gradeWeeklyPlansTable.weekStarting, cycle.startDate)))
+      .limit(1);
+    const plan = planRows[0] || null;
+    let record = null;
+    if (plan) {
+      const recordRows = await db
+        .select()
+        .from(studentWeeklyPlanRecordsTable)
+        .where(and(
+          eq(studentWeeklyPlanRecordsTable.studentId, studentId),
+          eq(studentWeeklyPlanRecordsTable.gradeWeeklyPlanId, plan.id),
+        ))
+        .limit(1);
+      record = recordRows[0] || null;
+    }
+    res.json({
+      cycle,
+      student,
+      plan,
+      record,
+      completed: isCompletedWeeklyPlanRecord(record),
+    });
+  } catch (err) {
+    console.error('Error loading student weekly plan record:', err);
+    res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
+  }
+});
+
+app.post('/api/student-weekly-plan-records', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
+  try {
+    const parsed = StudentWeeklyPlanRecordSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'INVALID_PAYLOAD', details: parsed.error.flatten() });
+    }
+    const { studentId, gradeWeeklyPlanId } = parsed.data;
+    if (!enforceReviewerScope(req, res, studentId)) return;
+    const [studentRows, planRows] = await Promise.all([
+      db.select().from(studentsTable).where(eq(studentsTable.id, studentId)).limit(1),
+      db.select().from(gradeWeeklyPlansTable).where(eq(gradeWeeklyPlansTable.id, gradeWeeklyPlanId)).limit(1),
+    ]);
+    if (!studentRows.length) return res.status(404).json({ error: 'Student not found' });
+    if (!planRows.length) return res.status(404).json({ error: 'Weekly plan not found' });
+    const student = studentRows[0];
+    const plan = planRows[0];
+    if (student.grade !== plan.grade) {
+      return res.status(400).json({ error: 'Student grade does not match weekly plan grade' });
+    }
+    const score = parsed.data.score == null ? null : parsed.data.score;
+    const completed = parsed.data.completed === true && score != null;
+    const values = {
+      studentId,
+      gradeWeeklyPlanId,
+      score,
+      completed,
+      comment: parsed.data.comment?.trim() || null,
+      updatedAt: new Date(),
+      updatedByName: req.user?.name || null,
+    };
+    const rows = await db
+      .insert(studentWeeklyPlanRecordsTable)
+      .values(values)
+      .onConflictDoUpdate({
+        target: [studentWeeklyPlanRecordsTable.studentId, studentWeeklyPlanRecordsTable.gradeWeeklyPlanId],
+        set: {
+          score: values.score,
+          completed: values.completed,
+          comment: values.comment,
+          updatedAt: values.updatedAt,
+          updatedByName: values.updatedByName,
+        },
+      })
+      .returning();
+    res.status(201).json({ record: rows[0], completed });
+  } catch (err) {
+    console.error('Error saving student weekly plan record:', err);
+    res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
+  }
+});
+
+app.get('/api/admin/weekly-plan-summary', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const requested = typeof req.query.weekStarting === 'string' ? req.query.weekStarting : '';
+    const date = requested ? parseDateString(requested) : chinaTodayDateString();
+    if (!date) return res.status(400).json({ error: 'Invalid weekStarting; expected YYYY-MM-DD' });
+    const summary = await buildWeeklyPlanSummary(date);
+    res.json(summary);
+  } catch (err) {
+    console.error('Error loading admin weekly plan summary:', err);
+    res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
+  }
+});
+
+app.get('/api/admin/term-plan-summary', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const startDate = typeof req.query.startDate === 'string' ? req.query.startDate : '';
+    const endDate = typeof req.query.endDate === 'string' ? req.query.endDate : '';
+    const rangeIssues = validateDateRange({
+      startDate,
+      endDate,
+      maxDays: INPUT_LIMITS.exportDateRangeMaxDays,
+      fieldPrefix: 'termRange',
+    });
+    if (rangeIssues.length) return invalidInput(res, rangeIssues);
+    const summary = await buildTermPlanSummary(startDate, endDate);
+    res.json(summary);
+  } catch (err) {
+    console.error('Error loading admin term plan summary:', err);
+    res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
+  }
+});
+
+app.get('/api/admin/weekly-plan-summary/export', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const requested = typeof req.query.weekStarting === 'string' ? req.query.weekStarting : '';
+    const date = requested ? parseDateString(requested) : chinaTodayDateString();
+    if (!date) return res.status(400).json({ error: 'Invalid weekStarting; expected YYYY-MM-DD' });
+    const summary = await buildWeeklyPlanSummary(date);
+    const workbook = buildWeeklyPlanSummaryWorkbook(summary);
+    const fileBase = `weekly_plan_summary_${summary.cycle.startDate}`;
+    res.setHeader('Content-Type', 'application/vnd.ms-excel; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeExportName(fileBase, 'weekly_plan_summary')}.xls"; filename*=UTF-8''${encodeURIComponent(fileBase)}.xls`);
+    res.send(workbook);
+  } catch (err) {
+    console.error('Error exporting weekly plan summary:', err);
+    res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
+  }
+});
+
+app.get('/api/admin/term-plan-summary/export', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const startDate = typeof req.query.startDate === 'string' ? req.query.startDate : '';
+    const endDate = typeof req.query.endDate === 'string' ? req.query.endDate : '';
+    const rangeIssues = validateDateRange({
+      startDate,
+      endDate,
+      maxDays: INPUT_LIMITS.exportDateRangeMaxDays,
+      fieldPrefix: 'termRange',
+    });
+    if (rangeIssues.length) return invalidInput(res, rangeIssues);
+    const summary = await buildTermPlanSummary(startDate, endDate);
+    const workbook = buildTermPlanSummaryWorkbook(summary);
+    const fileBase = `term_plan_summary_${startDate}_${endDate}`;
+    res.setHeader('Content-Type', 'application/vnd.ms-excel; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeExportName(fileBase, 'term_plan_summary')}.xls"; filename*=UTF-8''${encodeURIComponent(fileBase)}.xls`);
+    res.send(workbook);
+  } catch (err) {
+    console.error('Error exporting term plan summary:', err);
+    res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
+  }
+});
+
 // ========== WEEKLY FEEDBACK ROUTES ==========
 
 // Temporarily disabled - tables don't exist yet
@@ -6618,6 +7255,8 @@ app.post('/api/feedback', authenticate, requireRole('teacher', 'admin'), async (
       nextWeekFocus: parsedData.nextWeekFocus,
       weekStarting: format(parsedData.weekStarting, 'yyyy-MM-dd'),
       weekEnding: format(parsedData.weekEnding, 'yyyy-MM-dd'),
+      reviewStatus: 'pending',
+      visibleToParent: false,
       updatedAt: new Date(),
       updatedByName: req.user?.name || null,
     };
@@ -6631,22 +7270,6 @@ app.post('/api/feedback', authenticate, requireRole('teacher', 'admin'), async (
       },
       async () => {
         const result = await db.insert(weeklyFeedback).values(data).returning();
-        const studentRows = await db.select().from(studentsTable).where(eq(studentsTable.id, parsedData.studentId));
-        const student = studentRows[0];
-        if (student) {
-          await notifyParent({
-            studentId: parsedData.studentId,
-            parentId: student.parentId ?? null,
-            templateId: weeklyTemplateId,
-            page: `/pages/student-detail/index?id=${parsedData.studentId}`,
-            data: buildTemplateData(
-              weeklyTemplateContentKey,
-              '每周反馈已发布',
-              weeklyTemplateTimeKey,
-              format(parsedData.weekStarting, 'yyyy-MM-dd'),
-            ),
-          });
-        }
         res.status(201).json(result[0]);
       },
     );
@@ -6703,6 +7326,8 @@ app.put('/api/feedback/:id', authenticate, requireRole('teacher', 'admin'), asyn
       nextWeekFocus: parsedData.nextWeekFocus,
       weekStarting: format(parsedData.weekStarting, 'yyyy-MM-dd'),
       weekEnding: format(parsedData.weekEnding, 'yyyy-MM-dd'),
+      reviewStatus: 'pending',
+      visibleToParent: false,
       updatedAt: new Date(),
       updatedByName: req.user?.name || null,
     };
@@ -7513,14 +8138,16 @@ app.get('/api/feedback/one', authenticate, verifyParentStudentAccess, async (req
 
   const formattedStartDate = format(d, 'yyyy-MM-dd');
   try {
+    const whereExpr = [
+      eq(weeklyFeedback.studentId, String(studentId)),
+      eq(weeklyFeedback.weekStarting, formattedStartDate),
+      activeRecord(weeklyFeedback),
+    ];
+    if (shouldFilterForParent(req)) whereExpr.push(parentVisibleRecord(weeklyFeedback));
     const [row] = await db
       .select()
       .from(weeklyFeedback)
-      .where(and(
-        eq(weeklyFeedback.studentId, String(studentId)),
-        eq(weeklyFeedback.weekStarting, formattedStartDate),
-        activeRecord(weeklyFeedback)
-      ))
+      .where(and(...whereExpr))
       .limit(1);
 
     res.json(row || null);
@@ -7536,10 +8163,15 @@ app.get('/api/feedback/list', authenticate, verifyParentStudentAccess, async (re
   if (!studentId) return res.status(400).json({ error: 'Missing studentId' });
 
   try {
+    const whereExpr = [
+      eq(weeklyFeedback.studentId, String(studentId)),
+      activeRecord(weeklyFeedback),
+    ];
+    if (shouldFilterForParent(req)) whereExpr.push(parentVisibleRecord(weeklyFeedback));
     const rows = await db
       .select()
       .from(weeklyFeedback)
-      .where(and(eq(weeklyFeedback.studentId, String(studentId)), activeRecord(weeklyFeedback)))
+      .where(and(...whereExpr))
       .orderBy(desc(weeklyFeedback.weekStarting));
     res.json(rows);
   } catch (err) {

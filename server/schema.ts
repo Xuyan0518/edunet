@@ -433,6 +433,8 @@ export const weeklyFeedback = pgTable('weekly_feedback', {
   areasToImprove: jsonb('areas_to_improve').$type<string[]>().notNull(),
   teacherNotes: text('teacher_notes'),
   nextWeekFocus: text('next_week_focus'),
+  reviewStatus: varchar('review_status', { length: 20 }).notNull().default('pending'),
+  visibleToParent: boolean('visible_to_parent').notNull().default(false),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
   updatedByName: varchar('updated_by_name', { length: 100 }),
@@ -488,6 +490,8 @@ export const quarterlySummaryTable = pgTable('quarterly_summary', {
   summary: text('summary').notNull(),
   startDate: date('start_date'),
   endDate: date('end_date'),
+  reviewStatus: varchar('review_status', { length: 20 }).notNull().default('pending'),
+  visibleToParent: boolean('visible_to_parent').notNull().default(false),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
   updatedByName: varchar('updated_by_name', { length: 100 }),
@@ -505,6 +509,8 @@ export const yearlySummaryTable = pgTable('yearly_summary', {
   studentId: uuid('student_id').references(() => studentsTable.id).notNull(),
   year: integer('year').notNull(),
   summary: text('summary').notNull(),
+  reviewStatus: varchar('review_status', { length: 20 }).notNull().default('pending'),
+  visibleToParent: boolean('visible_to_parent').notNull().default(false),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
   updatedByName: varchar('updated_by_name', { length: 100 }),
@@ -729,6 +735,54 @@ export const StudentWeeklyTaskTargetsSchema = z.object({
   compositionTarget: z.number().int().nonnegative().default(1),
   isGrammarRequired: z.boolean().default(true),
   isEditingRequired: z.boolean().default(true),
+});
+
+export const gradeWeeklyPlansTable = pgTable('grade_weekly_plans', {
+  id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
+  grade: varchar('grade', { length: 20 }).notNull(),
+  weekStarting: date('week_starting').notNull(),
+  weekEnding: date('week_ending').notNull(),
+  topic: text('topic').notNull(),
+  notes: text('notes'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+  updatedByName: varchar('updated_by_name', { length: 100 }),
+}, (table) => ({
+  uqGradeWeeklyPlan: uniqueIndex('uq_grade_weekly_plans_grade_week')
+    .on(table.grade, table.weekStarting),
+}));
+
+export const studentWeeklyPlanRecordsTable = pgTable('student_weekly_plan_records', {
+  id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
+  studentId: uuid('student_id').references(() => studentsTable.id).notNull(),
+  gradeWeeklyPlanId: uuid('grade_weekly_plan_id').references(() => gradeWeeklyPlansTable.id).notNull(),
+  score: integer('score'),
+  completed: boolean('completed').notNull().default(false),
+  comment: text('comment'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+  updatedByName: varchar('updated_by_name', { length: 100 }),
+}, (table) => ({
+  uqStudentWeeklyPlanRecord: uniqueIndex('uq_student_weekly_plan_records_student_plan')
+    .on(table.studentId, table.gradeWeeklyPlanId),
+}));
+
+export const GradeWeeklyPlanSchema = z.object({
+  id: z.string().uuid().optional(),
+  grade: z.string().min(1).max(20),
+  weekStarting: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  weekEnding: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  topic: z.string().min(1).max(500),
+  notes: z.string().max(2000).optional().nullable(),
+});
+
+export const StudentWeeklyPlanRecordSchema = z.object({
+  id: z.string().uuid().optional(),
+  studentId: z.string().uuid(),
+  gradeWeeklyPlanId: z.string().uuid(),
+  score: z.number().int().min(0).max(100).nullable().optional(),
+  completed: z.boolean().optional(),
+  comment: z.string().max(2000).optional().nullable(),
 });
 
 // ====== Academic terms (Part 8) ======

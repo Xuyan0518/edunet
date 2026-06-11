@@ -7,6 +7,8 @@
     "pages/subject-editor/index",
     "pages/daily-progress/index",
     "pages/daily-progress/detail",
+    "pages/grade-weekly-plans/index",
+    "pages/student-weekly-plan-record/index",
     "pages/english-tasks-manage/index",
     "pages/weekly-feedback/index",
     "pages/weekly-feedback/detail",
@@ -28,6 +30,7 @@
     "pages/admin-student-detail/index",
     "pages/admin-users/index",
     "pages/admin-feedback-review/index",
+    "pages/admin-weekly-plans/index",
     "pages/settings/index",
     "pages/profile/index"
   ],

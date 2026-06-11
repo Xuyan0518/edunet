@@ -146,6 +146,16 @@
         <view class="muted">周报与总结</view>
       </view>
     </view>
+    <view wx:if="{{isTeacher}}" class="row-two">
+      <view class="card tile" bindtap="goGradeWeeklyPlans">
+        <view class="tile-title">年级周计划</view>
+        <view class="muted">按年级制定本周课题</view>
+      </view>
+      <view class="card tile" bindtap="goStudentWeeklyPlanRecord">
+        <view class="tile-title">周任务记录</view>
+        <view class="muted">分数、完成状态与评语</view>
+      </view>
+    </view>
     <view wx:if="{{!isTeacher}}" class="card tile wide" bindtap="goWeekly">
       <view class="tile-title">每周汇报</view>
       <view class="muted">周报与总结</view>

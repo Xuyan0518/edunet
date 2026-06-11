@@ -1,0 +1,123 @@
+.admin-weekly-plans-page {
+  padding-bottom: 48rpx;
+}
+
+.tab-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12rpx;
+}
+
+.tab {
+  border: 1rpx solid #bfdbfe;
+  border-radius: 14rpx;
+  padding: 14rpx;
+  text-align: center;
+  color: #334155;
+  background: #f8fbff;
+  font-weight: 700;
+}
+
+.tab.active {
+  border-color: #2563eb;
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14rpx;
+  margin-top: 18rpx;
+}
+
+.metrics-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16rpx;
+  margin-bottom: 20rpx;
+}
+
+.metric-card {
+  background: #ffffff;
+  border: 1rpx solid #dbeafe;
+  border-radius: 18rpx;
+  padding: 22rpx;
+}
+
+.metric-card.alert {
+  border-color: #fecaca;
+  background: #fff7f7;
+}
+
+.metric-value {
+  font-size: 42rpx;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.grade-card {
+  margin-bottom: 20rpx;
+}
+
+.grade-head {
+  align-items: flex-start;
+  gap: 16rpx;
+  margin-bottom: 10rpx;
+}
+
+.student-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18rpx;
+  border-top: 1rpx solid #e2e8f0;
+  padding: 18rpx 0;
+}
+
+.student-row.flagged {
+  background: #fff7f7;
+  margin-left: -16rpx;
+  margin-right: -16rpx;
+  padding-left: 16rpx;
+  padding-right: 16rpx;
+  border-radius: 14rpx;
+  border-top-color: transparent;
+}
+
+.student-name {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.student-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.right-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8rpx;
+}
+
+.score-text {
+  font-size: 32rpx;
+  font-weight: 800;
+  color: #1e3a8a;
+}
+
+.missing-topics {
+  color: #b91c1c;
+  font-size: 24rpx;
+  line-height: 1.5;
+  margin-top: 8rpx;
+}
+
+.empty-row {
+  padding: 18rpx 0 4rpx;
+  color: #64748b;
+}

@@ -1,0 +1,63 @@
+<view class="container weekly-record-page">
+  <view class="hero">
+    <view class="title">周任务记录</view>
+    <view class="subtitle">{{selectedStudentName || "请选择学生"}} · {{weekStarting}} 至 {{weekEnding || "--"}}</view>
+  </view>
+
+  <view class="card section">
+    <view class="field">
+      <view class="label">学生</view>
+      <picker mode="selector" range="{{studentNames}}" bindchange="onStudentChange">
+        <view class="picker">{{selectedStudentName || "请选择学生"}}</view>
+      </picker>
+    </view>
+    <view class="field">
+      <view class="label">周次</view>
+      <picker mode="date" value="{{weekStarting}}" bindchange="onWeekChange">
+        <view class="chip">{{weekStarting}}</view>
+      </picker>
+    </view>
+  </view>
+
+  <view wx:if="{{loading}}" class="card section">
+    <view class="muted">加载中...</view>
+  </view>
+
+  <view wx:if="{{!loading && !plan}}" class="card section no-plan">
+    <view class="section-title">当前年级还没有周计划</view>
+    <view class="muted">请先到“年级周计划”为该学生年级填写本周计划课题。</view>
+  </view>
+
+  <view wx:if="{{!loading && plan}}" class="card section">
+    <view class="row-between plan-summary">
+      <view>
+        <view class="section-title">{{plan.grade}} · {{plan.topic}}</view>
+        <view class="muted">{{plan.weekStarting}} 至 {{plan.weekEnding}}</view>
+      </view>
+      <view class="chip {{completed && score !== '' ? 'chip-success' : 'chip-alert'}}">
+        {{completed && score !== "" ? "已完成" : "未完成"}}
+      </view>
+    </view>
+
+    <view class="field">
+      <view class="label">分数</view>
+      <input class="input" type="number" placeholder="0-100" value="{{score}}" bindinput="onScoreInput" />
+      <view class="muted hint">没有分数会自动视为未完成。</view>
+    </view>
+
+    <view class="field switch-row">
+      <view>
+        <view class="label">老师标记完成</view>
+        <view class="muted">关闭后即使有分数也会显示未完成。</view>
+      </view>
+      <switch checked="{{completed}}" bindchange="onCompletedChange" />
+    </view>
+
+    <view class="field">
+      <view class="label">老师评语</view>
+      <textarea class="input textarea-scroll" placeholder="填写针对本周任务成绩的评语" value="{{comment}}" bindinput="onCommentInput"></textarea>
+    </view>
+
+    <button class="btn-primary" bindtap="save" loading="{{saving}}">保存记录</button>
+  </view>
+</view>

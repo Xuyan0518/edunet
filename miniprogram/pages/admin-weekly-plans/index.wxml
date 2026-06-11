@@ -1,0 +1,122 @@
+<view class="container admin-weekly-plans-page">
+  <view class="hero">
+    <view class="row-between">
+      <view>
+        <view class="title">周计划汇总</view>
+        <view class="subtitle">按年级查看完成情况、分数与未完成课题</view>
+      </view>
+      <button class="btn-outline" size="mini" bindtap="exportCurrent">导出</button>
+    </view>
+  </view>
+
+  <view class="card section">
+    <view class="tab-row">
+      <view class="tab {{tab === 'weekly' ? 'active' : ''}}" data-tab="weekly" bindtap="setTab">本周</view>
+      <view class="tab {{tab === 'term' ? 'active' : ''}}" data-tab="term" bindtap="setTab">学期</view>
+    </view>
+
+    <view wx:if="{{tab === 'weekly'}}" class="filter-row">
+      <picker mode="date" value="{{weekStarting}}" bindchange="onWeekChange">
+        <view class="chip">周次 {{weekStarting}}</view>
+      </picker>
+      <view class="muted">{{weekStarting}} 至 {{weekEnding || "--"}}</view>
+    </view>
+
+    <view wx:if="{{tab === 'term'}}" class="filter-row">
+      <picker mode="date" value="{{termStartDate}}" bindchange="onTermStartChange">
+        <view class="chip">开始 {{termStartDate}}</view>
+      </picker>
+      <picker mode="date" value="{{termEndDate}}" bindchange="onTermEndChange">
+        <view class="chip">结束 {{termEndDate}}</view>
+      </picker>
+    </view>
+  </view>
+
+  <view wx:if="{{loading}}" class="card">
+    <view class="muted">加载中...</view>
+  </view>
+
+  <block wx:if="{{!loading && tab === 'weekly'}}">
+    <view class="metrics-row">
+      <view class="metric-card">
+        <view class="metric-value">{{weeklyMetrics.completedCount || 0}}</view>
+        <view class="muted">已完成</view>
+      </view>
+      <view class="metric-card alert">
+        <view class="metric-value">{{weeklyMetrics.incompleteCount || 0}}</view>
+        <view class="muted">未完成</view>
+      </view>
+    </view>
+
+    <block wx:for="{{weeklyGroups}}" wx:key="grade" wx:for-item="group">
+      <view class="card grade-card">
+        <view class="row-between grade-head">
+          <view>
+            <view class="section-title">{{group.grade}}</view>
+            <view class="muted">{{group.plan.topic || "未制定计划"}}</view>
+          </view>
+          <view class="chip {{group.incompleteCount > 0 ? 'chip-alert' : 'chip-success'}}">
+            未完成 {{group.incompleteCount}}
+          </view>
+        </view>
+        <block wx:if="{{group.rows.length === 0}}">
+          <view class="empty-row">该年级暂无学生</view>
+        </block>
+        <block wx:for="{{group.rows}}" wx:key="studentId" wx:for-item="row">
+          <view class="student-row {{row.flagged ? 'flagged' : ''}}">
+            <view>
+              <view class="student-name">{{row.studentName}}</view>
+              <view class="muted" wx:if="{{row.comment}}">{{row.comment}}</view>
+            </view>
+            <view class="right-info">
+              <view class="score-text">{{row.score === null ? "--" : row.score}}</view>
+              <view class="chip {{row.completed ? 'chip-success' : 'chip-alert'}}">{{row.completed ? "完成" : "未完成"}}</view>
+            </view>
+          </view>
+        </block>
+      </view>
+    </block>
+  </block>
+
+  <block wx:if="{{!loading && tab === 'term'}}">
+    <view class="metrics-row">
+      <view class="metric-card">
+        <view class="metric-value">{{termMetrics.totalPlans || 0}}</view>
+        <view class="muted">计划数</view>
+      </view>
+      <view class="metric-card alert">
+        <view class="metric-value">{{termMetrics.incompleteStudentCount || 0}}</view>
+        <view class="muted">有未完成学生</view>
+      </view>
+    </view>
+
+    <block wx:for="{{termGroups}}" wx:key="grade" wx:for-item="group">
+      <view class="card grade-card">
+        <view class="row-between grade-head">
+          <view>
+            <view class="section-title">{{group.grade}}</view>
+            <view class="muted">计划 {{group.planCount}} · 学生 {{group.totalStudents}}</view>
+          </view>
+          <view class="chip {{group.incompleteCount > 0 ? 'chip-alert' : 'chip-success'}}">
+            未完成 {{group.incompleteCount}}
+          </view>
+        </view>
+        <block wx:if="{{group.rows.length === 0}}">
+          <view class="empty-row">该年级暂无学生</view>
+        </block>
+        <block wx:for="{{group.rows}}" wx:key="studentId" wx:for-item="row">
+          <view class="student-row {{row.flagged ? 'flagged' : ''}}">
+            <view class="student-main">
+              <view class="student-name">{{row.studentName}}</view>
+              <view class="muted">完成 {{row.completedCount}} / {{row.totalPlans}} · 平均分 {{row.averageScore === null ? "--" : row.averageScore}}</view>
+              <view class="missing-topics" wx:if="{{row.incompleteTopicsText}}">
+                未完成：{{row.incompleteTopicsText}}
+              </view>
+            </view>
+            <view class="chip {{row.flagged ? 'chip-alert' : 'chip-success'}}">{{row.flagged ? "需跟进" : "完成"}}</view>
+          </view>
+        </block>
+      </view>
+    </block>
+  </block>
+</view>

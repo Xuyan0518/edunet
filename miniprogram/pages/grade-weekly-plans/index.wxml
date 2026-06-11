@@ -1,0 +1,58 @@
+<view class="container weekly-plan-page">
+  <view class="hero">
+    <view class="title">年级周计划</view>
+    <view class="subtitle">{{weekStarting}} 至 {{weekEnding || "--"}}</view>
+    <picker mode="date" value="{{weekStarting}}" bindchange="onWeekChange">
+      <view class="chip">选择周次</view>
+    </picker>
+  </view>
+
+  <view wx:if="{{loading}}" class="card">
+    <view class="muted">加载中...</view>
+  </view>
+
+  <view wx:if="{{!loading && planRows.length === 0}}" class="card">
+    <view class="section-title">暂无年级</view>
+    <view class="muted">请先添加学生后再制定年级周计划。</view>
+  </view>
+
+  <block wx:if="{{!loading && planRows.length > 0}}" wx:for="{{planRows}}" wx:key="grade" wx:for-item="plan" wx:for-index="index">
+    <view class="card plan-card">
+      <view class="row-between plan-head">
+        <view>
+          <view class="section-title">{{plan.grade}}</view>
+          <view class="muted" wx:if="{{plan.updatedByName}}">
+            最近更新：{{plan.updatedByName}}
+          </view>
+        </view>
+        <button class="btn-primary" size="mini" data-index="{{index}}" bindtap="savePlan" loading="{{savingGrade === plan.grade}}">
+          保存
+        </button>
+      </view>
+
+      <view class="field">
+        <view class="label">本周计划课题</view>
+        <input
+          class="input"
+          placeholder="例如：定语从句练习"
+          value="{{plan.topic}}"
+          data-index="{{index}}"
+          data-field="topic"
+          bindinput="onPlanInput"
+        />
+      </view>
+
+      <view class="field">
+        <view class="label">备注</view>
+        <textarea
+          class="input textarea-scroll"
+          placeholder="可选：补充范围、材料或提醒"
+          value="{{plan.notes}}"
+          data-index="{{index}}"
+          data-field="notes"
+          bindinput="onPlanInput"
+        ></textarea>
+      </view>
+    </view>
+  </block>
+</view>

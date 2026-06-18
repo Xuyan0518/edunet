@@ -32,6 +32,43 @@
   margin-top: 18rpx;
 }
 
+.export-panel {
+  margin-top: 22rpx;
+  padding-top: 22rpx;
+  border-top: 1rpx solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20rpx;
+}
+
+.export-title {
+  font-size: 28rpx;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.export-range-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12rpx;
+  margin-top: 14rpx;
+}
+
+.mini-chip {
+  border: 1rpx solid #cbd5e1;
+  border-radius: 999rpx;
+  padding: 8rpx 16rpx;
+  color: #334155;
+  font-size: 24rpx;
+  background: #ffffff;
+}
+
+.export-btn {
+  flex-shrink: 0;
+}
+
 .metrics-row {
   display: grid;
   grid-template-columns: 1fr 1fr;

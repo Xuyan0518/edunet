@@ -1083,7 +1083,7 @@ Page({
 
     request(requestConfig)
       .then((data) => {
-        wx.showToast({ title: "已保存", icon: "success" });
+        wx.showToast({ title: "已提交审核", icon: "success" });
         const updatedAtText = data?.updatedAt
           ? formatChinaDateTime(new Date(data.updatedAt))
           : this.data.lastUpdatedAtText;

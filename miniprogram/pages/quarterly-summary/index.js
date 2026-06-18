@@ -191,7 +191,7 @@ Page({
         });
         cards.sort((a, b) => a.quarter - b.quarter);
         this.setData({ summaries, ranges, summaryCards: cards });
-        wx.showToast({ title: "已保存", icon: "success" });
+        wx.showToast({ title: "已提交审核", icon: "success" });
         this.fetchSummaries();
       })
       .catch((err) => {

@@ -50,4 +50,8 @@ Page({
   goWeeklyPlans() {
     wx.navigateTo({ url: "/pages/admin-weekly-plans/index" });
   },
+
+  goSettings() {
+    wx.navigateTo({ url: "/pages/admin-settings/index" });
+  },
 });

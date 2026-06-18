@@ -30,6 +30,28 @@
         <view class="chip">结束 {{termEndDate}}</view>
       </picker>
     </view>
+
+    <view class="export-panel">
+      <view>
+        <view class="export-title">学习任务完成情况</view>
+        <view class="muted">按年级、学生、每日/每周导出语法、词汇、作文、阅读、背诵和学科练习</view>
+        <view class="export-range-row">
+          <picker mode="date" fields="month" value="{{exportMonth}}" bindchange="onExportMonthChange">
+            <view class="chip">月份 {{exportMonth}}</view>
+          </picker>
+          <view class="mini-chip" data-months="3" bindtap="setRecentMonths">最近3个月</view>
+        </view>
+        <view class="export-range-row">
+          <picker mode="date" value="{{termStartDate}}" bindchange="onExportStartChange">
+            <view class="chip">开始 {{termStartDate}}</view>
+          </picker>
+          <picker mode="date" value="{{termEndDate}}" bindchange="onExportEndChange">
+            <view class="chip">结束 {{termEndDate}}</view>
+          </picker>
+        </view>
+      </view>
+      <button class="btn-primary export-btn" size="mini" bindtap="exportLearningTasks">导出学习任务</button>
+    </view>
   </view>
 
   <view wx:if="{{loading}}" class="card">

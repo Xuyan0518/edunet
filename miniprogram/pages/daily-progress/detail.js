@@ -551,6 +551,10 @@ Page({
     attendanceOptions: attendanceMap.map((a) => a.label),
     attendanceStart: "18:00",
     attendanceEnd: "21:00",
+    studySettingsEnabled: true,
+    studyDays: [0, 1, 2, 3, 4],
+    studyStartFallback: "18:00",
+    studyEndFallback: "21:00",
     summary: "",
     subjects: [],
     subjectOptions: [],
@@ -619,7 +623,7 @@ Page({
     this.fetchPaperSchools();
     this.fetchLossPointCatalog();
     this.fetchTopicProgress();
-    this.fetchProgress();
+    this.fetchStudySettings().finally(() => this.fetchProgress());
   },
 
   onShow() {
@@ -664,6 +668,44 @@ Page({
           this.refreshActivityChips()
         );
       });
+  },
+
+  fetchStudySettings() {
+    return request({ url: "/study-settings" })
+      .then((settings) => {
+        this.setData({
+          studySettingsEnabled: settings?.enabled !== false,
+          studyDays: Array.isArray(settings?.days) ? settings.days : [0, 1, 2, 3, 4],
+          studyStartFallback: settings?.startTime || "18:00",
+          studyEndFallback: settings?.endTime || "21:00",
+        });
+      })
+      .catch(() => {
+        this.setData({
+          studySettingsEnabled: true,
+          studyDays: [0, 1, 2, 3, 4],
+          studyStartFallback: "18:00",
+          studyEndFallback: "21:00",
+        });
+      });
+  },
+
+  isConfiguredStudyDay(dateText) {
+    if (!dateText) return true;
+    const days = Array.isArray(this.data.studyDays) ? this.data.studyDays : [0, 1, 2, 3, 4];
+    const date = new Date(`${dateText}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return true;
+    return days.includes(date.getDay());
+  },
+
+  getStudyAttendanceDefaults(dateText = this.data.selectedDate) {
+    if (this.data.studySettingsEnabled === false || !this.isConfiguredStudyDay(dateText)) {
+      return { attendanceStart: "", attendanceEnd: "" };
+    }
+    return {
+      attendanceStart: this.data.studyStartFallback || "18:00",
+      attendanceEnd: this.data.studyEndFallback || "21:00",
+    };
   },
 
   openEnglishTaskManage() {
@@ -841,12 +883,13 @@ Page({
     const attendanceLabel =
       attendanceMap.find((a) => a.value === draft.attendance)?.label || "出席";
     const activities = ensureEnglishActivity((draft.activities || []).map((a) => normalizeActivity(a)));
+    const studyDefaults = this.getStudyAttendanceDefaults(draft.date || this.data.selectedDate);
     this.setData({
       selectedDate: draft.date || this.data.selectedDate,
       attendance: draft.attendance || "present",
       attendanceLabel,
-      attendanceStart: draft.attendanceStart || "18:00",
-      attendanceEnd: draft.attendanceEnd || "21:00",
+      attendanceStart: draft.attendanceStart || studyDefaults.attendanceStart,
+      attendanceEnd: draft.attendanceEnd || studyDefaults.attendanceEnd,
       summary: draft.summary || "",
       activities: this.decorateActivities(activities.length ? activities : [buildEnglishActivity()]),
       isEditing: true,
@@ -1054,6 +1097,7 @@ Page({
       success: (res) => {
         if (res.statusCode === 404) {
           if (this.data.isTeacher) {
+            const studyDefaults = this.getStudyAttendanceDefaults();
             this.setData({
               isEditing: true,
               isEditable: true,
@@ -1062,8 +1106,8 @@ Page({
               editingId: null,
               attendance: "present",
               attendanceLabel: "出席",
-              attendanceStart: "18:00",
-              attendanceEnd: "21:00",
+              attendanceStart: studyDefaults.attendanceStart,
+              attendanceEnd: studyDefaults.attendanceEnd,
               summary: "",
               activities: this.decorateActivities([buildEnglishActivity()]),
               lastUpdatedAt: "",
@@ -1081,6 +1125,7 @@ Page({
           const entry = res.data;
           const attendanceLabel = attendanceMap.find((a) => a.value === entry.attendance)?.label || "出席";
           const activities = ensureEnglishActivity((entry.activities || []).map((a) => normalizeActivity(a)));
+          const studyDefaults = this.getStudyAttendanceDefaults(entry.date || this.data.selectedDate);
           const updatedAtText = entry.updatedAt
             ? formatChinaDateTime(new Date(entry.updatedAt))
             : "";
@@ -1089,8 +1134,8 @@ Page({
             editingId: null,
             attendance: entry.attendance,
             attendanceLabel,
-            attendanceStart: entry.attendanceStart || "18:00",
-            attendanceEnd: entry.attendanceEnd || "21:00",
+            attendanceStart: entry.attendanceStart || studyDefaults.attendanceStart,
+            attendanceEnd: entry.attendanceEnd || studyDefaults.attendanceEnd,
             summary: entry.summary || "",
             activities: this.decorateActivities(
               activities.length ? activities : [buildEnglishActivity()],
@@ -1117,6 +1162,7 @@ Page({
   onDateChange(e) {
     if (!this.data.isEditable) return;
     const nextDate = e.detail.value;
+    const studyDefaults = this.getStudyAttendanceDefaults(nextDate);
     // Changing date should load existing record if available; otherwise start a new blank record.
     this.setData({
       selectedDate: nextDate,
@@ -1128,8 +1174,8 @@ Page({
       backup: null,
       attendance: "present",
       attendanceLabel: "出席",
-      attendanceStart: "18:00",
-      attendanceEnd: "21:00",
+      attendanceStart: studyDefaults.attendanceStart,
+      attendanceEnd: studyDefaults.attendanceEnd,
       activities: this.decorateActivities([buildEnglishActivity()]),
       lastUpdatedAt: "",
       lastUpdatedBy: "",

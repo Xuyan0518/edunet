@@ -22,7 +22,7 @@
         <button wx:if="{{!editMode}}" class="btn-outline" size="mini" bindtap="enterEditMode">编辑</button>
         <button wx:if="{{editMode}}" class="btn-primary" size="mini" bindtap="saveEdits" loading="{{saving}}">保存</button>
         <button wx:if="{{editMode}}" class="btn-outline" size="mini" bindtap="cancelEdit">取消</button>
-        <button wx:if="{{!previewMode}}" class="btn-outline" size="mini" bindtap="toggleVisibility" loading="{{publishing}}">
+        <button wx:if="{{isAdmin && !previewMode}}" class="btn-outline" size="mini" bindtap="toggleVisibility" loading="{{publishing}}">
           {{report.visibleToParent ? '取消发布' : '发布给家长'}}
         </button>
       </view>

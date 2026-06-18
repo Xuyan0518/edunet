@@ -35,6 +35,12 @@
       <view class="card-copy">按年级查看本周任务完成、分数与学期统计</view>
     </view>
 
+    <view class="nav-card" bindtap="goSettings">
+      <view class="card-label">系统配置</view>
+      <view class="card-value">设置</view>
+      <view class="card-copy">配置全局练习项目和晚自习时间</view>
+    </view>
+
     <view class="nav-card muted-card">
       <view class="card-label">数据提醒</view>
       <view class="reminder-row">

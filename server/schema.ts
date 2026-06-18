@@ -630,6 +630,8 @@ export const studentTopicProgressTable = pgTable('student_topic_progress', {
   status: varchar('status', { length: 16 }).notNull(),
   definitionRecited: boolean('definition_recited').notNull().default(false),
   chapterExerciseCompleted: boolean('chapter_exercise_completed').notNull().default(false),
+  definitionRecitedAt: timestamp('definition_recited_at'),
+  chapterExerciseCompletedAt: timestamp('chapter_exercise_completed_at'),
   updatedAt: timestamp('updated_at').defaultNow(),
 }, (table) => ({
   uqStudentTopic: uniqueIndex('uq_student_topic').on(table.studentId, table.topicId),
@@ -680,6 +682,13 @@ export const studentEnglishTaskConfigsTable = pgTable('student_english_task_conf
 }, (table) => ({
   uqStudentEnglishTaskConfigStudent: uniqueIndex('uq_student_english_task_config_student').on(table.studentId),
 }));
+
+export const appSettingsTable = pgTable('app_settings', {
+  key: varchar('key', { length: 100 }).primaryKey(),
+  valueJson: jsonb('value_json').$type<Record<string, unknown>>().notNull().default({}),
+  updatedAt: timestamp('updated_at').defaultNow(),
+  updatedByName: varchar('updated_by_name', { length: 100 }),
+});
 
 // ====== Weekly study cycles & per-student weekly task targets (Part 3) ======
 // Cycles default to Sunday → Thursday but are stored explicitly so teachers

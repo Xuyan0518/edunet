@@ -65,6 +65,7 @@ Page({
     generatingYearly: false,
     refreshing: false,
     isManager: false,
+    isAdmin: false,
     isParent: false,
     isStudent: false,
     reportTypeOptions: ['全部类型', '学期报告', '年度报告'],
@@ -99,6 +100,7 @@ Page({
     this.setData({
       studentId,
       ...flags,
+      isAdmin: role === 'admin',
       yearOptions: buildYearOptions(),
       yearIndex: 0,
       generateYearOptions: buildYearOptions().slice(1),
@@ -241,7 +243,7 @@ Page({
 
       const reportId = response?.reportId || response?.savedReport?.id;
       if (reportId) {
-        wx.showToast({ title: '报告已生成', icon: 'success' });
+        wx.showToast({ title: '报告已提交审核', icon: 'success' });
         wx.navigateTo({ url: `/pages/report-detail/index?reportId=${encodeURIComponent(reportId)}` });
         return;
       }
@@ -314,7 +316,7 @@ Page({
 
       const reportId = response?.reportId || response?.savedReport?.id;
       if (reportId) {
-        wx.showToast({ title: '报告已生成', icon: 'success' });
+        wx.showToast({ title: '报告已提交审核', icon: 'success' });
         wx.navigateTo({ url: `/pages/report-detail/index?reportId=${encodeURIComponent(reportId)}` });
         return;
       }
@@ -352,7 +354,7 @@ Page({
   },
 
   async toggleVisibility(e) {
-    if (!this.data.isManager) return;
+    if (!this.data.isAdmin) return;
 
     const reportId = e?.currentTarget?.dataset?.id;
     const visible = e?.currentTarget?.dataset?.visible === true || e?.currentTarget?.dataset?.visible === 'true';

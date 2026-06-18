@@ -1,0 +1,129 @@
+.admin-settings-page {
+  padding-bottom: 48rpx;
+}
+
+.task-card {
+  border: 1rpx solid #e2e8f0;
+  border-radius: 16rpx;
+  padding: 18rpx;
+  margin-top: 18rpx;
+  background: #fff;
+}
+
+.task-card-head {
+  align-items: flex-start;
+  gap: 12rpx;
+}
+
+.task-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8rpx;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14rpx;
+  margin-top: 14rpx;
+}
+
+.field-chip-row,
+.weekday-row,
+.footer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  margin-top: 12rpx;
+}
+
+.field-chip,
+.weekday-chip {
+  padding: 8rpx 18rpx;
+  border-radius: 999rpx;
+  border: 1rpx solid #bfdbfe;
+  color: #1e3a8a;
+  background: #fff;
+  font-size: 26rpx;
+}
+
+.field-chip-active,
+.weekday-chip-active {
+  background: #dbeafe;
+  border-color: #60a5fa;
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
+.danger {
+  color: #dc2626;
+  border-color: #fecaca;
+}
+
+.empty-text {
+  margin-top: 18rpx;
+}
+
+.study-time-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 16rpx;
+  margin: 22rpx 0;
+}
+
+.time-field {
+  flex: 1;
+}
+
+.time-divider {
+  padding-bottom: 18rpx;
+  color: #64748b;
+}
+
+.time-picker {
+  min-height: 72rpx;
+  line-height: 72rpx;
+  padding: 0 20rpx;
+  border-radius: 14rpx;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 600;
+  text-align: center;
+}
+
+.time-picker.disabled {
+  background: #f1f5f9;
+  color: #94a3b8;
+}
+
+.picker-mask {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  background: rgba(15, 23, 42, 0.35);
+  z-index: 50;
+}
+
+.picker-panel {
+  position: fixed;
+  left: 24rpx;
+  right: 24rpx;
+  bottom: 24rpx;
+  background: #fff;
+  border-radius: 20rpx;
+  padding: 22rpx;
+  z-index: 60;
+}
+
+.picker-list {
+  max-height: 520rpx;
+  margin: 12rpx 0 16rpx;
+}
+
+.picker-item {
+  padding: 18rpx 6rpx;
+  border-bottom: 1rpx solid #eef2ff;
+  font-size: 28rpx;
+}

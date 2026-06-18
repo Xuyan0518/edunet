@@ -36,7 +36,7 @@ import {
   adminsTable
 } from './schema';
 
-import { extractEnglishStats, normalizeActivities } from './utils/englishNormalize';
+import { extractEnglishStats, normalizeActivities, normalizeEnglishFields } from './utils/englishNormalize';
 import { chinaTodayDateString, parseDateString } from './utils/chinaDate';
 import {
   defaultCycleForDate,
@@ -177,6 +177,7 @@ import {
   TOPIC_STATUS,
   subjectLevelsTable,
   studentEnglishTaskConfigsTable,
+  appSettingsTable,
   gradeWeeklyPlansTable,
   studentWeeklyPlanRecordsTable,
   GradeWeeklyPlanSchema,
@@ -894,7 +895,14 @@ const excelXmlEscape = (value: unknown) =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;');
 
-const excelDate = (value: unknown) => (value ? String(value).slice(0, 10) : '');
+const excelDate = (value: unknown) => {
+  if (!value) return '';
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return format(value, 'yyyy-MM-dd');
+  const text = String(value);
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? text.slice(0, 10) : format(parsed, 'yyyy-MM-dd');
+};
 
 const clipCell = (value: unknown, max = 1200) => {
   const text = String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -915,6 +923,216 @@ const buildWorksheet = (name: string, headers: string[], rows: unknown[][]) => {
   const headerRow = `<Row>${headers.map(renderCell).join('')}</Row>`;
   const bodyRows = rows.map((row) => `<Row>${row.map(renderCell).join('')}</Row>`).join('');
   return `<Worksheet ss:Name="${safeName}"><Table>${headerRow}${bodyRows}</Table></Worksheet>`;
+};
+
+const crc32Table = (() => {
+  const table: number[] = [];
+  for (let i = 0; i < 256; i += 1) {
+    let c = i;
+    for (let j = 0; j < 8; j += 1) {
+      c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+    }
+    table[i] = c >>> 0;
+  }
+  return table;
+})();
+
+const crc32 = (buffer: Buffer) => {
+  let crc = 0xffffffff;
+  for (const byte of buffer) {
+    crc = crc32Table[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+};
+
+const writeUInt16LE = (value: number) => {
+  const buffer = Buffer.alloc(2);
+  buffer.writeUInt16LE(value & 0xffff, 0);
+  return buffer;
+};
+
+const writeUInt32LE = (value: number) => {
+  const buffer = Buffer.alloc(4);
+  buffer.writeUInt32LE(value >>> 0, 0);
+  return buffer;
+};
+
+const dosDateTime = (date = new Date()) => {
+  const year = Math.max(1980, date.getFullYear());
+  const dosTime =
+    (date.getHours() << 11) |
+    (date.getMinutes() << 5) |
+    Math.floor(date.getSeconds() / 2);
+  const dosDate =
+    ((year - 1980) << 9) |
+    ((date.getMonth() + 1) << 5) |
+    date.getDate();
+  return { dosTime, dosDate };
+};
+
+const buildZipStore = (files: Array<{ path: string; content: string | Buffer }>) => {
+  const localParts: Buffer[] = [];
+  const centralParts: Buffer[] = [];
+  let offset = 0;
+  const { dosTime, dosDate } = dosDateTime();
+
+  for (const file of files) {
+    const name = Buffer.from(file.path, 'utf8');
+    const content = Buffer.isBuffer(file.content)
+      ? file.content
+      : Buffer.from(file.content, 'utf8');
+    const crc = crc32(content);
+    const localHeader = Buffer.concat([
+      writeUInt32LE(0x04034b50),
+      writeUInt16LE(20),
+      writeUInt16LE(0x0800),
+      writeUInt16LE(0),
+      writeUInt16LE(dosTime),
+      writeUInt16LE(dosDate),
+      writeUInt32LE(crc),
+      writeUInt32LE(content.length),
+      writeUInt32LE(content.length),
+      writeUInt16LE(name.length),
+      writeUInt16LE(0),
+      name,
+    ]);
+    localParts.push(localHeader, content);
+
+    const centralHeader = Buffer.concat([
+      writeUInt32LE(0x02014b50),
+      writeUInt16LE(20),
+      writeUInt16LE(20),
+      writeUInt16LE(0x0800),
+      writeUInt16LE(0),
+      writeUInt16LE(dosTime),
+      writeUInt16LE(dosDate),
+      writeUInt32LE(crc),
+      writeUInt32LE(content.length),
+      writeUInt32LE(content.length),
+      writeUInt16LE(name.length),
+      writeUInt16LE(0),
+      writeUInt16LE(0),
+      writeUInt16LE(0),
+      writeUInt16LE(0),
+      writeUInt32LE(0),
+      writeUInt32LE(offset),
+      name,
+    ]);
+    centralParts.push(centralHeader);
+    offset += localHeader.length + content.length;
+  }
+
+  const centralDirectory = Buffer.concat(centralParts);
+  const endOfCentralDirectory = Buffer.concat([
+    writeUInt32LE(0x06054b50),
+    writeUInt16LE(0),
+    writeUInt16LE(0),
+    writeUInt16LE(files.length),
+    writeUInt16LE(files.length),
+    writeUInt32LE(centralDirectory.length),
+    writeUInt32LE(offset),
+    writeUInt16LE(0),
+  ]);
+
+  return Buffer.concat([...localParts, centralDirectory, endOfCentralDirectory]);
+};
+
+const xlsxTextEscape = (value: unknown) =>
+  excelXmlEscape(clipCell(stringifyCell(value), 32767).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, ''));
+
+const xlsxColumnName = (index: number) => {
+  let n = index + 1;
+  let name = '';
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    name = String.fromCharCode(65 + rem) + name;
+    n = Math.floor((n - 1) / 26);
+  }
+  return name;
+};
+
+const buildXlsxWorkbook = (sheets: Array<{ name: string; rows: unknown[][] }>) => {
+  const sheetFiles = sheets.map((sheet, index) => {
+    const maxCols = Math.max(...sheet.rows.map((row) => row.length), 0);
+    const colsXml = maxCols
+      ? `<cols>${Array.from({ length: maxCols }, (_, colIndex) => {
+          const width = colIndex === 0 ? 14 : colIndex === 1 ? 16 : 26;
+          return `<col min="${colIndex + 1}" max="${colIndex + 1}" width="${width}" customWidth="1"/>`;
+        }).join('')}</cols>`
+      : '';
+    const rowsXml = sheet.rows.map((row, rowIndex) => {
+      const cells = row.map((value, colIndex) => {
+        const ref = `${xlsxColumnName(colIndex)}${rowIndex + 1}`;
+        const styleId = rowIndex === 0 ? 1 : 2;
+        return `<c r="${ref}" s="${styleId}" t="inlineStr"><is><t xml:space="preserve">${xlsxTextEscape(value)}</t></is></c>`;
+      }).join('');
+      return `<row r="${rowIndex + 1}">${cells}</row>`;
+    }).join('');
+    return {
+      sheet,
+      path: `xl/worksheets/sheet${index + 1}.xml`,
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${colsXml}<sheetData>${rowsXml}</sheetData></worksheet>`,
+    };
+  });
+  const workbookSheets = sheets.map((sheet, index) =>
+    `<sheet name="${excelXmlEscape(sheet.name)}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`,
+  ).join('');
+  const workbookRels = sheets.map((_, index) =>
+    `<Relationship Id="rId${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${index + 1}.xml"/>`,
+  ).join('');
+  const contentTypesSheets = sheets.map((_, index) =>
+    `<Override PartName="/xl/worksheets/sheet${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`,
+  ).join('');
+  return buildZipStore([
+    {
+      path: '[Content_Types].xml',
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+  ${contentTypesSheets}
+</Types>`,
+    },
+    {
+      path: '_rels/.rels',
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>`,
+    },
+    {
+      path: 'xl/workbook.xml',
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${workbookSheets}</sheets></workbook>`,
+    },
+    {
+      path: 'xl/styles.xml',
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts>
+  <fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>
+  <borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
+  <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+  <cellXfs count="3">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment wrapText="1" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf>
+  </cellXfs>
+  <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+  <dxfs count="0"/>
+  <tableStyles count="0" defaultTableStyle="TableStyleMedium2" defaultPivotStyle="PivotStyleLight16"/>
+</styleSheet>`,
+    },
+    {
+      path: 'xl/_rels/workbook.xml.rels',
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${workbookRels}<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`,
+    },
+    ...sheetFiles.map((file) => ({ path: file.path, content: file.content })),
+  ]);
 };
 
 const flattenDailyActivitiesForExport = (row: any) => {
@@ -1495,6 +1713,427 @@ const buildTermPlanSummaryWorkbook = (summary: Awaited<ReturnType<typeof buildTe
   ${buildWorksheet('Term Summary', ['年级', '学生', '任务总数', '完成数', '未完成数', '平均分', '未完成课题列表'], rows.length ? rows : [['', '', '', '', '', '', '']])}
   ${buildWorksheet('Plan Details', ['年级', '学生', '周开始', '周结束', '计划课题', '完成状态', '分数', '评语'], detailRows.length ? detailRows : [['', '', '', '', '', '', '', '']])}
 </Workbook>`;
+};
+
+const WEEKDAY_LABELS_ZH = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+
+const dateKey = (value: unknown) => excelDate(value);
+
+const enumerateDates = (startDate: string, endDate: string) => {
+  const dates: string[] = [];
+  const cursor = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+  if (Number.isNaN(cursor.getTime()) || Number.isNaN(end.getTime())) return dates;
+  while (cursor <= end) {
+    dates.push(format(cursor, 'yyyy-MM-dd'));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return dates;
+};
+
+const dayHeader = (ymd: string) => {
+  const date = new Date(`${ymd}T00:00:00`);
+  const day = Number.isNaN(date.getTime()) ? '' : WEEKDAY_LABELS_ZH[date.getDay()];
+  return `${ymd} ${day || ''}`.trim();
+};
+
+const weekLabel = (index: number) => `第${index + 1}周`;
+
+const buildWeeklyDateHeaders = (dates: string[]) => {
+  const weekIndexes = new Map<string, number>();
+  const topRow: unknown[] = ['年级', 'Name'];
+  const dateRow: unknown[] = ['', ''];
+  const weekdayRow: unknown[] = ['', ''];
+  const columns: Array<{ date: string | null; spacer?: boolean }> = [];
+  let currentWeek = '';
+
+  dates.forEach((date, index) => {
+    const key = defaultCycleForDate(date).startDate;
+    if (!weekIndexes.has(key)) weekIndexes.set(key, weekIndexes.size);
+    const label = weekLabel(weekIndexes.get(key) ?? 0);
+    const day = WEEKDAY_LABELS_ZH[new Date(`${date}T00:00:00`).getDay()] || '';
+    topRow.push(label);
+    dateRow.push(date);
+    weekdayRow.push(day);
+    columns.push({ date });
+    if (index === 0) {
+      currentWeek = key;
+    }
+    const nextDate = dates[index + 1];
+    const nextWeek = nextDate ? defaultCycleForDate(nextDate).startDate : '';
+    if (!nextDate || nextWeek !== currentWeek) {
+      currentWeek = nextWeek;
+      if (nextDate) {
+        topRow.push('');
+        dateRow.push('');
+        weekdayRow.push('');
+        columns.push({ date: null, spacer: true });
+      }
+    }
+  });
+
+  return { headerRows: [topRow, dateRow, weekdayRow], columns };
+};
+
+const hasText = (value: unknown) => String(value ?? '').trim().length > 0;
+
+const scoreText = (score: unknown, total: unknown) => {
+  if (score == null || score === '') return '';
+  return total == null || total === '' ? String(score) : `${score}/${total}`;
+};
+
+const joinNonEmpty = (parts: unknown[], separator = '；') =>
+  parts.map((part) => String(part ?? '').trim()).filter(Boolean).join(separator);
+
+const summarizeScoredExercises = (exercises: unknown, fallbackScore: unknown, fallbackTotal: unknown) => {
+  const rows = Array.isArray(exercises) ? exercises : [];
+  const scored = rows
+    .map((row: any, index: number) => {
+      const score = scoreText(row?.score, row?.totalScore ?? fallbackTotal);
+      const name = String(row?.problems || '').trim() || `练习${index + 1}`;
+      if (!score && !hasText(name)) return '';
+      return score ? `${name}：${score}` : name;
+    })
+    .filter(Boolean);
+  if (scored.length) return scored.join('；');
+  return scoreText(fallbackScore, fallbackTotal);
+};
+
+const prefixTaskValue = (label: string, value: unknown) => {
+  const text = String(value ?? '').trim();
+  return text ? `${label}：${text}` : '';
+};
+
+const zhMonthDay = (ymd: string) => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
+  if (!match) return ymd;
+  return `${Number(match[2])}月${Number(match[3])}日`;
+};
+
+const subjectCompletionText = (subjectName: string, topic: string, action: '定义背诵' | '章节练习', ymd: string) =>
+  `${subjectName}${topic}${action} ${zhMonthDay(ymd)}已完成`;
+
+const normalizeCustomTaskForExport = (rawKey: string, rawLabel: string) => {
+  const label = String(rawLabel || rawKey || '').trim();
+  const combined = `${rawKey} ${label}`
+    .toLowerCase()
+    .replace(/[（）()_\-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (
+    combined.includes('vocabulary book') ||
+    combined.includes('vocab book') ||
+    combined.includes('词汇书')
+  ) {
+    return { key: 'vocabulary_book', label: '词汇书 (vocabulary book)' };
+  }
+  if (combined.includes('listening') || combined.includes('听力')) {
+    return { key: 'listening', label: '听力 (listening)' };
+  }
+  if (combined.includes('oral') || combined.includes('speaking') || combined.includes('口语')) {
+    return { key: 'oral', label: '口语 (oral)' };
+  }
+  const normalizedKey = combined.replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '_').replace(/^_+|_+$/g, '');
+  return {
+    key: normalizedKey || rawKey || label || 'custom_task',
+    label: label || rawKey || '自定义任务',
+  };
+};
+
+const appendDailyCell = (map: Map<string, string[]>, date: string, value: unknown) => {
+  const text = String(value ?? '').trim();
+  if (!text) return;
+  const list = map.get(date) ?? [];
+  list.push(text);
+  map.set(date, list);
+};
+
+const makeWorksheetName = (rawName: string, used: Set<string>) => {
+  const cleaned = String(rawName || 'Sheet')
+    .replace(/[\[\]:*?/\\]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 31) || 'Sheet';
+  let name = cleaned;
+  let index = 2;
+  while (used.has(name)) {
+    const suffix = ` ${index}`;
+    name = `${cleaned.slice(0, Math.max(1, 31 - suffix.length))}${suffix}`;
+    index += 1;
+  }
+  used.add(name);
+  return name;
+};
+
+const DAILY_ENGLISH_TASKS = [
+  { key: 'editing', label: '改错 (editing)' },
+  { key: 'reading', label: '阅读 (reading)' },
+  { key: 'grammar', label: '语法 (grammar)' },
+  { key: 'vocab', label: '词汇 (vocab)' },
+  { key: 'recitation', label: '背诵 (recitation)' },
+  { key: 'essay', label: '作文 (essay)' },
+] as const;
+
+const buildLearningTaskCompletionExport = async (startDate: string, endDate: string) => {
+  const dates = enumerateDates(startDate, endDate);
+  const [students, dailyRows, topicRows, termSummary] = await Promise.all([
+    db.select().from(studentsTable).orderBy(studentsTable.grade, studentsTable.name),
+    db
+      .select()
+      .from(dailyProgress)
+      .where(and(gte(dailyProgress.date, startDate), lte(dailyProgress.date, endDate), activeRecord(dailyProgress)))
+      .orderBy(dailyProgress.date),
+    db
+      .select({
+        studentId: studentTopicProgressTable.studentId,
+        subjectName: subjectsTable.name,
+        subjectChineseName: subjectsTable.chineseName,
+        subjectEnglishName: subjectsTable.englishName,
+        topicCode: topicsTable.code,
+        topicTitle: topicsTable.title,
+        status: studentTopicProgressTable.status,
+        definitionRecited: studentTopicProgressTable.definitionRecited,
+        chapterExerciseCompleted: studentTopicProgressTable.chapterExerciseCompleted,
+        updatedAt: studentTopicProgressTable.updatedAt,
+      })
+      .from(studentTopicProgressTable)
+      .leftJoin(topicsTable, eq(studentTopicProgressTable.topicId, topicsTable.id))
+      .leftJoin(subjectsTable, eq(topicsTable.subjectId, subjectsTable.id))
+      .orderBy(subjectsTable.name, topicsTable.orderIndex),
+    buildTermPlanSummary(startDate, endDate),
+  ]);
+
+  const studentsById = new Map(students.map((student) => [student.id, student]));
+  const taskCells = new Map<string, Map<string, string[]>>();
+  const customTaskLabels = new Map<string, string>();
+  const subjectDailyRows: unknown[][] = [];
+
+  const addTaskCell = (taskKey: string, studentId: string, date: string, value: unknown) => {
+    const mapKey = `${taskKey}:${studentId}`;
+    let cellMap = taskCells.get(mapKey);
+    if (!cellMap) {
+      cellMap = new Map<string, string[]>();
+      taskCells.set(mapKey, cellMap);
+    }
+    appendDailyCell(cellMap, date, value);
+  };
+
+  for (const row of dailyRows.map(withV2Activities)) {
+    const student = studentsById.get(row.studentId);
+    const activities = Array.isArray(row.activities) ? row.activities : [];
+    const date = dateKey(row.date);
+    for (const activity of activities) {
+      if (!activity || typeof activity !== 'object') continue;
+      const subjectName = String(
+        (activity as any).subjectDisplayName ||
+        (activity as any).subjectName ||
+        (activity as any).subject ||
+        '',
+      ).trim();
+      const isEnglish =
+        (activity as any).type === 'english' ||
+        !!(activity as any).english ||
+        /english|英语|英文/i.test(subjectName);
+      if (isEnglish) {
+        const english = normalizeEnglishFields((activity as any).english ?? {});
+        const editing = prefixTaskValue('改错', joinNonEmpty([
+          summarizeScoredExercises(english.editing.exercises, english.editing.score, english.editing.totalScore),
+          english.editing.exerciseCount ? `${english.editing.exerciseCount}题` : '',
+          english.editing.text,
+        ]));
+        const reading = prefixTaskValue('阅读', joinNonEmpty([
+          summarizeScoredExercises(english.reading.exercises, english.reading.score, english.reading.totalScore),
+          english.reading.articleCount ? `${english.reading.articleCount}篇` : '',
+          english.reading.text,
+        ]));
+        const grammar = prefixTaskValue('语法', joinNonEmpty([
+          summarizeScoredExercises(english.grammar.exercises, english.grammar.score, english.grammar.totalScore),
+          english.grammar.exerciseCount ? `${english.grammar.exerciseCount}题` : '',
+          english.grammar.text,
+        ]));
+        const vocab = prefixTaskValue('词汇', joinNonEmpty([
+          english.vocab.vocabularyWordCount ? `单词${english.vocab.vocabularyWordCount}` : '',
+          english.vocab.vocabularySentenceCount ? `句子${english.vocab.vocabularySentenceCount}` : '',
+          english.vocab.text,
+        ]));
+        const recitation = prefixTaskValue('背诵', english.recitation.text);
+        const essay = prefixTaskValue('作文', joinNonEmpty([
+          english.essay.completed ? '是' : '',
+          english.essay.title ? `题目：${english.essay.title}` : '',
+          english.essay.text,
+          scoreText(english.essay.score, english.essay.totalScore),
+        ]));
+        addTaskCell('editing', row.studentId, date, editing);
+        addTaskCell('reading', row.studentId, date, reading);
+        addTaskCell('grammar', row.studentId, date, grammar);
+        addTaskCell('vocab', row.studentId, date, vocab);
+        addTaskCell('recitation', row.studentId, date, recitation);
+        addTaskCell('essay', row.studentId, date, essay);
+        const customTasks = Array.isArray((activity as any).englishTasks)
+          ? (activity as any).englishTasks
+          : Array.isArray((activity as any).customEnglishTasks)
+            ? (activity as any).customEnglishTasks
+            : [];
+        for (const custom of customTasks) {
+          if (!custom || typeof custom !== 'object') continue;
+          const key = String((custom as any).key || (custom as any).taskId || (custom as any).id || '').trim();
+          const label = String((custom as any).displayName || (custom as any).chineseName || (custom as any).englishName || key).trim();
+          if (!key || !label) continue;
+          const exportTask = normalizeCustomTaskForExport(key, label);
+          customTaskLabels.set(exportTask.key, exportTask.label);
+          addTaskCell(`custom:${exportTask.key}`, row.studentId, date, prefixTaskValue(exportTask.label, joinNonEmpty([
+            (custom as any).completed === true ? '是' : '',
+            (custom as any).practiceCount ? `${(custom as any).practiceCount}次` : '',
+            scoreText((custom as any).score, (custom as any).maxScore),
+            (custom as any).problems,
+          ])));
+        }
+        continue;
+      }
+
+      const practice = (activity as any).practiceProgress || (activity as any).taskSummary || (activity as any).description || '';
+      const definition = (activity as any).definitionRecitation || (activity as any).notes || '';
+      if (hasText(definition)) {
+        addTaskCell(
+          'subjectDefinition',
+          row.studentId,
+          date,
+          subjectCompletionText(subjectName || '未指定科目', String(definition).trim(), '定义背诵', date),
+        );
+      }
+      if (hasText(practice)) {
+        addTaskCell(
+          'subjectExercise',
+          row.studentId,
+          date,
+          subjectCompletionText(subjectName || '未指定科目', String(practice).trim(), '章节练习', date),
+        );
+      }
+      if (hasText(practice) || hasText(definition) || hasText((activity as any).comment)) {
+        subjectDailyRows.push([
+          student?.grade || '',
+          student?.name || row.studentId,
+          date,
+          WEEKDAY_LABELS_ZH[new Date(`${date}T00:00:00`).getDay()] || '',
+          subjectName || '未指定科目',
+          practice,
+          definition,
+          (activity as any).comment || '',
+        ]);
+      }
+    }
+  }
+
+  const { headerRows, columns } = buildWeeklyDateHeaders(dates);
+  for (const row of topicRows) {
+    const studentId = (row as any).studentId;
+    const subjectName = (row as any).subjectChineseName || (row as any).subjectName || (row as any).subjectEnglishName || '未指定科目';
+    const topic = joinNonEmpty([(row as any).topicCode, (row as any).topicTitle], ' - ');
+    const completedDate = excelDate((row as any).updatedAt);
+    if (!studentId || !topic || completedDate < startDate || completedDate > endDate) continue;
+    if ((row as any).definitionRecited) {
+      addTaskCell('subjectDefinition', studentId, completedDate, subjectCompletionText(subjectName, topic, '定义背诵', completedDate));
+    }
+    if ((row as any).chapterExerciseCompleted) {
+      addTaskCell('subjectExercise', studentId, completedDate, subjectCompletionText(subjectName, topic, '章节练习', completedDate));
+    }
+  }
+
+  const makeTaskRows = (taskKey: string) => students.map((student) => {
+    const cells = taskCells.get(`${taskKey}:${student.id}`) ?? new Map<string, string[]>();
+    return [
+      student.grade,
+      student.name,
+      ...columns.map((column) => column.date ? (cells.get(column.date) ?? []).join('；') : ''),
+    ];
+  });
+
+  const usedSheetNames = new Set<string>();
+  const taskSheets = [
+    ...DAILY_ENGLISH_TASKS.map((task) => ({
+      name: task.label,
+      rows: makeTaskRows(task.key),
+    })),
+    {
+      name: '学科定义背诵',
+      rows: makeTaskRows('subjectDefinition'),
+    },
+    {
+      name: '学科章节练习',
+      rows: makeTaskRows('subjectExercise'),
+    },
+    ...Array.from(customTaskLabels.entries()).map(([key, label]) => ({
+      name: label,
+      rows: makeTaskRows(`custom:${key}`),
+    })).filter((sheet) => sheet.rows.some((row) => row.slice(2).some((cell) => hasText(cell)))),
+  ];
+
+  const topicStatusRows = topicRows.map((row: any) => {
+    const student = studentsById.get(row.studentId);
+    const subjectName = row.subjectChineseName || row.subjectName || row.subjectEnglishName || '';
+    const topic = joinNonEmpty([row.topicCode, row.topicTitle], ' - ');
+    return [
+      student?.grade || '',
+      student?.name || row.studentId,
+      subjectName,
+      topic,
+      row.definitionRecited ? '是' : '',
+      row.definitionRecited ? excelDate(row.updatedAt) : '',
+      row.definitionRecited ? topic : '',
+      row.chapterExerciseCompleted ? '是' : '',
+      row.chapterExerciseCompleted ? excelDate(row.updatedAt) : '',
+      row.chapterExerciseCompleted ? topic : '',
+      row.status || deriveTopicStatus(row.definitionRecited === true, row.chapterExerciseCompleted === true),
+      excelDate(row.updatedAt),
+    ];
+  });
+
+  const weeklyPlanRows = termSummary.groups.flatMap((group: any) =>
+    group.rows.flatMap((row: any) =>
+      row.planStatuses.map((item: any) => [
+        group.grade,
+        row.studentName,
+        item.weekStarting,
+        item.weekEnding,
+        item.topic,
+        item.completed ? '是' : '',
+        item.score ?? '',
+        item.comment || '',
+      ]),
+    ),
+  );
+
+  const xlsxSheets = taskSheets.map((sheet) => ({
+    name: makeWorksheetName(sheet.name, usedSheetNames),
+    rows: [
+      ...headerRows,
+      ...(sheet.rows.length ? sheet.rows : [['', '', ...columns.map(() => '')]]),
+    ],
+  }));
+
+  xlsxSheets.push({
+    name: makeWorksheetName('每日学科记录', usedSheetNames),
+    rows: [
+      ['年级', 'Name', '日期', '星期', '科目', '练习/章节', '定义背诵', '备注'],
+      ...(subjectDailyRows.length ? subjectDailyRows : [['', '', '', '', '', '', '', '']]),
+    ],
+  });
+  xlsxSheets.push({
+    name: makeWorksheetName('当前学科Topic状态', usedSheetNames),
+    rows: [
+      ['年级', 'Name', '科目', '章节/Topic', '定义已背', '定义背诵日期', '背诵章节', '章节练习完成', '练习完成日期', '练习章节', '状态', '更新时间'],
+      ...(topicStatusRows.length ? topicStatusRows : [['', '', '', '', '', '', '', '', '', '', '', '']]),
+    ],
+  });
+  xlsxSheets.push({
+    name: makeWorksheetName('周计划完成情况', usedSheetNames),
+    rows: [
+      ['年级', 'Name', '周开始', '周结束', '计划课题', '完成', '分数', '评语'],
+      ...(weeklyPlanRows.length ? weeklyPlanRows : [['', '', '', '', '', '', '', '']]),
+    ],
+  });
+
+  return buildXlsxWorkbook(xlsxSheets);
 };
 
 // ========== TEACHER ROUTES ==========
@@ -2095,7 +2734,160 @@ app.post('/api/admin/bin/cleanup-expired', authenticate, requireAdmin, async (_r
   }
 });
 
-// ====== STUDENT ENGLISH TASK CONFIG ======
+// ====== APP SETTINGS & ENGLISH TASK CONFIG ======
+const APP_SETTING_KEYS = {
+  englishTasks: 'global_english_tasks',
+  eveningStudy: 'evening_study',
+} as const;
+
+const DEFAULT_EVENING_STUDY_SETTINGS = {
+  enabled: true,
+  days: [0, 1, 2, 3, 4],
+  startTime: '18:00',
+  endTime: '21:00',
+};
+
+const getAppSetting = async (key: string) => {
+  const rows = await db
+    .select()
+    .from(appSettingsTable)
+    .where(eq(appSettingsTable.key, key))
+    .limit(1);
+  return rows[0] || null;
+};
+
+const upsertAppSetting = async (key: string, valueJson: Record<string, unknown>, updatedByName?: string | null) => {
+  const now = new Date();
+  const rows = await db
+    .insert(appSettingsTable)
+    .values({ key, valueJson, updatedAt: now, updatedByName: updatedByName || null })
+    .onConflictDoUpdate({
+      target: appSettingsTable.key,
+      set: { valueJson, updatedAt: now, updatedByName: updatedByName || null },
+    })
+    .returning();
+  return rows[0];
+};
+
+const getGlobalEnglishTasks = async () => {
+  const setting = await getAppSetting(APP_SETTING_KEYS.englishTasks);
+  const rawTasks = Array.isArray(setting?.valueJson?.tasks) ? setting.valueJson.tasks : DEFAULT_ENGLISH_TASKS;
+  return normalizeEnglishTaskConfig(rawTasks);
+};
+
+const mergeEnglishTaskConfig = (globalTasks: unknown, studentTasks: unknown) => {
+  const normalizedGlobal = normalizeEnglishTaskConfig(globalTasks);
+  if (!hasCustomEnglishTaskConfig(studentTasks)) return normalizedGlobal;
+  const normalizedStudent = normalizeEnglishTaskConfig(studentTasks);
+  const studentByKey = new Map(normalizedStudent.map((task) => [task.key, task]));
+  const globalKeys = new Set(normalizedGlobal.map((task) => task.key));
+  const merged = normalizedGlobal.map((task, index) => ({
+    ...task,
+    ...(studentByKey.get(task.key) || {}),
+    sortOrder: index,
+  }));
+  normalizedStudent
+    .filter((task) => !globalKeys.has(task.key))
+    .forEach((task) => merged.push({ ...task, sortOrder: merged.length }));
+  return normalizeEnglishTaskConfig(merged);
+};
+
+const normalizeEveningStudySettings = (raw: unknown) => {
+  const obj = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+  const days = Array.isArray(obj.days)
+    ? obj.days.map((day) => parseFiniteInteger(day)).filter((day): day is number => day !== null && day >= 0 && day <= 6)
+    : DEFAULT_EVENING_STUDY_SETTINGS.days;
+  const uniqueDays = Array.from(new Set(days)).sort((a, b) => a - b);
+  const timeRegex = /^([01]\d|2[0-3]):[0-5]\d$/;
+  const startTime = typeof obj.startTime === 'string' && timeRegex.test(obj.startTime)
+    ? obj.startTime
+    : DEFAULT_EVENING_STUDY_SETTINGS.startTime;
+  const endTime = typeof obj.endTime === 'string' && timeRegex.test(obj.endTime)
+    ? obj.endTime
+    : DEFAULT_EVENING_STUDY_SETTINGS.endTime;
+  return {
+    enabled: obj.enabled !== false,
+    days: uniqueDays.length ? uniqueDays : DEFAULT_EVENING_STUDY_SETTINGS.days,
+    startTime,
+    endTime,
+  };
+};
+
+const getEveningStudySettings = async () => {
+  const setting = await getAppSetting(APP_SETTING_KEYS.eveningStudy);
+  return normalizeEveningStudySettings(setting?.valueJson ?? DEFAULT_EVENING_STUDY_SETTINGS);
+};
+
+app.get('/api/study-settings', authenticate, requireRole('teacher', 'admin'), async (_req, res) => {
+  try {
+    res.json(await getEveningStudySettings());
+  } catch (err) {
+    console.error('Error fetching study settings:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.put('/api/admin/study-settings', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const settings = normalizeEveningStudySettings(req.body || {});
+    await upsertAppSetting(APP_SETTING_KEYS.eveningStudy, settings, req.user?.name || null);
+    res.json(settings);
+  } catch (err) {
+    console.error('Error saving study settings:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.get('/api/admin/english-tasks', authenticate, requireAdmin, async (_req, res) => {
+  try {
+    const setting = await getAppSetting(APP_SETTING_KEYS.englishTasks);
+    const tasks = await getGlobalEnglishTasks();
+    res.json({
+      tasks,
+      isDefault: !setting || !hasCustomEnglishTaskConfig(setting.valueJson?.tasks),
+      updatedAt: setting?.updatedAt || null,
+      updatedByName: setting?.updatedByName || null,
+    });
+  } catch (err) {
+    console.error('Error fetching global english tasks:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.put('/api/admin/english-tasks', authenticate, requireAdmin, async (req, res) => {
+  const rawTasks = Array.isArray(req.body?.tasks) ? req.body.tasks : null;
+  if (!rawTasks) return res.status(400).json({ error: 'tasks must be an array' });
+  const normalizedTasks = normalizeEnglishTaskConfig(rawTasks);
+  if (normalizedTasks.length > 30) {
+    return invalidInput(res, [{ field: 'tasks', message: '任务数量过多（最多 30 项）' }]);
+  }
+  try {
+    await upsertAppSetting(
+      APP_SETTING_KEYS.englishTasks,
+      { tasks: normalizedTasks as unknown as Record<string, unknown>[] },
+      req.user?.name || null,
+    );
+    res.json({ tasks: normalizedTasks, isDefault: false });
+  } catch (err) {
+    console.error('Error saving global english tasks:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.post('/api/admin/english-tasks/reset', authenticate, requireAdmin, async (req, res) => {
+  try {
+    await upsertAppSetting(
+      APP_SETTING_KEYS.englishTasks,
+      { tasks: DEFAULT_ENGLISH_TASKS as unknown as Record<string, unknown>[] },
+      req.user?.name || null,
+    );
+    res.json({ tasks: DEFAULT_ENGLISH_TASKS, isDefault: true });
+  } catch (err) {
+    console.error('Error resetting global english tasks:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
 app.get('/api/students/:studentId/english-tasks', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
   const { studentId } = req.params;
   if (!enforceReviewerScope(req, res, studentId)) return;
@@ -2110,7 +2902,8 @@ app.get('/api/students/:studentId/english-tasks', authenticate, requireRole('tea
       .where(eq(studentEnglishTaskConfigsTable.studentId, studentId))
       .limit(1);
     const row = rows[0];
-    const tasks = normalizeEnglishTaskConfig(row?.tasksJson ?? DEFAULT_ENGLISH_TASKS);
+    const globalTasks = await getGlobalEnglishTasks();
+    const tasks = mergeEnglishTaskConfig(globalTasks, row?.tasksJson);
     res.json({
       studentId,
       isDefault: !row || !hasCustomEnglishTaskConfig(row.tasksJson),
@@ -2221,10 +3014,11 @@ app.post('/api/students/:studentId/english-tasks/reset', authenticate, requireRo
         await db
           .delete(studentEnglishTaskConfigsTable)
           .where(eq(studentEnglishTaskConfigsTable.studentId, studentId));
+        const globalTasks = await getGlobalEnglishTasks();
         res.json({
           studentId,
           isDefault: true,
-          tasks: DEFAULT_ENGLISH_TASKS,
+          tasks: globalTasks,
         });
       },
     );
@@ -4808,6 +5602,7 @@ app.put('/api/students/:studentId/topics/:topicId/progress', authenticate, requi
         }
 
         const nextStatus = deriveTopicStatus(nextDefinitionRecited, nextChapterExerciseCompleted);
+        const now = new Date();
 
         if (existing.length > 0) {
           await db
@@ -4816,6 +5611,7 @@ app.put('/api/students/:studentId/topics/:topicId/progress', authenticate, requi
               status: nextStatus,
               definitionRecited: nextDefinitionRecited,
               chapterExerciseCompleted: nextChapterExerciseCompleted,
+              updatedAt: now,
             })
             .where(
               and(
@@ -4832,6 +5628,7 @@ app.put('/api/students/:studentId/topics/:topicId/progress', authenticate, requi
               status: nextStatus,
               definitionRecited: nextDefinitionRecited,
               chapterExerciseCompleted: nextChapterExerciseCompleted,
+              updatedAt: now,
             });
         }
 
@@ -4860,6 +5657,7 @@ app.put('/api/students/:studentId/topics/:topicId/progress', authenticate, requi
                   status: 'completed' as const,
                   definitionRecited: true,
                   chapterExerciseCompleted: true,
+                  updatedAt: now,
                 }))
               )
               .onConflictDoUpdate({
@@ -4868,6 +5666,7 @@ app.put('/api/students/:studentId/topics/:topicId/progress', authenticate, requi
                   status: 'completed' as const,
                   definitionRecited: true,
                   chapterExerciseCompleted: true,
+                  updatedAt: now,
                 },
               });
           }
@@ -6882,6 +7681,28 @@ app.get('/api/admin/term-plan-summary/export', authenticate, requireAdmin, async
     res.send(workbook);
   } catch (err) {
     console.error('Error exporting term plan summary:', err);
+    res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
+  }
+});
+
+app.get('/api/admin/learning-task-completion/export', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const startDate = typeof req.query.startDate === 'string' ? req.query.startDate : '';
+    const endDate = typeof req.query.endDate === 'string' ? req.query.endDate : '';
+    const rangeIssues = validateDateRange({
+      startDate,
+      endDate,
+      maxDays: INPUT_LIMITS.exportDateRangeMaxDays,
+      fieldPrefix: 'learningTaskRange',
+    });
+    if (rangeIssues.length) return invalidInput(res, rangeIssues);
+    const workbook = await buildLearningTaskCompletionExport(startDate, endDate);
+    const fileBase = `learning_task_completion_${startDate}_${endDate}`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeExportName(fileBase, 'learning_task_completion')}.xlsx"; filename*=UTF-8''${encodeURIComponent(fileBase)}.xlsx`);
+    res.send(workbook);
+  } catch (err) {
+    console.error('Error exporting learning task completion:', err);
     res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
   }
 });

@@ -12,6 +12,7 @@ Page({
     weekEnding: "",
     termStartDate: "",
     termEndDate: "",
+    exportMonth: "",
     weeklyGroups: [],
     weeklyMetrics: {},
     termGroups: [],
@@ -24,6 +25,7 @@ Page({
       weekStarting: this.getSunday(today),
       termStartDate: `${today.slice(0, 4)}-01-01`,
       termEndDate: today,
+      exportMonth: today.slice(0, 7),
     });
   },
 
@@ -121,6 +123,49 @@ Page({
     this.setData({ termEndDate: value }, () => this.fetchTerm());
   },
 
+  onExportStartChange(e) {
+    const value = e?.detail?.value;
+    if (!value) return;
+    this.setData({ termStartDate: value });
+  },
+
+  onExportEndChange(e) {
+    const value = e?.detail?.value;
+    if (!value) return;
+    this.setData({ termEndDate: value });
+  },
+
+  onExportMonthChange(e) {
+    const value = e?.detail?.value;
+    if (!value) return;
+    const end = this.getMonthEnd(value);
+    this.setData({
+      exportMonth: value,
+      termStartDate: `${value}-01`,
+      termEndDate: end,
+    }, () => this.fetchCurrent());
+  },
+
+  setRecentMonths(e) {
+    const months = Number(e.currentTarget.dataset.months || 1);
+    const base = this.data.exportMonth || formatChinaDate(new Date()).slice(0, 7);
+    const endDate = this.getMonthEnd(base);
+    const [year, month] = base.split("-").map(Number);
+    const start = new Date(year, month - months, 1);
+    const startMonth = `${start.getFullYear()}-${pad2(start.getMonth() + 1)}`;
+    this.setData({
+      termStartDate: `${startMonth}-01`,
+      termEndDate: endDate,
+    }, () => this.fetchCurrent());
+  },
+
+  getMonthEnd(yyyyMm) {
+    const [year, month] = String(yyyyMm || "").split("-").map(Number);
+    if (!year || !month) return this.data.termEndDate;
+    const end = new Date(year, month, 0);
+    return `${end.getFullYear()}-${pad2(end.getMonth() + 1)}-${pad2(end.getDate())}`;
+  },
+
   exportCurrent() {
     const token = wx.getStorageSync("token");
     const app = getApp();
@@ -140,6 +185,32 @@ Page({
         wx.openDocument({
           filePath: res.tempFilePath,
           fileType: "xls",
+          showMenu: true,
+          fail: () => wx.showToast({ title: "打开文件失败", icon: "none" }),
+        });
+      },
+      fail: () => wx.showToast({ title: "导出失败", icon: "error" }),
+      complete: () => wx.hideLoading(),
+    });
+  },
+
+  exportLearningTasks() {
+    const token = wx.getStorageSync("token");
+    const app = getApp();
+    const baseUrl = app?.globalData?.apiBaseUrl || API_BASE_URL;
+    const url = `${baseUrl}/admin/learning-task-completion/export?startDate=${encodeURIComponent(this.data.termStartDate)}&endDate=${encodeURIComponent(this.data.termEndDate)}`;
+    wx.showLoading({ title: "导出中" });
+    wx.downloadFile({
+      url,
+      header: token ? { Authorization: `Bearer ${token}` } : {},
+      success: (res) => {
+        if (res.statusCode !== 200) {
+          wx.showToast({ title: "导出失败", icon: "error" });
+          return;
+        }
+        wx.openDocument({
+          filePath: res.tempFilePath,
+          fileType: "xlsx",
           showMenu: true,
           fail: () => wx.showToast({ title: "打开文件失败", icon: "none" }),
         });

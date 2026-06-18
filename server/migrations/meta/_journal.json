@@ -237,6 +237,20 @@
       "when": 1781193120000,
       "tag": "0033_add_grade_weekly_plans",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1781760000000,
+      "tag": "0034_add_topic_progress_completion_dates",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1781763600000,
+      "tag": "0035_add_app_settings",
+      "breakpoints": true
     }
   ]
 }

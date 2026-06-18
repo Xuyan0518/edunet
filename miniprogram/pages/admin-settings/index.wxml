@@ -1,0 +1,133 @@
+<view class="container admin-settings-page">
+  <view class="hero">
+    <view class="title">系统配置</view>
+    <view class="subtitle">全局练习项目与晚自习时间</view>
+  </view>
+
+  <view class="section card" wx:if="{{loading}}">
+    <view class="muted">加载中...</view>
+  </view>
+
+  <view wx:else>
+    <view class="section card">
+      <view class="row-between">
+        <view>
+          <view class="section-title">全局练习项目</view>
+          <view class="muted">老师端每日记录会显示这里启用的项目</view>
+        </view>
+        <button class="btn-outline" size="mini" bindtap="openAddTaskPicker">添加</button>
+      </view>
+
+      <view wx:if="{{tasks.length === 0}}" class="muted empty-text">暂无任务</view>
+
+      <block wx:for="{{tasks}}" wx:key="id">
+        <view class="task-card">
+          <view class="row-between task-card-head">
+            <view class="field-label">{{item.displayName}}</view>
+            <view class="row task-actions">
+              <view class="chip {{item.enabled ? 'chip-success' : ''}}" data-index="{{index}}" bindtap="onToggleEnabled">
+                {{item.enabled ? '已启用' : '已禁用'}}
+              </view>
+              <button class="btn-outline" size="mini" data-index="{{index}}" data-direction="up" bindtap="moveTask">上移</button>
+              <button class="btn-outline" size="mini" data-index="{{index}}" data-direction="down" bindtap="moveTask">下移</button>
+              <button class="btn-outline danger" size="mini" data-index="{{index}}" bindtap="removeTask">删除</button>
+            </view>
+          </view>
+
+          <view class="form-grid">
+            <view>
+              <view class="field-label">中文名</view>
+              <input class="input" value="{{item.chineseName}}" data-index="{{index}}" bindinput="onChineseNameInput" />
+            </view>
+            <view>
+              <view class="field-label">英文名</view>
+              <input class="input" value="{{item.englishName}}" data-index="{{index}}" bindinput="onEnglishNameInput" />
+            </view>
+            <view>
+              <view class="field-label">本周目标次数</view>
+              <input class="input" type="number" value="{{item.weeklyTargetCount}}" data-index="{{index}}" bindinput="onWeeklyTargetInput" />
+            </view>
+          </view>
+
+          <view class="field-label">老师填写字段</view>
+          <view class="field-chip-row">
+            <view
+              wx:for="{{fieldOptions}}"
+              wx:for-item="field"
+              wx:key="value"
+              class="field-chip {{item.enabledFields && item.enabledFields.indexOf(field.value) !== -1 ? 'field-chip-active' : ''}}"
+              data-index="{{index}}"
+              data-field="{{field.value}}"
+              bindtap="onFieldToggle"
+            >
+              {{field.label}}
+            </view>
+          </view>
+        </view>
+      </block>
+
+      <view class="row footer-actions">
+        <button class="btn-outline" bindtap="resetTasks">恢复默认项目</button>
+        <button class="btn-primary" loading="{{savingTasks}}" bindtap="saveTasks">保存练习项目</button>
+      </view>
+    </view>
+
+    <view class="section card">
+      <view class="row-between">
+        <view>
+          <view class="section-title">晚自习时间</view>
+          <view class="muted">用于老师端每日进度的默认出勤时间</view>
+        </view>
+        <switch checked="{{studyEnabled}}" bindchange="onStudyEnabledChange" />
+      </view>
+
+      <view class="field-label">自习日期</view>
+      <view class="weekday-row">
+        <view
+          wx:for="{{weekdays}}"
+          wx:key="value"
+          class="weekday-chip {{item.selected ? 'weekday-chip-active' : ''}}"
+          data-value="{{item.value}}"
+          bindtap="toggleWeekday"
+        >
+          {{item.label}}
+        </view>
+      </view>
+
+      <view class="study-time-row">
+        <view class="time-field">
+          <view class="field-label">开始时间</view>
+          <picker mode="time" value="{{studyStartTime}}" bindchange="onStudyStartChange" disabled="{{!studyEnabled}}">
+            <view class="time-picker {{!studyEnabled ? 'disabled' : ''}}">{{studyStartTime}}</view>
+          </picker>
+        </view>
+        <view class="time-divider">至</view>
+        <view class="time-field">
+          <view class="field-label">结束时间</view>
+          <picker mode="time" value="{{studyEndTime}}" bindchange="onStudyEndChange" disabled="{{!studyEnabled}}">
+            <view class="time-picker {{!studyEnabled ? 'disabled' : ''}}">{{studyEndTime}}</view>
+          </picker>
+        </view>
+      </view>
+
+      <button class="btn-primary" loading="{{savingStudy}}" bindtap="saveStudySettings">保存晚自习设置</button>
+    </view>
+  </view>
+
+  <view wx:if="{{showPresetPicker}}" class="picker-mask" bindtap="closeAddTaskPicker"></view>
+  <view wx:if="{{showPresetPicker}}" class="picker-panel">
+    <view class="section-title">选择任务类型</view>
+    <scroll-view scroll-y class="picker-list">
+      <view
+        wx:for="{{presets}}"
+        wx:key="key"
+        class="picker-item"
+        data-index="{{index}}"
+        bindtap="pickPresetTask"
+      >
+        {{item.chineseName}} ({{item.englishName}})
+      </view>
+    </scroll-view>
+    <button class="btn-outline" bindtap="closeAddTaskPicker">取消</button>
+  </view>
+</view>

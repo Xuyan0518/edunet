@@ -85,7 +85,7 @@
             <view class="report-actions">
               <button class="btn-primary-light" size="mini" data-id="{{item.id}}" bindtap="openReport">查看</button>
               <button
-                wx:if="{{isManager}}"
+                wx:if="{{isAdmin}}"
                 class="btn-outline"
                 size="mini"
                 data-id="{{item.id}}"

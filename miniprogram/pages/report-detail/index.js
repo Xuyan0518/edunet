@@ -126,6 +126,7 @@ Page({
     publishing: false,
     previewMode: false,
     isManager: false,
+    isAdmin: false,
     isParent: false,
     isStudent: false,
     reportType: 'quarterly',
@@ -158,7 +159,7 @@ Page({
   onLoad(query) {
     const role = wx.getStorageSync('user')?.role || '';
     const flags = resolveRoleFlags(role);
-    this.setData({ ...flags });
+    this.setData({ ...flags, isAdmin: role === 'admin' });
 
     const previewMode = query.preview === '1';
     if (previewMode) {
@@ -500,7 +501,7 @@ Page({
       const updated = await updateReport(this.data.report.id, { finalReport, summary });
       this.applyReport(updated);
       this.setData({ editMode: false });
-      wx.showToast({ title: '保存成功', icon: 'success' });
+      wx.showToast({ title: '保存成功，待管理员发布', icon: 'success' });
     } catch (err) {
       if (showActionLockToast(err)) return;
       wx.showToast({ title: err?.message || err?.error || '保存失败', icon: 'none' });
@@ -543,7 +544,7 @@ Page({
   },
 
   async toggleVisibility() {
-    if (!this.data.isManager || !this.data.report?.id) return;
+    if (!this.data.isAdmin || !this.data.report?.id) return;
     const visible = !!this.data.report.visibleToParent;
     this.setData({ publishing: true });
     try {

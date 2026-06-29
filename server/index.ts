@@ -2228,7 +2228,7 @@ app.get('/api/parents/unassigned', authenticate, requireTeacher, requireStudentP
   }
 });
 
-app.get('/api/parents', authenticate, requireTeacher, requireStudentParentManagement, async (req, res) => {
+app.get('/api/parents', authenticate, requireTeacher, async (req, res) => {
   if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot access parent directory' });
   try {
     const result = await db
@@ -2376,7 +2376,7 @@ app.get('/api/students/:id', authenticate, verifyParentStudentAccess, async (req
   }
 });
 
-app.post('/api/students', authenticate, requireRole('teacher', 'admin'), requireStudentParentManagement, async (req, res) => {
+app.post('/api/students', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
   if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot manage student roster' });
   // Normalize parentId field (handle both parentId and parent_id from frontend)
   const body = { ...req.body };

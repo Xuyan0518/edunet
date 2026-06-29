@@ -13,6 +13,7 @@ let app: Express;
 let generateToken: typeof import('../../server/utils/auth').generateToken;
 
 const STUDENT_ID = '11111111-1111-4111-8111-111111111111';
+const PARENT_ID = '22222222-2222-4222-8222-222222222222';
 const TEACHER_ID = 'teacher-1';
 
 beforeAll(async () => {
@@ -143,14 +144,37 @@ describe('student bin APIs', () => {
     expect(res.body.failures).toEqual([]);
   });
 
-  it('blocks student and parent management APIs for other teachers', async () => {
+  it('allows parent directory and student creation for other teachers', async () => {
     mockDb.queueSelect([{ id: TEACHER_ID, status: 'approved' }]);
-    mockDb.queueSelect([{ id: TEACHER_ID, wechatOpenId: 'wx-other' }]);
+    mockDb.queueSelect([{ id: PARENT_ID, name: 'Parent A', status: 'approved' }]);
 
-    const res = await request(app)
+    const parentsRes = await request(app)
       .get('/api/parents')
       .set('Authorization', `Bearer ${teacherToken()}`);
 
-    expect(res.status).toBe(403);
+    expect(parentsRes.status).toBe(200);
+    expect(parentsRes.body).toHaveLength(1);
+
+    mockDb.queueSelect([{ id: TEACHER_ID, status: 'approved' }]);
+    mockDb.queueInsert([{ id: STUDENT_ID, name: 'Alice', grade: '中一', parentId: PARENT_ID }]);
+    mockDb.queueSelect([{ id: 'english-subject' }]);
+    mockDb.queueInsert([]);
+
+    const createRes = await request(app)
+      .post('/api/students')
+      .set('Authorization', `Bearer ${teacherToken()}`)
+      .send({ name: 'Alice', grade: '中一', parentId: PARENT_ID });
+
+    expect(createRes.status).toBe(201);
+    expect(createRes.body).toMatchObject({ id: STUDENT_ID, parentId: PARENT_ID });
+
+    mockDb.queueSelect([{ id: TEACHER_ID, status: 'approved' }]);
+    mockDb.queueSelect([{ id: TEACHER_ID, wechatOpenId: 'wx-other' }]);
+
+    const managementRes = await request(app)
+      .get(`/api/parents/${PARENT_ID}/students`)
+      .set('Authorization', `Bearer ${teacherToken()}`);
+
+    expect(managementRes.status).toBe(403);
   });
 });

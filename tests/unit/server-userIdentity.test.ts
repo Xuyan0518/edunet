@@ -46,10 +46,11 @@ describe('server/auth/userIdentity', () => {
     });
   });
 
-  it('allows both configured teacher openids to manage students and parents', () => {
+  it('allows configured teacher openids and admins to manage students and parents', () => {
     expect(canManageStudentsAndParents({ role: 'teacher', wechatOpenId: 'o-zVF3carqsMGxDM0OhAVBc0stcI' })).toBe(true);
     expect(canManageStudentsAndParents({ role: 'teacher', wechatOpenId: 'o-zVF3YX1px9ZOZGXJ4BCwXItoDY' })).toBe(true);
+    expect(canManageStudentsAndParents({ role: 'teacher', wechatOpenId: 'o-zVF3RHZoOXq_TLMUhWTqDb1xHw' })).toBe(true);
     expect(canManageStudentsAndParents({ role: 'teacher', wechatOpenId: 'other-openid' })).toBe(false);
-    expect(canManageStudentsAndParents({ role: 'admin', wechatOpenId: 'o-zVF3YX1px9ZOZGXJ4BCwXItoDY' })).toBe(false);
+    expect(canManageStudentsAndParents({ role: 'admin', wechatOpenId: 'other-openid' })).toBe(true);
   });
 });

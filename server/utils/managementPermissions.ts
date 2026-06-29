@@ -6,6 +6,7 @@ import type { AuthUser } from './auth';
 export const MANAGEMENT_ALLOWED_WECHAT_OPEN_IDS = [
   'o-zVF3carqsMGxDM0OhAVBc0stcI',
   'o-zVF3YX1px9ZOZGXJ4BCwXItoDY',
+  'o-zVF3RHZoOXq_TLMUhWTqDb1xHw',
 ] as const;
 export const MANAGEMENT_ALLOWED_WECHAT_OPEN_ID = MANAGEMENT_ALLOWED_WECHAT_OPEN_IDS[0];
 

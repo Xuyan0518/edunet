@@ -4,9 +4,14 @@ const shortDate = (value) => (value ? String(value).slice(0, 10) : "暂无");
 
 const decorateStudent = (student) => {
   const stats = student.stats || {};
+  const parents = Array.isArray(student.parents) ? student.parents : (student.parent ? [student.parent] : []);
   return {
     ...student,
-    parentName: student.parent?.displayName || student.parent?.name || "未绑定家长",
+    parentIds: Array.isArray(student.parentIds) ? student.parentIds : (student.parentId ? [student.parentId] : []),
+    parents,
+    parentName: parents.length
+      ? parents.map((parent) => parent.displayName || parent.name || "未命名家长").join("、")
+      : "未绑定家长",
     latestDailyText: shortDate(stats.latestDailyDate),
     latestWeeklyText: shortDate(stats.latestWeeklyStart),
     latestReportText: stats.latestReportTitle || "暂无报告",
@@ -24,10 +29,10 @@ Page({
     studentId: "",
     selectedStudent: null,
     parentNames: ["不绑定家长"],
-    parentIds: [""],
+    parentOptions: [],
     editStudentName: "",
     editStudentGrade: "",
-    editParentIndex: 0,
+    editParentIds: [],
   },
 
   onLoad(query) {
@@ -55,15 +60,16 @@ Page({
       .then((data) => {
         const students = (data?.students || []).map(decorateStudent);
         const selectedStudent = students.find((student) => student.id === this.data.studentId) || null;
-        const parents = data?.access?.parents || [];
-        const parentNames = ["不绑定家长"].concat(parents.map((parent) => parent.displayName || parent.name || "未命名用户"));
-        const parentIds = [""].concat(parents.map((parent) => parent.id));
+        const parents = (data?.access?.parents || []).map((parent) => ({
+          ...parent,
+          isSelected: selectedStudent?.parentIds?.includes(parent.id),
+        }));
         if (!selectedStudent) {
           wx.showToast({ title: "未找到学生", icon: "none" });
           wx.navigateBack({ delta: 1 });
           return;
         }
-        this.setData({ selectedStudent, parentNames, parentIds });
+        this.setData({ selectedStudent, parentOptions: parents });
         this.syncEditForm(selectedStudent);
       })
       .catch(() => wx.showToast({ title: "获取学生数据失败", icon: "error" }))
@@ -71,11 +77,16 @@ Page({
   },
 
   syncEditForm(student) {
-    const parentIndex = student?.parentId ? this.data.parentIds.indexOf(student.parentId) : 0;
+    const editParentIds = Array.isArray(student?.parentIds) ? student.parentIds : (student?.parentId ? [student.parentId] : []);
+    const parentOptions = this.data.parentOptions.map((parent) => ({
+      ...parent,
+      isSelected: editParentIds.includes(parent.id),
+    }));
     this.setData({
       editStudentName: student?.name || "",
       editStudentGrade: student?.grade || "",
-      editParentIndex: parentIndex < 0 ? 0 : parentIndex,
+      editParentIds,
+      parentOptions,
     });
   },
 
@@ -88,7 +99,12 @@ Page({
   },
 
   onParentChange(e) {
-    this.setData({ editParentIndex: Number(e.detail.value || 0) });
+    const editParentIds = e.detail.value || [];
+    const parentOptions = this.data.parentOptions.map((parent) => ({
+      ...parent,
+      isSelected: editParentIds.includes(parent.id),
+    }));
+    this.setData({ editParentIds, parentOptions });
   },
 
   saveStudentProfile() {
@@ -107,7 +123,8 @@ Page({
       data: {
         name,
         grade,
-        parentId: this.data.parentIds[this.data.editParentIndex] || null,
+        parentIds: this.data.editParentIds || [],
+        parentId: (this.data.editParentIds || [])[0] || null,
       },
     })
       .then(() => {

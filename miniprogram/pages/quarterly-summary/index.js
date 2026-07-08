@@ -29,7 +29,15 @@ Page({
 
   onLoad(query) {
     const user = wx.getStorageSync("user");
-    this.setData({ isTeacher: user?.role === "teacher" });
+    const year = Number(query.year || new Date().getFullYear());
+    const quarter = Number(query.quarter || 1);
+    const quarterIndex = Math.max(0, Math.min(3, quarter - 1));
+    this.setData({
+      isTeacher: user?.role === "teacher" || user?.role === "admin",
+      year: Number.isFinite(year) ? year : new Date().getFullYear(),
+      selectedQuarter: quarterIndex + 1,
+      quarterIndex,
+    });
     this.studentId = query.studentId;
     if (!this.studentId) {
       wx.showToast({ title: "缺少学生信息", icon: "error" });
@@ -199,6 +207,32 @@ Page({
         if (showConflictModal(err, () => this.fetchSummaries())) return;
         wx.showToast({ title: "保存失败", icon: "error" });
       });
+  },
+
+  deleteSummary() {
+    if (!this.data.isTeacher || !this.data.lastUpdatedAt) return;
+    wx.showModal({
+      title: "删除学期总结？",
+      content: "删除后家长端不可见，并会从待审批列表移除。",
+      confirmText: "删除",
+      confirmColor: "#dc2626",
+      success: (res) => {
+        if (!res.confirm) return;
+        const updatedAt = encodeURIComponent(this.data.lastUpdatedAt || "");
+        request({
+          url: `/students/${this.studentId}/quarterly-summary?year=${this.data.year}&quarter=${this.data.selectedQuarter}&updatedAt=${updatedAt}`,
+          method: "DELETE",
+        })
+          .then(() => {
+            wx.showToast({ title: "已删除", icon: "success" });
+            wx.navigateBack();
+          })
+          .catch((err) => {
+            if (showConflictModal(err, () => this.fetchSummaries())) return;
+            wx.showToast({ title: "删除失败", icon: "error" });
+          });
+      },
+    });
   },
 
   generateSummary() {

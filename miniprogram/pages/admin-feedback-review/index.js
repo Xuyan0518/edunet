@@ -47,4 +47,52 @@ Page({
       },
     });
   },
+
+  openItem(e) {
+    const index = Number(e.currentTarget.dataset.index);
+    const item = this.data.pending[index];
+    if (!item?.id || !item?.type) return;
+    if (item.type === "weekly") {
+      const weekStarting = item.weekStarting ? `&weekStarting=${item.weekStarting}` : "";
+      wx.navigateTo({ url: `/pages/weekly-feedback/detail?studentId=${item.studentId}${weekStarting}` });
+      return;
+    }
+    if (item.type === "quarterly") {
+      const year = item.year ? `&year=${item.year}` : "";
+      const quarter = item.quarter ? `&quarter=${item.quarter}` : "";
+      wx.navigateTo({ url: `/pages/quarterly-summary/index?studentId=${item.studentId}${year}${quarter}` });
+      return;
+    }
+    if (item.type === "yearly") {
+      const year = item.year ? `&year=${item.year}` : "";
+      wx.navigateTo({ url: `/pages/yearly-summary/index?studentId=${item.studentId}${year}` });
+      return;
+    }
+    if (item.type === "report") {
+      wx.navigateTo({ url: `/pages/report-detail/index?reportId=${item.id}` });
+    }
+  },
+
+  deleteItem(e) {
+    const { id, type } = e.currentTarget.dataset;
+    if (!id || !type) return;
+    wx.showModal({
+      title: "删除报告？",
+      content: "删除后会从待审批列表移除，并进入回收站或软删除状态。",
+      confirmText: "删除",
+      confirmColor: "#dc2626",
+      success: (res) => {
+        if (!res.confirm) return;
+        request({
+          url: `/admin/feedback-review/${type}/${id}`,
+          method: "DELETE",
+        })
+          .then(() => {
+            wx.showToast({ title: "已删除", icon: "success" });
+            this.fetchPending();
+          })
+          .catch(() => wx.showToast({ title: "删除失败", icon: "error" }));
+      },
+    });
+  },
 });

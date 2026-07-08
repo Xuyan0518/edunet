@@ -22,11 +22,13 @@ Page({
 
   onLoad(query) {
     const user = wx.getStorageSync("user");
-    const year = new Date().getFullYear();
+    const year = Number(query.year || new Date().getFullYear());
+    const resolvedYear = Number.isFinite(year) ? year : new Date().getFullYear();
     this.setData({
-      isTeacher: user?.role === "teacher",
-      rangeStart: `${year}-01-01`,
-      rangeEnd: `${year}-12-31`,
+      isTeacher: user?.role === "teacher" || user?.role === "admin",
+      year: resolvedYear,
+      rangeStart: `${resolvedYear}-01-01`,
+      rangeEnd: `${resolvedYear}-12-31`,
     });
     this.studentId = query.studentId;
     if (!this.studentId) {
@@ -101,6 +103,32 @@ Page({
         if (showConflictModal(err, () => this.fetchSummary())) return;
         wx.showToast({ title: "保存失败", icon: "error" });
       });
+  },
+
+  deleteSummary() {
+    if (!this.data.isTeacher || !this.data.lastUpdatedAt) return;
+    wx.showModal({
+      title: "删除年度总结？",
+      content: "删除后家长端不可见，并会从待审批列表移除。",
+      confirmText: "删除",
+      confirmColor: "#dc2626",
+      success: (res) => {
+        if (!res.confirm) return;
+        const updatedAt = encodeURIComponent(this.data.lastUpdatedAt || "");
+        request({
+          url: `/students/${this.studentId}/yearly-summary?year=${this.data.year}&updatedAt=${updatedAt}`,
+          method: "DELETE",
+        })
+          .then(() => {
+            wx.showToast({ title: "已删除", icon: "success" });
+            wx.navigateBack();
+          })
+          .catch((err) => {
+            if (showConflictModal(err, () => this.fetchSummary())) return;
+            wx.showToast({ title: "删除失败", icon: "error" });
+          });
+      },
+    });
   },
 
   generateSummary() {

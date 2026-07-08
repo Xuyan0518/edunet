@@ -15,10 +15,22 @@
   </view>
 
   <view class="section card">
-    <view class="section-title">家长（可选）</view>
-    <picker mode="selector" range="{{parentNames}}" bindchange="onParentChange">
-      <view class="chip">{{selectedParentName}}</view>
-    </picker>
+    <view class="section-title">家长绑定（可选，可多选）</view>
+    <view class="muted parent-summary">当前：{{selectedParentNames}}</view>
+    <checkbox-group bindchange="onParentCheckChange">
+      <block wx:if="{{parents.length === 0}}">
+        <view class="list-item muted">暂无可绑定家长</view>
+      </block>
+      <block wx:for="{{parents}}" wx:key="id">
+        <label class="list-item row-between {{item.isSelected ? 'selected' : ''}}">
+          <view class="subject-text">
+            <view class="subject-name">{{item.displayName || item.name}}</view>
+            <view class="muted subject-meta">{{item.email || item.wechatOpenIdMasked || "家长账号"}}</view>
+          </view>
+          <checkbox value="{{item.id}}" checked="{{item.isSelected}}" />
+        </label>
+      </block>
+    </checkbox-group>
   </view>
 
   <view class="section card">

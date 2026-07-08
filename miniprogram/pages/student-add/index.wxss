@@ -22,3 +22,8 @@
   border-radius: 12rpx;
   padding: 16rpx;
 }
+
+.parent-summary {
+  margin-bottom: 12rpx;
+  line-height: 1.5;
+}

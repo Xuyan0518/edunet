@@ -21,6 +21,7 @@ import {
   paperSchoolsTable,
   teachersTable,
   parentsTable,
+  studentParentBindingsTable,
   StudentSchema,
   DailyProgressSchema,
   DailyProgressRequestSchema,
@@ -631,9 +632,9 @@ const notifyParentStudentReportPublished = async (report: {
   const title = isYearly ? '年度学习报告已发布' : '学期学习报告已发布';
   const timeValue = toDateString(report.endDate) || format(new Date(), 'yyyy-MM-dd');
 
-  await notifyParent({
+  await notifyStudentParents({
     studentId: report.studentId,
-    parentId: report.studentParentId ?? null,
+    legacyParentId: report.studentParentId ?? null,
     templateId,
     page: `/pages/reports/index?studentId=${report.studentId}`,
     data: isYearly
@@ -737,6 +738,96 @@ const getStudentById = async (studentId: string) => {
     .where(eq(studentsTable.id, studentId))
     .limit(1);
   return rows[0] || null;
+};
+
+const normalizeParentIds = (value: unknown): string[] => {
+  const raw = Array.isArray(value) ? value : value ? [value] : [];
+  return [...new Set(raw.map((item) => String(item || '').trim()).filter(Boolean))];
+};
+
+const getStudentParentIds = async (studentId: string, legacyParentId?: string | null) => {
+  const rows = await db
+    .select({ parentId: studentParentBindingsTable.parentId })
+    .from(studentParentBindingsTable)
+    .where(eq(studentParentBindingsTable.studentId, studentId));
+  const ids = rows.map((row) => row.parentId).filter(Boolean);
+  if (legacyParentId && !ids.includes(legacyParentId)) ids.push(legacyParentId);
+  return ids;
+};
+
+const getStudentParentBindingsMap = async (studentIds: string[]) => {
+  const map = new Map<string, string[]>();
+  if (!studentIds.length) return map;
+  const rows = await db
+    .select({
+      studentId: studentParentBindingsTable.studentId,
+      parentId: studentParentBindingsTable.parentId,
+    })
+    .from(studentParentBindingsTable)
+    .where(inArray(studentParentBindingsTable.studentId, studentIds));
+  rows.forEach((row) => {
+    const ids = map.get(row.studentId) || [];
+    if (!ids.includes(row.parentId)) ids.push(row.parentId);
+    map.set(row.studentId, ids);
+  });
+  return map;
+};
+
+const attachParentBindingsToStudents = async <T extends { id: string; parentId?: string | null }>(students: T[]) => {
+  const bindingMap = await getStudentParentBindingsMap(students.map((student) => student.id));
+  return students.map((student) => {
+    const parentIds = bindingMap.get(student.id) || [];
+    if (student.parentId && !parentIds.includes(student.parentId)) parentIds.push(student.parentId);
+    return {
+      ...student,
+      parentIds,
+      parentId: student.parentId || parentIds[0] || null,
+    };
+  });
+};
+
+const setStudentParentBindings = async (studentId: string, parentIdsInput: unknown) => {
+  const parentIds = normalizeParentIds(parentIdsInput);
+  await db
+    .delete(studentParentBindingsTable)
+    .where(eq(studentParentBindingsTable.studentId, studentId));
+
+  if (parentIds.length) {
+    await db
+      .insert(studentParentBindingsTable)
+      .values(parentIds.map((parentId) => ({ studentId, parentId, updatedAt: new Date() })))
+      .onConflictDoNothing({
+        target: [studentParentBindingsTable.studentId, studentParentBindingsTable.parentId],
+      });
+  }
+
+  const primaryParentId = parentIds[0] || null;
+  const updated = await db
+    .update(studentsTable)
+    .set({ parentId: primaryParentId })
+    .where(eq(studentsTable.id, studentId))
+    .returning();
+  return updated[0] || null;
+};
+
+const parentCanAccessStudent = async (parentId: string, studentId: string) => {
+  const rows = await db
+    .select({ id: studentParentBindingsTable.id })
+    .from(studentParentBindingsTable)
+    .where(and(
+      eq(studentParentBindingsTable.parentId, parentId),
+      eq(studentParentBindingsTable.studentId, studentId),
+    ))
+    .limit(1);
+  if (rows.length) return true;
+  const student = await getStudentById(studentId);
+  return student?.parentId === parentId;
+};
+
+const notifyStudentParents = async (payload: Omit<Parameters<typeof notifyParent>[0], 'parentId'> & { legacyParentId?: string | null }) => {
+  const parentIds = await getStudentParentIds(payload.studentId, payload.legacyParentId ?? null);
+  const { legacyParentId: _legacyParentId, ...notifyPayload } = payload;
+  await Promise.all(parentIds.map((parentId) => notifyParent({ ...notifyPayload, parentId })));
 };
 
 const getReportWithStudent = async (reportId: string) => {
@@ -2207,28 +2298,26 @@ app.delete('/api/teachers/:id', authenticate, requireAdmin, async (req, res) => 
 });
 
 // ========== PARENT ROUTES ==========
-app.get('/api/parents/unassigned', authenticate, requireTeacher, requireStudentParentManagement, async (req, res) => {
+app.get('/api/parents/unassigned', authenticate, requireRole('teacher', 'admin'), requireStudentParentManagement, async (req, res) => {
   try {
-    const unassignedParents = await db
-      .select()
-      .from(parentsTable)
-      .leftJoin(studentsTable, eq(parentsTable.id, studentsTable.parentId))
-      .where(
-        and(
-          eq(parentsTable.status, 'approved'),
-          isNull(studentsTable.parentId) 
-        )
-      );
-    
-    const flattenedParents = unassignedParents.map(p => p.parents);
-    res.status(200).json(flattenedParents.map((item) => toPublicUser(item, 'parent')));
+    const [parents, bindings, legacyStudents] = await Promise.all([
+      db.select().from(parentsTable).where(eq(parentsTable.status, 'approved')),
+      db.select({ parentId: studentParentBindingsTable.parentId }).from(studentParentBindingsTable),
+      db.select({ parentId: studentsTable.parentId }).from(studentsTable).where(isNotNull(studentsTable.parentId)),
+    ]);
+    const assigned = new Set([
+      ...bindings.map((row) => row.parentId),
+      ...legacyStudents.map((row) => row.parentId).filter(Boolean) as string[],
+    ]);
+    const unassignedParents = parents.filter((parent) => !assigned.has(parent.id));
+    res.status(200).json(unassignedParents.map((item) => toPublicUser(item, 'parent')));
   } catch (error) {
     console.error('Error fetching available parents:', error);
     res.status(500).json({ error: 'Failed to fetch available parents' });
   }
 });
 
-app.get('/api/parents', authenticate, requireTeacher, async (req, res) => {
+app.get('/api/parents', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
   if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot access parent directory' });
   try {
     const result = await db
@@ -2241,7 +2330,7 @@ app.get('/api/parents', authenticate, requireTeacher, async (req, res) => {
   }
 });
 
-app.get('/api/parents/:id', authenticate, requireTeacher, requireStudentParentManagement, async (req, res) => {
+app.get('/api/parents/:id', authenticate, requireRole('teacher', 'admin'), requireStudentParentManagement, async (req, res) => {
   const id = req.params.id;
   try {
     const result = await db.select().from(parentsTable).where(eq(parentsTable.id, id));
@@ -2252,11 +2341,20 @@ app.get('/api/parents/:id', authenticate, requireTeacher, requireStudentParentMa
   }
 });
 
-app.get('/api/parents/:id/students', authenticate, requireTeacher, requireStudentParentManagement, async (req, res) => {
+app.get('/api/parents/:id/students', authenticate, requireRole('teacher', 'admin'), requireStudentParentManagement, async (req, res) => {
   const parentId = req.params.id;
   try {
-    const result = await db.select().from(studentsTable).where(eq(studentsTable.parentId, parentId));
-    res.json(result);
+    const bindingRows = await db
+      .select({ studentId: studentParentBindingsTable.studentId })
+      .from(studentParentBindingsTable)
+      .where(eq(studentParentBindingsTable.parentId, parentId));
+    const studentIds = bindingRows.map((row) => row.studentId);
+    const byBinding = studentIds.length
+      ? await db.select().from(studentsTable).where(inArray(studentsTable.id, studentIds))
+      : [];
+    const legacy = await db.select().from(studentsTable).where(eq(studentsTable.parentId, parentId));
+    const byId = new Map([...byBinding, ...legacy].map((student) => [student.id, student]));
+    res.json(await attachParentBindingsToStudents(Array.from(byId.values())));
   } catch (err) {
     res.status(500).json({ error: 'Database error' });
   }
@@ -2268,7 +2366,7 @@ app.post('/api/parents', async (req, res) => {
   });
 });
 
-app.put('/api/parents/:id', authenticate, requireTeacher, requireStudentParentManagement, async (req, res) => {
+app.put('/api/parents/:id', authenticate, requireRole('teacher', 'admin'), requireStudentParentManagement, async (req, res) => {
   const id = req.params.id;
   try {
     const nextName = pickDisplayName(req.body?.displayName) || pickDisplayName(req.body?.name);
@@ -2299,11 +2397,14 @@ app.put('/api/parents/:id', authenticate, requireTeacher, requireStudentParentMa
   }
 });
 
-app.delete('/api/parents/:id', authenticate, requireTeacher, requireStudentParentManagement, async (req, res) => {
+app.delete('/api/parents/:id', authenticate, requireRole('teacher', 'admin'), requireStudentParentManagement, async (req, res) => {
   const id = req.params.id;
   try {
-    const students = await db.select().from(studentsTable).where(eq(studentsTable.parentId, id));
-    if (students.length) {
+    const [legacyStudents, bindingRows] = await Promise.all([
+      db.select().from(studentsTable).where(eq(studentsTable.parentId, id)),
+      db.select().from(studentParentBindingsTable).where(eq(studentParentBindingsTable.parentId, id)),
+    ]);
+    if (legacyStudents.length || bindingRows.length) {
       return res.status(400).json({
         error: '该家长已绑定学生，请先解绑后再删除。',
       });
@@ -2342,16 +2443,21 @@ app.get('/api/students', authenticate, async (req, res) => {
       return res.json(rows);
     }
     if (req.user?.role === 'parent') {
-      // Parents only see their own children
-      const result = await db
-        .select()
-        .from(studentsTable)
-        .where(eq(studentsTable.parentId, req.user.id));
-      res.json(result);
+      const bindingRows = await db
+        .select({ studentId: studentParentBindingsTable.studentId })
+        .from(studentParentBindingsTable)
+        .where(eq(studentParentBindingsTable.parentId, req.user.id));
+      const studentIds = bindingRows.map((row) => row.studentId);
+      const byBinding = studentIds.length
+        ? await db.select().from(studentsTable).where(inArray(studentsTable.id, studentIds))
+        : [];
+      const legacy = await db.select().from(studentsTable).where(eq(studentsTable.parentId, req.user.id));
+      const byId = new Map([...byBinding, ...legacy].map((student) => [student.id, student]));
+      res.json(await attachParentBindingsToStudents(Array.from(byId.values())));
     } else {
       // Teachers and admins see all students
       const result = await db.select().from(studentsTable);
-      res.json(result);
+      res.json(await attachParentBindingsToStudents(result));
     }
   } catch (err) {
     res.status(500).json({ error: 'Database error' });
@@ -2369,10 +2475,76 @@ app.get('/api/students/:id', authenticate, verifyParentStudentAccess, async (req
     const result = await db.select().from(studentsTable).where(eq(studentsTable.id, id));
     console.log(`Query result:`, result);
     if (!result.length) return res.status(404).json({ error: 'Student not found' });
-    res.json(result[0]);
+    const [student] = await attachParentBindingsToStudents([result[0]]);
+    res.json(student);
   } catch (err) {
     console.error('Error fetching student by ID:', err);
     res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
+  }
+});
+
+app.get('/api/students/:id/parents', authenticate, requireRole('teacher', 'admin'), requireStudentParentManagement, async (req, res) => {
+  const studentId = req.params.id;
+  try {
+    const student = await getStudentById(studentId);
+    if (!student) return res.status(404).json({ error: 'Student not found' });
+    const parentIds = await getStudentParentIds(studentId, student.parentId);
+    const parents = parentIds.length
+      ? await db.select().from(parentsTable).where(inArray(parentsTable.id, parentIds))
+      : [];
+    res.json({
+      studentId,
+      parentIds,
+      parents: parents.map((parent) => toPublicUser(parent, 'parent')),
+    });
+  } catch (err) {
+    console.error('Error loading student parents:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.post('/api/students/:id/parents', authenticate, requireRole('teacher', 'admin'), requireStudentParentManagement, async (req, res) => {
+  const studentId = req.params.id;
+  const parentId = String(req.body?.parentId || '').trim();
+  if (!parentId) return res.status(400).json({ error: 'Missing parentId' });
+  try {
+    const student = await getStudentById(studentId);
+    if (!student) return res.status(404).json({ error: 'Student not found' });
+    const parent = await db.select().from(parentsTable).where(eq(parentsTable.id, parentId)).limit(1);
+    if (!parent.length) return res.status(404).json({ error: 'Parent not found' });
+    await db
+      .insert(studentParentBindingsTable)
+      .values({ studentId, parentId, updatedAt: new Date() })
+      .onConflictDoNothing({
+        target: [studentParentBindingsTable.studentId, studentParentBindingsTable.parentId],
+      });
+    const parentIds = await getStudentParentIds(studentId, student.parentId);
+    await db.update(studentsTable).set({ parentId: parentIds[0] || parentId }).where(eq(studentsTable.id, studentId));
+    res.status(201).json({ success: true, parentId });
+  } catch (err) {
+    console.error('Error binding student parent:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.delete('/api/students/:id/parents/:parentId', authenticate, requireRole('teacher', 'admin'), requireStudentParentManagement, async (req, res) => {
+  const studentId = req.params.id;
+  const parentId = req.params.parentId;
+  try {
+    const student = await getStudentById(studentId);
+    if (!student) return res.status(404).json({ error: 'Student not found' });
+    await db
+      .delete(studentParentBindingsTable)
+      .where(and(
+        eq(studentParentBindingsTable.studentId, studentId),
+        eq(studentParentBindingsTable.parentId, parentId),
+      ));
+    const parentIds = await getStudentParentIds(studentId, student.parentId === parentId ? null : student.parentId);
+    await db.update(studentsTable).set({ parentId: parentIds[0] || null }).where(eq(studentsTable.id, studentId));
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error unbinding student parent:', err);
+    res.status(500).json({ error: 'Database error' });
   }
 });
 
@@ -2389,12 +2561,16 @@ app.post('/api/students', authenticate, requireRole('teacher', 'admin'), async (
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   try {
     const studentData: Student = parsed.data;
+    const parentIds = Object.prototype.hasOwnProperty.call(body, 'parentIds')
+      ? normalizeParentIds(body.parentIds)
+      : normalizeParentIds(studentData.parentId);
     const result = await db.insert(studentsTable).values({
       id: studentData.id,
       name: studentData.name,
       grade: studentData.grade,
-      parentId: studentData.parentId ?? null,
+      parentId: parentIds[0] || null,
     }).returning();
+    if (result[0]?.id) await setStudentParentBindings(result[0].id, parentIds);
     if (result[0]?.id) {
       const englishRows = await db
         .select({ id: subjectsTable.id })
@@ -2408,7 +2584,8 @@ app.post('/api/students', authenticate, requireRole('teacher', 'admin'), async (
           .onConflictDoNothing();
       }
     }
-    res.status(201).json(result[0]);
+    const [student] = await attachParentBindingsToStudents([result[0]]);
+    res.status(201).json(student);
   } catch (err) {
     console.error('Error creating student:', err);
     res.status(500).json({ error: 'Database error' });
@@ -2429,17 +2606,24 @@ app.put('/api/students/:id', authenticate, requireRole('teacher', 'admin'), requ
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   try {
     const studentData: Student = parsed.data;
+    const hasParentIds = Object.prototype.hasOwnProperty.call(body, 'parentIds');
+    const parentIds = hasParentIds
+      ? normalizeParentIds(body.parentIds)
+      : normalizeParentIds(studentData.parentId);
     const result = await db
       .update(studentsTable)
       .set({
         name: studentData.name,
         grade: studentData.grade,
-        parentId: studentData.parentId ?? null,
+        parentId: parentIds[0] || null,
       })
       .where(eq(studentsTable.id, id))
       .returning();
     if (!result.length) return res.status(404).json({ error: 'Student not found' });
-    res.json(result[0]);
+    await setStudentParentBindings(id, parentIds);
+    const refreshed = await getStudentById(id);
+    const [student] = await attachParentBindingsToStudents(refreshed ? [refreshed] : result);
+    res.json(student);
   } catch (err) {
     console.error('Error updating student:', err);
     res.status(500).json({ error: 'Database error' });
@@ -2458,6 +2642,7 @@ app.delete('/api/students/:id', authenticate, requireRole('teacher', 'admin'), r
     if (!existing.length) return res.status(404).json({ error: 'Student not found' });
 
     // Delete dependent records first to avoid FK errors
+    await db.delete(studentParentBindingsTable).where(eq(studentParentBindingsTable.studentId, id));
     await db.delete(studentTopicProgressTable).where(eq(studentTopicProgressTable.studentId, id));
     await db.delete(studentSubjectsTable).where(eq(studentSubjectsTable.studentId, id));
     await db.delete(weeklyFeedback).where(eq(weeklyFeedback.studentId, id));
@@ -2780,15 +2965,16 @@ const mergeEnglishTaskConfig = (globalTasks: unknown, studentTasks: unknown) => 
   if (!hasCustomEnglishTaskConfig(studentTasks)) return normalizedGlobal;
   const normalizedStudent = normalizeEnglishTaskConfig(studentTasks);
   const studentByKey = new Map(normalizedStudent.map((task) => [task.key, task]));
-  const globalKeys = new Set(normalizedGlobal.map((task) => task.key));
-  const merged = normalizedGlobal.map((task, index) => ({
-    ...task,
-    ...(studentByKey.get(task.key) || {}),
-    sortOrder: index,
-  }));
-  normalizedStudent
-    .filter((task) => !globalKeys.has(task.key))
+  const studentKeys = new Set(normalizedStudent.map((task) => task.key));
+  const merged = [...normalizedStudent];
+  normalizedGlobal
+    .filter((task) => !studentKeys.has(task.key))
     .forEach((task) => merged.push({ ...task, sortOrder: merged.length }));
+  normalizedGlobal.forEach((task) => {
+    if (!studentByKey.has(task.key)) return;
+    const index = merged.findIndex((item) => item.key === task.key);
+    if (index >= 0) merged[index] = { ...task, ...merged[index], sortOrder: index };
+  });
   return normalizeEnglishTaskConfig(merged);
 };
 
@@ -3168,9 +3354,9 @@ app.post('/api/students/:studentId/exams', authenticate, requireTeacher, async (
         // entered). Pure schedule entries shouldn't ping the parent yet.
         const hasAnyScore = normalized.some((s: any) => s.score);
         if (student && hasAnyScore) {
-          await notifyParent({
+          await notifyStudentParents({
             studentId,
-            parentId: student.parentId ?? null,
+            legacyParentId: student.parentId ?? null,
             templateId: examTemplateId,
             page: `/pages/grades/index?studentId=${studentId}`,
             data: buildTemplateData(
@@ -3578,6 +3764,60 @@ app.put('/api/students/:studentId/quarterly-summary', authenticate, requireRole(
   }
 });
 
+app.delete('/api/students/:studentId/quarterly-summary', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
+  const { studentId } = req.params;
+  if (!enforceReviewerScope(req, res, studentId)) return;
+  const year = parseFiniteInteger(req.query.year || req.body?.year || new Date().getFullYear());
+  const quarter = parseFiniteInteger(req.query.quarter || req.body?.quarter);
+  const clientUpdatedAt = parseTimestamp((req.query as any).updatedAt || req.body?.updatedAt);
+  if (year === null || quarter === null || quarter < 1 || quarter > 4) {
+    return res.status(400).json({ error: 'Invalid year or quarter' });
+  }
+  if (!clientUpdatedAt) return res.status(400).json({ error: 'Missing updatedAt' });
+  try {
+    const existing = await db
+      .select()
+      .from(quarterlySummaryTable)
+      .where(and(
+        eq(quarterlySummaryTable.studentId, studentId),
+        eq(quarterlySummaryTable.year, year),
+        eq(quarterlySummaryTable.quarter, quarter),
+        activeRecord(quarterlySummaryTable),
+      ))
+      .limit(1);
+    if (!existing.length) return res.status(404).json({ error: 'Quarterly summary not found' });
+    await withActionLock(
+      {
+        lockKey: studentWriteLockKey(studentId),
+        actionType: '删除学期总结',
+        ttlMs: ACTION_LOCK_TTL.studentWriteMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/students/:studentId/quarterly-summary', year, quarter },
+      },
+      async () => {
+        if (!isSameTimestamp(existing[0].updatedAt, clientUpdatedAt)) {
+          res.status(409).json({
+            error: 'CONFLICT',
+            updatedAt: existing[0].updatedAt,
+            updatedByName: existing[0].updatedByName,
+          });
+          return;
+        }
+        await db.update(quarterlySummaryTable)
+          .set(softDeletePatch(req))
+          .where(eq(quarterlySummaryTable.id, existing[0].id));
+        res.json({ success: true, message: 'Quarterly summary moved to bin' });
+      },
+    );
+  } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
+    console.error('Error deleting quarterly summary:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
 app.get('/api/students/:studentId/yearly-summary', authenticate, verifyParentStudentAccess, async (req, res) => {
   const { studentId } = req.params;
   const year = parseFiniteInteger(req.query.year || new Date().getFullYear());
@@ -3685,6 +3925,52 @@ app.put('/api/students/:studentId/yearly-summary', authenticate, requireRole('te
       return res.status(409).json(buildActionLockConflictPayload(err.conflict));
     }
     console.error('Error saving yearly summary:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.delete('/api/students/:studentId/yearly-summary', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
+  const { studentId } = req.params;
+  if (!enforceReviewerScope(req, res, studentId)) return;
+  const year = parseFiniteInteger(req.query.year || req.body?.year || new Date().getFullYear());
+  const clientUpdatedAt = parseTimestamp((req.query as any).updatedAt || req.body?.updatedAt);
+  if (year === null) return res.status(400).json({ error: 'Invalid year' });
+  if (!clientUpdatedAt) return res.status(400).json({ error: 'Missing updatedAt' });
+  try {
+    const existing = await db
+      .select()
+      .from(yearlySummaryTable)
+      .where(and(eq(yearlySummaryTable.studentId, studentId), eq(yearlySummaryTable.year, year), activeRecord(yearlySummaryTable)))
+      .limit(1);
+    if (!existing.length) return res.status(404).json({ error: 'Yearly summary not found' });
+    await withActionLock(
+      {
+        lockKey: studentWriteLockKey(studentId),
+        actionType: '删除年度总结',
+        ttlMs: ACTION_LOCK_TTL.studentWriteMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/students/:studentId/yearly-summary', year },
+      },
+      async () => {
+        if (!isSameTimestamp(existing[0].updatedAt, clientUpdatedAt)) {
+          res.status(409).json({
+            error: 'CONFLICT',
+            updatedAt: existing[0].updatedAt,
+            updatedByName: existing[0].updatedByName,
+          });
+          return;
+        }
+        await db.update(yearlySummaryTable)
+          .set(softDeletePatch(req))
+          .where(eq(yearlySummaryTable.id, existing[0].id));
+        res.json({ success: true, message: 'Yearly summary moved to bin' });
+      },
+    );
+  } catch (err) {
+    if (isActionLockConflictError(err)) {
+      return res.status(409).json(buildActionLockConflictPayload(err.conflict));
+    }
+    console.error('Error deleting yearly summary:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -3806,7 +4092,10 @@ app.get('/api/students/:studentId/reports', authenticate, verifyParentStudentAcc
   try {
     const student = await getStudentById(studentId);
     if (!student) return res.status(404).json({ error: 'Student not found' });
-    if (!canUserListStudentReports({ user, studentParentId: student.parentId ?? null })) {
+    const parentAllowed = user.role === 'parent'
+      ? (student.parentId === user.id || await parentCanAccessStudent(user.id, studentId))
+      : false;
+    if (!parentAllowed && !canUserListStudentReports({ user, studentParentId: student.parentId ?? null })) {
       return res.status(403).json({ error: 'Insufficient permissions' });
     }
 
@@ -3873,7 +4162,7 @@ app.get('/api/reports/:reportId', authenticate, async (req, res) => {
       studentParentId: report.studentParentId ?? null,
       reportVisibleToParent: report.visibleToParent,
       studentId: report.studentId,
-    });
+    }) || (user.role === 'parent' && report.visibleToParent && await parentCanAccessStudent(user.id, report.studentId));
     if (!allowed) return res.status(403).json({ error: 'Insufficient permissions' });
 
     return res.json(hydrateStudentReport(report, user.role, { includeHeavyFields: true }));
@@ -3911,10 +4200,6 @@ app.patch('/api/reports/:reportId', authenticate, requireRole('teacher', 'admin'
         if (req.body?.status !== undefined) updates.status = normalizeReportStatus(req.body.status);
         const visible = parseBooleanLike(req.body?.visibleToParent);
         if (visible != null) {
-          if (user.role !== 'admin') {
-            res.status(403).json({ error: 'Only admins can publish reports to parents' });
-            return;
-          }
           updates.visibleToParent = visible;
         }
 
@@ -3974,7 +4259,7 @@ app.patch('/api/reports/:reportId', authenticate, requireRole('teacher', 'admin'
   }
 });
 
-app.patch('/api/reports/:reportId/visibility', authenticate, requireAdmin, async (req, res) => {
+app.patch('/api/reports/:reportId/visibility', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
   const user = req.user;
   if (!user) return res.status(401).json({ error: 'Authentication required' });
   const visible = parseBooleanLike(req.body?.visibleToParent);
@@ -6227,6 +6512,7 @@ app.get('/api/admin/student-management', authenticate, requireAdmin, async (_req
       quarterlyRows,
       yearlyRows,
       reportRows,
+      bindingRows,
     ] = await Promise.all([
       db.select().from(studentsTable).orderBy(studentsTable.name),
       db.select().from(parentsTable).orderBy(parentsTable.name),
@@ -6236,9 +6522,16 @@ app.get('/api/admin/student-management', authenticate, requireAdmin, async (_req
       db.select().from(quarterlySummaryTable).where(activeRecord(quarterlySummaryTable)).orderBy(desc(quarterlySummaryTable.year), desc(quarterlySummaryTable.quarter)),
       db.select().from(yearlySummaryTable).where(activeRecord(yearlySummaryTable)).orderBy(desc(yearlySummaryTable.year)),
       db.select().from(studentReportsTable).where(activeRecord(studentReportsTable)).orderBy(desc(studentReportsTable.updatedAt)),
+      db.select().from(studentParentBindingsTable),
     ]);
 
     const parentsById = new Map(parents.map((parent) => [parent.id, parent]));
+    const parentIdsByStudent = new Map<string, string[]>();
+    bindingRows.forEach((row) => {
+      const ids = parentIdsByStudent.get(row.studentId) || [];
+      if (!ids.includes(row.parentId)) ids.push(row.parentId);
+      parentIdsByStudent.set(row.studentId, ids);
+    });
     const dailyByStudent = new Map<string, typeof dailyRows>();
     const weeklyByStudent = new Map<string, typeof weeklyRows>();
     const quarterlyByStudent = new Map<string, typeof quarterlyRows>();
@@ -6287,7 +6580,12 @@ app.get('/api/admin/student-management', authenticate, requireAdmin, async (_req
     const currentWeeklyPlanSummary = await buildWeeklyPlanSummary(today);
 
     const enrichedStudents = students.map((student) => {
-      const parent = student.parentId ? parentsById.get(student.parentId) : null;
+      const parentIds = parentIdsByStudent.get(student.id) || [];
+      if (student.parentId && !parentIds.includes(student.parentId)) parentIds.push(student.parentId);
+      const boundParents = parentIds
+        .map((parentId) => parentsById.get(parentId))
+        .filter((parent): parent is NonNullable<typeof parent> => Boolean(parent));
+      const parent = boundParents[0] || null;
       const daily = dailyByStudent.get(student.id) ?? [];
       const weekly = weeklyByStudent.get(student.id) ?? [];
       const quarterly = quarterlyByStudent.get(student.id) ?? [];
@@ -6299,7 +6597,10 @@ app.get('/api/admin/student-management', authenticate, requireAdmin, async (_req
 
       return {
         ...student,
+        parentId: student.parentId || parentIds[0] || null,
+        parentIds,
         parent: parent ? toPublicUser(parent, 'parent') : null,
+        parents: boundParents.map((item) => toPublicUser(item, 'parent')),
         dailyProgress: daily,
         weeklyFeedback: weekly,
         quarterlySummaries: quarterly,
@@ -6416,6 +6717,8 @@ app.get('/api/admin/feedback-review', authenticate, requireAdmin, async (_req, r
           studentId: row.studentId,
           studentName: studentsById.get(row.studentId)?.name || '',
           title: `${row.weekStarting} - ${row.weekEnding}`,
+          weekStarting: row.weekStarting,
+          weekEnding: row.weekEnding,
           summary: row.summary || '',
           updatedAt: row.updatedAt,
           updatedByName: row.updatedByName || '',
@@ -6431,6 +6734,10 @@ app.get('/api/admin/feedback-review', authenticate, requireAdmin, async (_req, r
           studentId: row.studentId,
           studentName: studentsById.get(row.studentId)?.name || '',
           title: `${row.year} 年 第 ${row.quarter} 学期`,
+          year: row.year,
+          quarter: row.quarter,
+          startDate: row.startDate,
+          endDate: row.endDate,
           summary: row.summary || '',
           updatedAt: row.updatedAt,
           updatedByName: row.updatedByName || '',
@@ -6446,6 +6753,7 @@ app.get('/api/admin/feedback-review', authenticate, requireAdmin, async (_req, r
           studentId: row.studentId,
           studentName: studentsById.get(row.studentId)?.name || '',
           title: `${row.year} 年度总结`,
+          year: row.year,
           summary: row.summary || '',
           updatedAt: row.updatedAt,
           updatedByName: row.updatedByName || '',
@@ -6461,6 +6769,10 @@ app.get('/api/admin/feedback-review', authenticate, requireAdmin, async (_req, r
           studentId: row.studentId,
           studentName: studentsById.get(row.studentId)?.name || '',
           title: row.title || `${row.startDate} - ${row.endDate}`,
+          reportType: row.reportType,
+          startDate: row.startDate,
+          endDate: row.endDate,
+          year: row.year,
           summary: row.summaryText || '',
           updatedAt: row.updatedAt,
           updatedByName: row.updatedByName || '',
@@ -6489,9 +6801,9 @@ app.post('/api/admin/feedback-review/:type/:id/publish', authenticate, requireAd
       const studentRows = await db.select().from(studentsTable).where(eq(studentsTable.id, row.studentId)).limit(1);
       const student = studentRows[0];
       if (student) {
-        await notifyParent({
+        await notifyStudentParents({
           studentId: row.studentId,
-          parentId: student.parentId ?? null,
+          legacyParentId: student.parentId ?? null,
           templateId: weeklyTemplateId,
           page: `/pages/student-detail/index?id=${row.studentId}`,
           data: buildTemplateData(weeklyTemplateContentKey, '每周反馈已发布', weeklyTemplateTimeKey, String(row.weekStarting).slice(0, 10)),
@@ -6509,9 +6821,9 @@ app.post('/api/admin/feedback-review/:type/:id/publish', authenticate, requireAd
       const studentRows = await db.select().from(studentsTable).where(eq(studentsTable.id, row.studentId)).limit(1);
       const student = studentRows[0];
       if (student) {
-        await notifyParent({
+        await notifyStudentParents({
           studentId: row.studentId,
-          parentId: student.parentId ?? null,
+          legacyParentId: student.parentId ?? null,
           templateId: semesterTemplateId,
           page: `/pages/quarterly-summary/index?studentId=${row.studentId}`,
           data: buildTemplateData(semesterTemplateContentKey, `学期总结已发布 第 ${row.quarter} 学期`, semesterTemplateTimeKey, String(row.startDate || row.updatedAt).slice(0, 10)),
@@ -6529,9 +6841,9 @@ app.post('/api/admin/feedback-review/:type/:id/publish', authenticate, requireAd
       const studentRows = await db.select().from(studentsTable).where(eq(studentsTable.id, row.studentId)).limit(1);
       const student = studentRows[0];
       if (student) {
-        await notifyParent({
+        await notifyStudentParents({
           studentId: row.studentId,
-          parentId: student.parentId ?? null,
+          legacyParentId: student.parentId ?? null,
           templateId: yearlyTemplateId,
           page: `/pages/yearly-summary/index?studentId=${row.studentId}`,
           data: buildTemplateData(yearlyTemplateContentKey, '年度总结已发布', yearlyTemplateTimeKey, `${row.year}-12-31`),
@@ -6551,6 +6863,49 @@ app.post('/api/admin/feedback-review/:type/:id/publish', authenticate, requireAd
     return res.status(400).json({ error: 'Invalid feedback type' });
   } catch (err) {
     console.error('Error publishing feedback review item:', err);
+    return res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
+  }
+});
+
+app.delete('/api/admin/feedback-review/:type/:id', authenticate, requireAdmin, async (req, res) => {
+  const type = String(req.params.type || '');
+  const id = String(req.params.id || '');
+  try {
+    if (type === 'weekly') {
+      const rows = await db.update(weeklyFeedback)
+        .set(softDeletePatch(req))
+        .where(eq(weeklyFeedback.id, id))
+        .returning({ id: weeklyFeedback.id });
+      if (!rows.length) return res.status(404).json({ error: 'Feedback not found' });
+      return res.json({ success: true });
+    }
+    if (type === 'quarterly') {
+      const rows = await db.update(quarterlySummaryTable)
+        .set(softDeletePatch(req))
+        .where(eq(quarterlySummaryTable.id, id))
+        .returning({ id: quarterlySummaryTable.id });
+      if (!rows.length) return res.status(404).json({ error: 'Feedback not found' });
+      return res.json({ success: true });
+    }
+    if (type === 'yearly') {
+      const rows = await db.update(yearlySummaryTable)
+        .set(softDeletePatch(req))
+        .where(eq(yearlySummaryTable.id, id))
+        .returning({ id: yearlySummaryTable.id });
+      if (!rows.length) return res.status(404).json({ error: 'Feedback not found' });
+      return res.json({ success: true });
+    }
+    if (type === 'report') {
+      const rows = await db.update(studentReportsTable)
+        .set({ ...softDeletePatch(req), updatedBy: req.user?.id || null })
+        .where(eq(studentReportsTable.id, id))
+        .returning({ id: studentReportsTable.id });
+      if (!rows.length) return res.status(404).json({ error: 'Report not found' });
+      return res.json({ success: true });
+    }
+    return res.status(400).json({ error: 'Invalid feedback type' });
+  } catch (err) {
+    console.error('Error deleting feedback review item:', err);
     return res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
   }
 });

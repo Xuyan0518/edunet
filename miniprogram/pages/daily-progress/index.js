@@ -9,7 +9,12 @@ const attendanceLabels = {
 Page({
   data: {
     students: [],
+    filteredStudents: [],
     studentNames: [],
+    loadingStudents: true,
+    query: "",
+    gradeOptions: ["全部年级"],
+    gradeIndex: 0,
     selectedStudentId: "",
     selectedStudentName: "",
     entries: [],
@@ -47,17 +52,18 @@ Page({
   },
 
   fetchStudents() {
+    this.setData({ loadingStudents: true });
     request({ url: "/students" })
       .then((data) => {
-        const user = wx.getStorageSync("user");
-        const role = user?.role;
-        const filtered =
-          role === "parent" ? data.filter((s) => s.parentId === user.id) : data;
-        const names = (filtered || []).map((s) => s.name);
-        this.setData({ students: filtered || [], studentNames: names });
+        const students = data || [];
+        const names = students.map((s) => s.name);
+        const gradeOptions = ["全部年级"].concat(
+          Array.from(new Set(students.map((s) => String(s.grade || "").trim()).filter(Boolean))).sort()
+        );
+        this.setData({ students, studentNames: names, gradeOptions }, () => this.applyStudentFilters());
 
         if (this.presetStudentId) {
-          const preset = (filtered || []).find((s) => s.id === this.presetStudentId);
+          const preset = students.find((s) => s.id === this.presetStudentId);
           if (preset) {
             this.setData({
               selectedStudentId: preset.id,
@@ -69,24 +75,16 @@ Page({
         }
 
         if (this.data.selectedStudentId) {
-          const selected = (filtered || []).find((s) => s.id === this.data.selectedStudentId);
+          const selected = students.find((s) => s.id === this.data.selectedStudentId);
           if (selected) {
             this.setData({ selectedStudentName: selected.name });
             this.fetchProgress(selected.id);
           }
           return;
         }
-
-        if ((filtered || []).length === 1) {
-          const only = filtered[0];
-          this.setData({
-            selectedStudentId: only.id,
-            selectedStudentName: only.name,
-          });
-          this.fetchProgress(only.id);
-        }
       })
-      .catch(() => wx.showToast({ title: "获取学生失败", icon: "error" }));
+      .catch(() => wx.showToast({ title: "获取学生失败", icon: "error" }))
+      .finally(() => this.setData({ loadingStudents: false }));
   },
 
   onStudentChange(e) {
@@ -100,6 +98,33 @@ Page({
       currentPage: 1,
     });
     this.fetchProgress(student.id);
+  },
+
+  onSearchStudent(e) {
+    this.setData({ query: e.detail.value || "" }, () => this.applyStudentFilters());
+  },
+
+  onGradeChange(e) {
+    this.setData({ gradeIndex: Number(e.detail.value || 0) }, () => this.applyStudentFilters());
+  },
+
+  applyStudentFilters() {
+    const query = (this.data.query || "").trim().toLowerCase();
+    const grade = this.data.gradeOptions[this.data.gradeIndex] || "全部年级";
+    const filteredStudents = (this.data.students || []).filter((student) => {
+      const nameMatch = !query || String(student.name || "").toLowerCase().includes(query);
+      const gradeValue = String(student.grade || "").trim();
+      const gradeMatch = grade === "全部年级" || gradeValue === grade;
+      return nameMatch && gradeMatch;
+    });
+    this.setData({ filteredStudents });
+  },
+
+  openStudentProgress(e) {
+    const id = e.currentTarget.dataset.id;
+    const student = (this.data.students || []).find((s) => s.id === id);
+    if (!student) return;
+    wx.navigateTo({ url: `/pages/daily-progress/index?studentId=${student.id}` });
   },
 
   fetchProgress(studentId) {

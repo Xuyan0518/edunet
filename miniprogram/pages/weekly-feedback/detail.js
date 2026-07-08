@@ -719,7 +719,7 @@ Page({
 
   onLoad(query) {
     const user = wx.getStorageSync("user");
-    const isTeacher = user?.role === "teacher";
+    const isTeacher = user?.role === "teacher" || user?.role === "admin";
     this.studentId = query.studentId;
     const start = query.weekStarting || this.getCurrentSunday();
 

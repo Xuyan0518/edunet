@@ -28,9 +28,18 @@
       <view class="subheader">学生资料快速编辑</view>
       <input class="input compact-input" placeholder="学生姓名" value="{{editStudentName}}" bindinput="onEditName" />
       <input class="input compact-input" placeholder="年级" value="{{editStudentGrade}}" bindinput="onEditGrade" />
-      <picker mode="selector" range="{{parentNames}}" value="{{editParentIndex}}" bindchange="onParentChange">
-        <view class="input picker-input">家长：{{parentNames[editParentIndex]}}</view>
-      </picker>
+      <view class="muted small-text">家长绑定（可多选）</view>
+      <checkbox-group bindchange="onParentChange">
+        <block wx:if="{{parentOptions.length === 0}}">
+          <view class="muted small-text">暂无可绑定家长</view>
+        </block>
+        <block wx:for="{{parentOptions}}" wx:key="id">
+          <label class="parent-check-row">
+            <view>{{item.displayName || item.name || "未命名用户"}}</view>
+            <checkbox value="{{item.id}}" checked="{{item.isSelected}}" />
+          </label>
+        </block>
+      </checkbox-group>
       <button class="btn-primary save-btn" bindtap="saveStudentProfile">保存学生资料</button>
     </view>
 

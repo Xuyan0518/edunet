@@ -21,11 +21,7 @@ Page({
     this.setData({ loading: true });
     request({ url: "/students" })
       .then((data) => {
-        const user = wx.getStorageSync("user");
-        const role = user?.role;
-        const filtered =
-          role === "parent" ? data.filter((s) => s.parentId === user.id) : data;
-        this.setData({ students: filtered || [] }, () => this.applyFilters());
+        this.setData({ students: data || [] }, () => this.applyFilters());
       })
       .catch(() => {
         wx.showToast({ title: "获取学生失败", icon: "error" });

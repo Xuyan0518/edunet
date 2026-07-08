@@ -58,6 +58,16 @@
   margin-bottom: 16rpx;
 }
 
+.parent-check-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  border-bottom: 1rpx solid #e2e8f0;
+  padding: 14rpx 0;
+  font-size: 26rpx;
+}
+
 .save-btn {
   margin-top: 8rpx;
 }

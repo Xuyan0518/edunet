@@ -4,10 +4,15 @@ const shortDate = (value) => (value ? String(value).slice(0, 10) : "暂无");
 
 const decorateStudent = (student) => {
   const stats = student.stats || {};
+  const parentIds = Array.isArray(student.parentIds) ? student.parentIds : (student.parentId ? [student.parentId] : []);
+  const parents = Array.isArray(student.parents) ? student.parents : (student.parent ? [student.parent] : []);
   return {
     ...student,
-    parentName: student.parent?.displayName || student.parent?.name || "未绑定家长",
-    parentHint: student.parent?.wechatOpenIdMasked || student.parent?.email || "",
+    parentIds,
+    parentName: parents.length
+      ? parents.map((parent) => parent.displayName || parent.name || "未命名家长").join("、")
+      : "未绑定家长",
+    parentHint: parents.map((parent) => parent.wechatOpenIdMasked || parent.email || "").filter(Boolean).join("、"),
     latestDailyText: shortDate(stats.latestDailyDate),
     latestWeeklyText: shortDate(stats.latestWeeklyStart),
     latestReportText: stats.latestReportTitle || "暂无报告",
@@ -21,7 +26,7 @@ const decorateStudent = (student) => {
     statusText: [
       stats.missingDailyToday ? "缺今日记录" : "",
       stats.missingCurrentWeekly ? "缺本周反馈" : "",
-      !student.parentId ? "未绑家长" : "",
+      !parentIds.length ? "未绑家长" : "",
     ].filter(Boolean).join(" · ") || "正常",
     statusClass: stats.missingDailyToday || stats.missingCurrentWeekly ? "chip-warning" : "chip-success",
   };
@@ -77,7 +82,7 @@ Page({
         status === "all" ||
         (status === "missingDaily" && student.missingDailyToday) ||
         (status === "missingWeekly" && student.missingCurrentWeekly) ||
-        (status === "noParent" && !student.parentId);
+        (status === "noParent" && !(student.parentIds || []).length);
       return matchesQuery && matchesGrade && matchesStatus;
     });
     this.setData({ filteredStudents: filtered });

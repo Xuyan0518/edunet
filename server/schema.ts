@@ -396,6 +396,21 @@ export const studentsTable = pgTable('students', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
+export const studentParentBindingsTable = pgTable('student_parent_bindings', {
+  id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
+  studentId: uuid('student_id').references(() => studentsTable.id).notNull(),
+  parentId: uuid('parent_id').references(() => parentsTable.id).notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (table) => ({
+  uqStudentParentBinding: uniqueIndex('uq_student_parent_bindings_student_parent')
+    .on(table.studentId, table.parentId),
+  idxStudentParentBindingsStudent: index('idx_student_parent_bindings_student_id')
+    .on(table.studentId),
+  idxStudentParentBindingsParent: index('idx_student_parent_bindings_parent_id')
+    .on(table.parentId),
+}));
+
 export const dailyProgress = pgTable('daily_progress', {
   id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
   studentId: uuid('student_id').references(() => studentsTable.id).notNull(),

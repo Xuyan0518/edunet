@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { db } from '../db';
-import { eq } from 'drizzle-orm';
-import { studentsTable } from '../schema';
+import { and, eq } from 'drizzle-orm';
+import { studentParentBindingsTable, studentsTable } from '../schema';
 
 /**
  * Middleware to verify that a parent can only access their own child's data
@@ -60,7 +60,21 @@ export async function verifyParentStudentAccess(
 
     const student = students[0];
 
-    if (student.parentId !== req.user.id) {
+    if (student.parentId === req.user.id) {
+      next();
+      return;
+    }
+
+    const bindings = await db
+      .select({ id: studentParentBindingsTable.id })
+      .from(studentParentBindingsTable)
+      .where(and(
+        eq(studentParentBindingsTable.studentId, studentIdStr),
+        eq(studentParentBindingsTable.parentId, req.user.id),
+      ))
+      .limit(1);
+
+    if (!bindings.length) {
       res.status(403).json({ error: 'Access denied: You can only access your own child\'s data' });
       return;
     }

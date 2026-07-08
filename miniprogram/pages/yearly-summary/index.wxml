@@ -37,5 +37,6 @@
 
   <view class="row">
     <button wx:if="{{isTeacher}}" class="btn-primary" bindtap="save">保存</button>
+    <button wx:if="{{isTeacher && lastUpdatedAt}}" class="btn-outline" bindtap="deleteSummary">删除</button>
   </view>
 </view>

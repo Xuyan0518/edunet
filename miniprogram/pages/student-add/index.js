@@ -39,9 +39,8 @@ Page({
     gradeOptions: ["中一", "中二", "中三", "中四"],
     gradeIndex: 0,
     parents: [],
-    parentNames: ["不指定"],
-    selectedParentId: "",
-    selectedParentName: "不指定",
+    selectedParentIds: [],
+    selectedParentNames: "不指定",
     subjects: [],
     filteredSubjects: [],
     selectedIds: [],
@@ -58,7 +57,7 @@ Page({
     const studentId = query?.id || "";
     const isEdit = !!studentId;
     this.assignedSubjectIds = [];
-    this.pendingParentId = "";
+    this.pendingParentIds = [];
     this.setData({
       isEdit,
       studentId,
@@ -88,32 +87,33 @@ Page({
     request({ url: "/parents" })
       .then((data) => {
         const approved = (data || []).filter((p) => p.status === "approved");
-        const names = ["不指定", ...approved.map((p) => p.name)];
-        let selectedParentId = this.data.selectedParentId;
-        let selectedParentName = this.data.selectedParentName;
-        const pending = this.pendingParentId;
-        if (pending !== undefined && pending !== null && pending !== "") {
-          const parent = approved.find((p) => p.id === pending);
-          selectedParentId = parent ? parent.id : "";
-          selectedParentName = parent ? parent.name : "不指定";
-          this.pendingParentId = "";
-        } else if (selectedParentId) {
-          const parent = approved.find((p) => p.id === selectedParentId);
-          if (parent) selectedParentName = parent.name;
-        }
-        this.setData({ parents: approved, parentNames: names, selectedParentId, selectedParentName });
+        const selectedParentIds = this.pendingParentIds.length
+          ? this.pendingParentIds.filter((id) => approved.some((p) => p.id === id))
+          : this.data.selectedParentIds;
+        this.pendingParentIds = [];
+        const parents = approved.map((parent) => ({
+          ...parent,
+          isSelected: selectedParentIds.includes(parent.id),
+        }));
+        this.setData({ parents, selectedParentIds }, () => this.updateSelectedParentNames());
       })
       .catch(() => wx.showToast({ title: "获取家长失败", icon: "error" }));
   },
 
-  onParentChange(e) {
-    const index = Number(e.detail.value);
-    if (index === 0) {
-      this.setData({ selectedParentId: "", selectedParentName: "不指定" });
-      return;
-    }
-    const parent = this.data.parents[index - 1];
-    this.setData({ selectedParentId: parent.id, selectedParentName: parent.name });
+  onParentCheckChange(e) {
+    const selectedParentIds = e.detail.value || [];
+    const parents = this.data.parents.map((parent) => ({
+      ...parent,
+      isSelected: selectedParentIds.includes(parent.id),
+    }));
+    this.setData({ selectedParentIds, parents }, () => this.updateSelectedParentNames());
+  },
+
+  updateSelectedParentNames() {
+    const names = this.data.selectedParentIds
+      .map((id) => this.data.parents.find((parent) => parent.id === id)?.name)
+      .filter(Boolean);
+    this.setData({ selectedParentNames: names.length ? names.join("、") : "不指定" });
   },
 
   fetchSubjects() {
@@ -213,7 +213,9 @@ Page({
     if (!studentId) return;
     request({ url: `/students/${studentId}` })
       .then((data) => {
-        const parentId = data?.parentId || "";
+        const parentIds = Array.isArray(data?.parentIds)
+          ? data.parentIds
+          : (data?.parentId ? [data.parentId] : []);
         const gradeRaw = String(data?.grade || "");
         const gradeMap = {
           "7": "中一",
@@ -234,22 +236,18 @@ Page({
           0,
           this.data.gradeOptions.indexOf(mappedGrade)
         );
-        let selectedParentName = this.data.selectedParentName;
-        if (parentId && this.data.parents.length) {
-          const parent = this.data.parents.find((p) => p.id === parentId);
-          selectedParentName = parent ? parent.name : "不指定";
-        } else if (parentId) {
-          this.pendingParentId = parentId;
-        } else {
-          selectedParentName = "不指定";
-        }
+        if (parentIds.length && !this.data.parents.length) this.pendingParentIds = parentIds;
+        const parents = this.data.parents.map((parent) => ({
+          ...parent,
+          isSelected: parentIds.includes(parent.id),
+        }));
         this.setData({
           name: data?.name || "",
           grade: mappedGrade || "",
           gradeIndex,
-          selectedParentId: parentId,
-          selectedParentName,
-        });
+          selectedParentIds: parentIds,
+          parents,
+        }, () => this.updateSelectedParentNames());
       })
       .catch(() => wx.showToast({ title: "获取学生失败", icon: "error" }));
   },
@@ -271,7 +269,8 @@ Page({
     const payload = {
       name: this.data.name.trim(),
       grade: this.data.grade.trim(),
-      parentId: this.data.selectedParentId || null,
+      parentIds: this.data.selectedParentIds || [],
+      parentId: (this.data.selectedParentIds || [])[0] || null,
     };
     const isEdit = this.data.isEdit;
     const requestConfig = isEdit

@@ -71,6 +71,7 @@ Page({
     expandedSubjects: {},
     expandedTopics: {},
     parents: [],
+    boundParents: [],
     canManageStudentsAndParents: false,
     parentNames: ["不指定"],
     selectedParentId: "",
@@ -120,13 +121,19 @@ Page({
   fetchStudent() {
     return request({ url: `/students/${this.studentId}` })
       .then((data) => {
-        const parent = this.data.parents.find((p) => p.id === data.parentId);
+        const parentIds = Array.isArray(data.parentIds)
+          ? data.parentIds
+          : (data.parentId ? [data.parentId] : []);
+        const boundParents = parentIds
+          .map((id) => this.data.parents.find((p) => p.id === id))
+          .filter(Boolean);
         this.setData({
-          student: data,
-          parentName: parent ? parent.name : "",
-          selectedParentId: data.parentId || "",
-          selectedParentName: parent ? parent.name : "不指定",
-        });
+          student: { ...data, parentIds },
+          boundParents,
+          parentName: boundParents.length ? boundParents.map((p) => p.name).join("、") : "",
+          selectedParentId: "",
+          selectedParentName: "不指定",
+        }, () => this.updateParentPickerOptions());
       })
       .catch(() => wx.showToast({ title: "获取学生失败", icon: "error" }));
   },
@@ -135,17 +142,33 @@ Page({
     return request({ url: "/parents" })
       .then((data) => {
         const approved = (data || []).filter((p) => p.status === "approved");
-        const parentNames = ["不指定", ...approved.map((p) => p.name)];
-        const currentParent = approved.find((p) => p.id === this.data.student.parentId);
         this.setData({
           parents: approved,
-          parentNames,
-          parentName: currentParent ? currentParent.name : this.data.parentName,
-          selectedParentId: currentParent ? currentParent.id : this.data.selectedParentId,
-          selectedParentName: currentParent ? currentParent.name : this.data.selectedParentName,
+        }, () => {
+          const parentIds = Array.isArray(this.data.student.parentIds)
+            ? this.data.student.parentIds
+            : (this.data.student.parentId ? [this.data.student.parentId] : []);
+          const boundParents = parentIds
+            .map((id) => approved.find((p) => p.id === id))
+            .filter(Boolean);
+          this.setData({
+            boundParents,
+            parentName: boundParents.length ? boundParents.map((p) => p.name).join("、") : this.data.parentName,
+          }, () => this.updateParentPickerOptions());
         });
       })
       .catch(() => wx.showToast({ title: "获取家长失败", icon: "error" }));
+  },
+
+  updateParentPickerOptions() {
+    const boundIds = new Set(this.data.boundParents.map((p) => p.id));
+    const available = this.data.parents.filter((parent) => !boundIds.has(parent.id));
+    this.availableParents = available;
+    this.setData({
+      parentNames: ["选择家长"].concat(available.map((parent) => parent.name)),
+      selectedParentId: "",
+      selectedParentName: "选择家长",
+    });
   },
 
   fetchSubjects() {
@@ -370,33 +393,56 @@ Page({
     if (!this.data.canManageStudentsAndParents) return;
     const index = Number(e.detail.value);
     if (index === 0) {
-      this.setData({ selectedParentId: "", selectedParentName: "不指定" });
+      this.setData({ selectedParentId: "", selectedParentName: "选择家长" });
       return;
     }
-    const parent = this.data.parents[index - 1];
+    const parent = (this.availableParents || [])[index - 1];
     if (!parent) return;
     this.setData({ selectedParentId: parent.id, selectedParentName: parent.name });
   },
 
-  saveParent() {
+  addParentBinding() {
     if (!this.data.canManageStudentsAndParents) return;
-    const parentId = this.data.selectedParentId || null;
+    const parentId = this.data.selectedParentId;
+    if (!parentId) {
+      wx.showToast({ title: "请选择家长", icon: "none" });
+      return;
+    }
     request({
-      url: `/students/${this.studentId}`,
-      method: "PUT",
-      data: {
-        name: this.data.student.name,
-        grade: this.data.student.grade,
-        parentId,
-      },
+      url: `/students/${this.studentId}/parents`,
+      method: "POST",
+      data: { parentId },
     })
-      .then((data) => {
-        this.setData({ student: data, parentName: this.data.selectedParentName });
+      .then(() => {
         wx.showToast({ title: "已保存", icon: "success" });
+        this.fetchAll();
       })
       .catch((err) => {
         if (showActionLockToast(err)) return;
         wx.showToast({ title: err?.message || "保存失败", icon: "error" });
       });
+  },
+
+  removeParentBinding(e) {
+    if (!this.data.canManageStudentsAndParents) return;
+    const parentId = e.currentTarget.dataset.id;
+    const parentName = e.currentTarget.dataset.name || "该家长";
+    if (!parentId) return;
+    wx.showModal({
+      title: "取消绑定？",
+      content: `只移除 ${parentName} 与该学生的绑定，不会删除家长账号。`,
+      success: (res) => {
+        if (!res.confirm) return;
+        request({
+          url: `/students/${this.studentId}/parents/${parentId}`,
+          method: "DELETE",
+        })
+          .then(() => {
+            wx.showToast({ title: "已解绑", icon: "success" });
+            this.fetchAll();
+          })
+          .catch((err) => wx.showToast({ title: err?.message || "解绑失败", icon: "error" }));
+      },
+    });
   },
 });

@@ -19,23 +19,27 @@
     <block wx:for="{{pending}}" wx:key="id">
       <view class="section card review-card">
         <view class="row-between">
-          <view>
+          <view bindtap="openItem" data-index="{{index}}">
             <view class="section-title">{{item.studentName || "未命名学生"}}</view>
             <view class="muted small-text">{{item.typeLabel}} · {{item.title}}</view>
           </view>
           <view class="review-badge">待发布</view>
         </view>
-        <view class="summary-text">{{item.summary || "暂无摘要"}}</view>
+        <view class="summary-text" bindtap="openItem" data-index="{{index}}">{{item.summary || "暂无摘要"}}</view>
         <view class="muted small-text">提交人：{{item.updatedByName || "未知"}}</view>
-        <button
-          class="btn-primary publish-btn"
-          size="mini"
-          data-id="{{item.id}}"
-          data-type="{{item.type}}"
-          loading="{{publishingId === item.id}}"
-          disabled="{{publishingId === item.id}}"
-          bindtap="publishItem"
-        >发布给家长</button>
+        <view class="review-actions">
+          <button class="btn-outline" size="mini" data-index="{{index}}" bindtap="openItem">查看/编辑</button>
+          <button
+            class="btn-primary publish-btn"
+            size="mini"
+            data-id="{{item.id}}"
+            data-type="{{item.type}}"
+            loading="{{publishingId === item.id}}"
+            disabled="{{publishingId === item.id}}"
+            bindtap="publishItem"
+          >发布给家长</button>
+          <button class="btn-danger" size="mini" data-id="{{item.id}}" data-type="{{item.type}}" bindtap="deleteItem">删除</button>
+        </view>
       </view>
     </block>
   </block>

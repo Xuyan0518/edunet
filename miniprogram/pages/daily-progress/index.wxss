@@ -18,6 +18,24 @@
   gap: 8rpx;
 }
 
+.student-filter-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+}
+
+.filter-bar {
+  background: #ffffff;
+  border: 1rpx solid #e2e8f0;
+  border-radius: 14rpx;
+  padding: 16rpx 20rpx;
+}
+
+.filter-label {
+  color: #64748b;
+  font-size: 24rpx;
+}
+
 .chip-active {
   background: #dbeafe;
   color: #1d4ed8;

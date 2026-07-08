@@ -251,6 +251,13 @@
       "when": 1781763600000,
       "tag": "0035_add_app_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1781767200000,
+      "tag": "0036_add_student_parent_bindings",
+      "breakpoints": true
     }
   ]
 }

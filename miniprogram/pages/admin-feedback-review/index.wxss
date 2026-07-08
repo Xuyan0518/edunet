@@ -36,5 +36,22 @@
 }
 
 .publish-btn {
+  margin: 0;
+}
+
+.review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
   margin-top: 18rpx;
+}
+
+.review-actions button {
+  margin: 0;
+}
+
+.btn-danger {
+  background: #fee2e2;
+  color: #b91c1c;
+  border: 1rpx solid #fecaca;
 }

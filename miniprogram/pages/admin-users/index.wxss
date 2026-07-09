@@ -54,6 +54,26 @@
   border-bottom: 1rpx solid #e2e8f0;
 }
 
+.filter-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin: 16rpx 0 4rpx;
+}
+
+.filter-picker {
+  min-width: 180rpx;
+  padding: 12rpx 20rpx;
+  border: 1rpx solid #bfdbfe;
+  border-radius: 14rpx;
+  color: #1d4ed8;
+  font-size: 24rpx;
+  font-weight: 700;
+  text-align: center;
+  background: #eff6ff;
+}
+
 .user-head {
   gap: 16rpx;
 }
@@ -90,6 +110,22 @@
 .helper-text {
   font-size: 24rpx;
   margin-bottom: 14rpx;
+}
+
+.no-margin {
+  margin-bottom: 0;
+}
+
+.field-label {
+  color: #334155;
+  font-size: 24rpx;
+  font-weight: 700;
+  margin-bottom: 10rpx;
+}
+
+.editor-input {
+  margin-bottom: 14rpx;
+  background: #fff;
 }
 
 .role-chip-row {

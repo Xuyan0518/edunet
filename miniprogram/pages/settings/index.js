@@ -40,6 +40,17 @@ Page({
   onShow() {
     const user = wx.getStorageSync("user") || {};
     this.setData({ user, isParent: user?.role === "parent" });
+    this.refreshProfile();
+  },
+
+  refreshProfile() {
+    request({ url: "/profile" })
+      .then((res) => {
+        if (!res?.user) return;
+        wx.setStorageSync("user", res.user);
+        this.setData({ user: res.user, isParent: res.user?.role === "parent" });
+      })
+      .catch(() => {});
   },
 
   startEditName() {

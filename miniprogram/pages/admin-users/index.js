@@ -12,6 +12,11 @@ const roleOptions = [
   { value: "parent", label: "家长" },
 ];
 
+const roleFilterOptions = [
+  { value: "all", label: "全部角色" },
+  ...roleOptions,
+];
+
 const decoratePending = (user, role) => ({
   ...user,
   role,
@@ -46,7 +51,12 @@ Page({
     pendingTeachers: [],
     pendingCount: 0,
     query: "",
+    roleFilterOptions: roleFilterOptions.map((option) => option.label),
+    roleFilterIndex: 0,
+    roleFilterValue: "all",
+    roleFilterLabel: roleFilterOptions[0].label,
     editingIdentityKey: "",
+    draftDisplayName: "",
     draftRoles: [],
     draftRoleOptions: decorateRoleOptions([]),
   },
@@ -73,7 +83,7 @@ Page({
         const pendingTeachers = (pending?.teachers || []).map((user) => decoratePending(user, "teacher"));
         this.setData({
           users,
-          filteredUsers: this.filterUsers(users, this.data.query),
+          filteredUsers: this.filterUsers(users, this.data.query, this.data.roleFilterValue),
           pendingParents,
           pendingTeachers,
           pendingCount: pendingParents.length + pendingTeachers.length,
@@ -87,19 +97,40 @@ Page({
     return this.fetchAll();
   },
 
-  filterUsers(users, query) {
+  filterUsers(users, query, roleFilterValue = "all") {
     const normalized = (query || "").trim().toLowerCase();
-    if (!normalized) return users;
+    const roleFilter = roleFilterValue || "all";
     return users.filter((user) =>
-      [user.displayName, user.roleText]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(normalized))
+      (roleFilter === "all" || user.roleValues.includes(roleFilter)) &&
+      (!normalized ||
+        [user.displayName, user.roleText]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(normalized)))
     );
+  },
+
+  applyFilters() {
+    this.setData({
+      filteredUsers: this.filterUsers(this.data.users, this.data.query, this.data.roleFilterValue),
+    });
   },
 
   onSearch(e) {
     const query = e.detail.value || "";
-    this.setData({ query, filteredUsers: this.filterUsers(this.data.users, query) });
+    this.setData({ query }, () => this.applyFilters());
+  },
+
+  onRoleFilterChange(e) {
+    const roleFilterIndex = Number(e.detail.value || 0);
+    const option = roleFilterOptions[roleFilterIndex] || roleFilterOptions[0];
+    this.setData(
+      {
+        roleFilterIndex,
+        roleFilterValue: option.value,
+        roleFilterLabel: option.label,
+      },
+      () => this.applyFilters()
+    );
   },
 
   startEdit(e) {
@@ -112,6 +143,7 @@ Page({
     const draftRoles = [...user.roleValues];
     this.setData({
       editingIdentityKey: user.identityKey,
+      draftDisplayName: user.displayName || "",
       draftRoles,
       draftRoleOptions: decorateRoleOptions(draftRoles),
     });
@@ -120,9 +152,14 @@ Page({
   cancelEdit() {
     this.setData({
       editingIdentityKey: "",
+      draftDisplayName: "",
       draftRoles: [],
       draftRoleOptions: decorateRoleOptions([]),
     });
+  },
+
+  onDraftNameInput(e) {
+    this.setData({ draftDisplayName: e.detail.value || "" });
   },
 
   toggleDraftRole(e) {
@@ -138,18 +175,27 @@ Page({
     });
   },
 
-  saveRoles(e) {
+  saveUser(e) {
     const index = Number(e.currentTarget.dataset.index);
     const user = this.data.filteredUsers[index];
     if (!user?.primaryRole) return;
+    const displayName = (this.data.draftDisplayName || "").trim();
+    if (!displayName) {
+      wx.showToast({ title: "请输入用户名称", icon: "none" });
+      return;
+    }
+    if (displayName.length > 40) {
+      wx.showToast({ title: "名称最多 40 个字", icon: "none" });
+      return;
+    }
     if (!this.data.draftRoles.length) {
       wx.showToast({ title: "至少保留一个角色", icon: "none" });
       return;
     }
 
     wx.showModal({
-      title: "确认保存角色",
-      content: `${user.displayName} 将拥有：${this.data.draftRoles.map((role) => roleLabels[role]).join("、")}`,
+      title: "确认保存用户",
+      content: `${displayName} 将拥有：${this.data.draftRoles.map((role) => roleLabels[role]).join("、")}`,
       success: (modal) => {
         if (!modal.confirm) return;
         this.setData({ saving: true });
@@ -160,6 +206,7 @@ Page({
           data: {
             sourceRole: user.primaryRole.role,
             sourceId: user.primaryRole.id,
+            displayName,
             roles: this.data.draftRoles,
           },
         })

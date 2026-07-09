@@ -7014,6 +7014,15 @@ app.post('/api/admin/users/set-roles', authenticate, requireAdmin, async (req, r
     if (!source.wechatOpenId && !source.wechatUnionId) {
       return res.status(400).json({ error: 'User has no WeChat identity to update' });
     }
+    const hasDisplayNameUpdate = Object.prototype.hasOwnProperty.call(req.body || {}, 'displayName');
+    const submittedDisplayName = pickDisplayName(req.body?.displayName);
+    if (hasDisplayNameUpdate && !submittedDisplayName) {
+      return res.status(400).json({ error: 'Display name is required' });
+    }
+    const nextDisplayName = submittedDisplayName || pickDisplayName(source.displayName) || pickDisplayName(source.name) || DEFAULT_USER_NAME;
+    if (nextDisplayName.length > 40) {
+      return res.status(400).json({ error: 'Display name must be 40 characters or less' });
+    }
 
     const findExisting = async (role: string) => {
       if (role === 'admin') {
@@ -7077,8 +7086,8 @@ app.post('/api/admin/users/set-roles', authenticate, requireAdmin, async (req, r
     }
 
     const baseValues = {
-      name: source.displayName || source.name || DEFAULT_USER_NAME,
-      displayName: source.displayName || source.name || DEFAULT_USER_NAME,
+      name: nextDisplayName,
+      displayName: nextDisplayName,
       avatarUrl: source.avatarUrl || null,
       email: source.email || null,
       password: null,

@@ -50,6 +50,12 @@
   <view class="section card">
     <view class="section-title">角色管理</view>
     <input class="input" placeholder="搜索用户或角色..." value="{{query}}" bindinput="onSearch" />
+    <view class="filter-row">
+      <view class="muted helper-text no-margin">按角色筛选</view>
+      <picker mode="selector" range="{{roleFilterOptions}}" value="{{roleFilterIndex}}" bindchange="onRoleFilterChange">
+        <view class="filter-picker">{{roleFilterLabel}}</view>
+      </picker>
+    </view>
 
     <block wx:if="{{filteredUsers.length === 0}}">
       <view class="list-item muted">暂无用户</view>
@@ -66,7 +72,9 @@
           </view>
 
           <view wx:if="{{editingIdentityKey === item.identityKey}}" class="role-editor">
-            <view class="muted helper-text">点选角色。取消勾选即可删除该角色。</view>
+            <view class="field-label">显示名称</view>
+            <input class="input editor-input" maxlength="40" placeholder="用户名称" value="{{draftDisplayName}}" bindinput="onDraftNameInput" />
+            <view class="muted helper-text">修改名称会同步到该用户的管理员、教师、家长身份。</view>
             <view class="role-chip-row">
               <block wx:for="{{draftRoleOptions}}" wx:key="value">
                 <button
@@ -80,7 +88,7 @@
               </block>
             </view>
             <view class="editor-actions">
-              <button class="btn-primary" size="mini" data-index="{{index}}" bindtap="saveRoles" loading="{{saving}}">保存角色</button>
+              <button class="btn-primary" size="mini" data-index="{{index}}" bindtap="saveUser" loading="{{saving}}">保存用户</button>
               <button class="btn-outline" size="mini" bindtap="cancelEdit">取消</button>
             </view>
           </view>

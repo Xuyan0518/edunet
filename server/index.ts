@@ -548,7 +548,13 @@ const yearlyTemplateContentKey = process.env.WECHAT_YEARLY_TEMPLATE_CONTENT_KEY 
 const yearlyTemplateTimeKey = process.env.WECHAT_YEARLY_TEMPLATE_TIME_KEY || 'time1';
 const deepseekApiKey = process.env.DEEPSEEK_API_KEY || '';
 const deepseekApiUrl = process.env.DEEPSEEK_API_URL || 'https://api.deepseek.com/v1/chat/completions';
-const deepseekModel = process.env.DEEPSEEK_MODEL || 'deepseek-chat';
+const DEEPSEEK_FLASH_MODEL = 'deepseek-v4-flash';
+const resolveDeepSeekModel = (model: unknown) => {
+  const trimmed = String(model || '').trim();
+  if (!trimmed || trimmed === 'deepseek-chat') return DEEPSEEK_FLASH_MODEL;
+  return trimmed;
+};
+const deepseekModel = resolveDeepSeekModel(process.env.DEEPSEEK_MODEL);
 const weeklySummaryPrompt = process.env.DEEPSEEK_WEEKLY_PROMPT || '';
 const quarterlySummaryPrompt = process.env.DEEPSEEK_QUARTERLY_PROMPT || '';
 const yearlySummaryPrompt = process.env.DEEPSEEK_YEARLY_PROMPT || '';

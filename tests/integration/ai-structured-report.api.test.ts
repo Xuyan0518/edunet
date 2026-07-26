@@ -22,6 +22,7 @@ let fetchMock: ReturnType<typeof vi.fn>;
 beforeAll(async () => {
   process.env.DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || 'test-deepseek-key';
   process.env.DEEPSEEK_API_URL = process.env.DEEPSEEK_API_URL || 'https://deepseek.mock/api';
+  process.env.DEEPSEEK_MODEL = 'deepseek-chat';
 
   ({ app } = await import('../../server/index'));
   ({ generateToken } = await import('../../server/utils/auth'));
@@ -79,6 +80,7 @@ describe('AI structured quarterly/yearly summary APIs', () => {
     expect(res.body.analytics).toBeTruthy();
     expect(res.body.rawAiResponse).toBeTypeOf('string');
     expect(res.body).toHaveProperty('parseError');
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).model).toBe('deepseek-v4-flash');
   });
 
   it('yearly response keeps summary string even when AI returns plain text', async () => {

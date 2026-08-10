@@ -3,6 +3,8 @@ import cors from 'cors';
 import bodyParser from 'body-parser';
 import dotenv from 'dotenv';
 import crypto from 'crypto';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { db } from './db';
 import { eq, desc, and, isNull, isNotNull, inArray, gte, lte, lt } from 'drizzle-orm';
 import type { SQLWrapper } from 'drizzle-orm';
@@ -204,6 +206,9 @@ dotenv.config();
 
 const app = express();
 const port = process.env.API_PORT || process.env.PORT || 3003;
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const webDistDir = path.resolve(__dirname, '../dist');
 const configuredCorsOrigins = (process.env.CORS_ORIGIN || '')
   .split(',')
   .map((item) => item.trim())
@@ -6197,9 +6202,37 @@ app.delete('/api/students/:studentId/papers/:paperId', authenticate, requireTeac
 
 // ========== ADMIN ROUTES ==========
 app.post('/api/admin/login', async (req, res) => {
-  res.status(410).json({
-    error: 'Email/password admin login is deprecated. Use /api/auth/wechat with role=admin.',
-  });
+  const email = trimString(req.body?.email).toLowerCase();
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required' });
+  }
+  if (email.length > 100 || password.length > 128) {
+    return res.status(400).json({ error: 'Invalid credentials format' });
+  }
+
+  try {
+    const rows = await db.select().from(adminsTable).where(eq(adminsTable.email, email)).limit(1);
+    const admin = rows[0];
+    if (!admin || !admin.password) {
+      return res.status(401).json({ error: 'This admin account uses WeChat login only.' });
+    }
+    if (!safeEq(password, admin.password)) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    const token = generateToken({
+      id: admin.id,
+      role: 'admin',
+      name: admin.displayName || admin.name || DEFAULT_USER_NAME,
+    });
+
+    return res.json({ user: toPublicUser(admin, 'admin'), token });
+  } catch (err) {
+    console.error('Admin login error:', err);
+    return res.status(500).json({ error: 'Admin login failed' });
+  }
 });
 
 
@@ -9293,10 +9326,51 @@ const reviewerLoginHandler: express.RequestHandler = async (req, res) => {
 app.post('/api/auth/reviewer-login', reviewerLoginHandler);
 app.post('/auth/reviewer-login', reviewerLoginHandler);
 
-app.post('/api/login', async (_req, res) => {
-  res.status(410).json({
-    error: 'Email/password login is deprecated. Use /api/auth/wechat.',
-  });
+app.post('/api/login', async (req, res) => {
+  const email = trimString(req.body?.email).toLowerCase();
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+  const role = req.body?.role;
+
+  if (role !== 'teacher' && role !== 'parent') {
+    return res.status(400).json({ error: 'Invalid role' });
+  }
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required' });
+  }
+  if (email.length > 100 || password.length > 128) {
+    return res.status(400).json({ error: 'Invalid credentials format' });
+  }
+
+  try {
+    const table = role === 'teacher' ? teachersTable : parentsTable;
+    const rows = await db.select().from(table).where(eq(table.email, email)).limit(1);
+    const userRow = rows[0];
+
+    if (!userRow || !userRow.password) {
+      return res.status(401).json({ error: 'This account uses WeChat login only.' });
+    }
+    if (!safeEq(password, userRow.password)) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    if (userRow.status !== 'approved') {
+      return res.status(401).json({
+        error: userRow.status === 'rejected' ? 'Account rejected. Please contact an administrator.' : 'Account pending admin approval.',
+        status: 'pending_approval',
+        user: toPublicUser(userRow, role),
+      });
+    }
+
+    const token = generateToken({
+      id: userRow.id,
+      role,
+      name: userRow.displayName || userRow.name || DEFAULT_USER_NAME,
+    });
+
+    return res.json({ user: toPublicUser(userRow, role), token });
+  } catch (err) {
+    console.error('Web login error:', err);
+    return res.status(500).json({ error: 'Login failed' });
+  }
 });
 
 // ========== PROFILE / SETTINGS ROUTES ==========
@@ -9415,6 +9489,15 @@ app.get('/api/verify-email/:token', async (_req, res) => {
   });
 });
 
+if (process.env.SERVE_WEB !== 'false') {
+  app.use(express.static(webDistDir));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/')) return next();
+    res.sendFile(path.join(webDistDir, 'index.html'), (err) => {
+      if (err) next();
+    });
+  });
+}
 
 if (process.env.NODE_ENV !== 'test') {
   app.listen(port, () => {

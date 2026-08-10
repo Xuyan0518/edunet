@@ -23,6 +23,7 @@ import ProgressForm from '@/pages/ProgressForm';
 import VerifyEmail from './pages/VerifyEmail';
 import Profile from './pages/Profile';
 import Settings from './pages/Settings';
+import WebAuth from './pages/WebAuth';
 
 
 const queryClient = new QueryClient();
@@ -71,6 +72,7 @@ const AppRoutes = () => {
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
       <Route path="/verify-email" element={<VerifyEmail />} />
+      <Route path="/web-auth" element={<WebAuth />} />
       <Route path="/admin/login" element={<AdminLogin />} />
       <Route path="/admin/dashboard" element={<AdminDashboard />} />
       <Route path="/progress-form" element={<ProgressForm />} />

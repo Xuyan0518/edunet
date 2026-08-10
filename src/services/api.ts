@@ -166,7 +166,8 @@ export const api = {
       effectiveReminderDate: string | null;
       daysUntil: number;
       student: { id: string; name: string; grade: string };
-      subjects: Array<{ name: string; score: string; scope: string | null }>;
+      subject?: { name: string; score: string; scope: string | null; examDate?: string };
+      subjects?: Array<{ name: string; score: string; scope: string | null; examDate?: string }>;
     }>;
   } | null> {
     try {

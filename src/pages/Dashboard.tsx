@@ -151,6 +151,8 @@ const unmetLabels = (c: IncompleteEntry['completion']): string[] => {
   return out;
 };
 
+type ExamSubject = { name: string; score: string; scope: string | null; examDate?: string };
+
 type UpcomingExam = {
   id: string;
   name: string;
@@ -158,7 +160,13 @@ type UpcomingExam = {
   examDate: string;
   daysUntil: number;
   student: { id: string; name: string; grade: string };
-  subjects: Array<{ name: string; score: string; scope: string | null }>;
+  subject?: ExamSubject;
+  subjects?: ExamSubject[];
+};
+
+const getExamSubjects = (exam: UpcomingExam): ExamSubject[] => {
+  if (Array.isArray(exam.subjects)) return exam.subjects;
+  return exam.subject ? [exam.subject] : [];
 };
 
 const UpcomingExamsCard: React.FC = () => {
@@ -206,10 +214,10 @@ const UpcomingExamsCard: React.FC = () => {
                     {e.examDate} · {e.daysUntil > 0 ? `还有 ${e.daysUntil} 天` : e.daysUntil === 0 ? '今天' : `已过 ${-e.daysUntil} 天`}
                   </span>
                 </div>
-                {e.subjects.length > 0 && (
+                {getExamSubjects(e).length > 0 && (
                   <ul className="mt-1 text-xs text-muted-foreground space-y-0.5">
-                    {e.subjects.map((s, i) => (
-                      <li key={i}>
+                    {getExamSubjects(e).map((s, i) => (
+                      <li key={`${s.name}-${i}`}>
                         · {s.name}
                         {s.scope ? ` — ${s.scope}` : ''}
                       </li>

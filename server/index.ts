@@ -9972,7 +9972,10 @@ app.post('/api/login', async (req, res) => {
     const rows = await db.select().from(table).where(eq(table.email, email)).limit(1);
     const userRow = rows[0];
 
-    if (!userRow || !userRow.password) {
+    if (!userRow) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    if (!userRow.password) {
       return res.status(401).json({ error: 'This account uses WeChat login only.' });
     }
     if (!safeEq(password, userRow.password)) {

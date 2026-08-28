@@ -6,8 +6,7 @@ services:
     region: singapore
     branch: feat/web-platform-migration
     buildCommand: npm ci --include=dev && npm run build
-    preDeployCommand: npm run db:migrate
-    startCommand: npm run start:api
+    startCommand: npm run db:migrate && npm run start:api
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV

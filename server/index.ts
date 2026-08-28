@@ -114,6 +114,7 @@ import {
   validateYearRange,
 } from './utils/inputValidation';
 import { parseScoreMeta } from './utils/scoreGrade';
+import { buildAllowedCorsOrigins } from './utils/corsOrigins';
 
 // Apply V2 English normalization to a daily_progress row's activities. Used at
 // every read/write boundary so legacy rows look V2 to consumers and new writes
@@ -212,12 +213,10 @@ const port = process.env.API_PORT || process.env.PORT || 3003;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const webDistDir = path.resolve(__dirname, '../dist');
-const configuredCorsOrigins = (process.env.CORS_ORIGIN || '')
-  .split(',')
-  .map((item) => item.trim())
-  .filter(Boolean);
-const fallbackCorsOrigins = ['http://localhost:3001', 'http://localhost:5173'];
-const allowedCorsOrigins = configuredCorsOrigins.length ? configuredCorsOrigins : fallbackCorsOrigins;
+const allowedCorsOrigins = buildAllowedCorsOrigins(
+  process.env.CORS_ORIGIN || '',
+  process.env.RENDER_EXTERNAL_HOSTNAME || '',
+);
 
 app.use(cors({
   origin: (origin, callback) => {

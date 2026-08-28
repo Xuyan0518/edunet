@@ -79,6 +79,7 @@ export const createMockDb = () => {
         where: () => query,
       };
     },
+    batch: (queries: any[]) => Promise.all(queries),
   };
 
   return db;

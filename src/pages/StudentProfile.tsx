@@ -237,14 +237,32 @@ const StudentProfile: React.FC = () => {
               </div>
             </div>
             {role === 'teacher' && (
+              <div className="ml-auto flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate(`/student/${student.id}/records`)}
+                >
+                  Academic records
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate(`/add-student?edit=${student.id}`)}
+                >
+                  <Edit className="h-4 w-4 mr-2" />
+                  {t('student.edit')}
+                </Button>
+              </div>
+            )}
+            {role === 'parent' && (
               <Button
                 variant="outline"
                 size="sm"
                 className="ml-auto"
-                onClick={() => navigate(`/add-student?edit=${student.id}`)}
+                onClick={() => navigate(`/student/${student.id}/records`)}
               >
-                <Edit className="h-4 w-4 mr-2" />
-                {t('student.edit')}
+                Academic records
               </Button>
             )}
           </div>

@@ -19,19 +19,19 @@ export const AdminSchema = z.object({
   id: z.string().uuid().optional(),
   name: z.string().min(1).max(100).optional(),
   displayName: z.string().min(1).max(100).optional(),
-  email: z.string().email().max(100).optional().nullable(),
+  email: z.string().email().max(320).optional().nullable(),
   password: z.string().min(6).max(100).optional().nullable(),
   wechatOpenId: z.string().optional(),
   wechatUnionId: z.string().optional(),
   avatarUrl: z.string().url().optional().nullable(),
-  authProvider: z.enum(['wechat']).optional().default('wechat'),
+  authProvider: z.enum(['wechat', 'google', 'reviewer']).optional().default('wechat'),
 });
 
 export const TeacherSchema = z.object({
   id: z.string().uuid().optional(),
   name: z.string().min(1).max(100),
   displayName: z.string().min(1).max(100).optional(),
-  email: z.string().email().max(100).optional().nullable(),
+  email: z.string().email().max(320).optional().nullable(),
   password: z.string().min(6).max(100).optional().nullable(),
   status: z.enum(['pending', 'approved', 'rejected']).optional().default('pending'),
   emailVerified: z.string().optional().default('false'),
@@ -40,14 +40,14 @@ export const TeacherSchema = z.object({
   wechatOpenId: z.string().optional(),
   wechatUnionId: z.string().optional(),
   avatarUrl: z.string().url().optional().nullable(),
-  authProvider: z.enum(['wechat']).optional().default('wechat'),
+  authProvider: z.enum(['wechat', 'google', 'reviewer']).optional().default('wechat'),
 });
 
 export const ParentSchema = z.object({
   id: z.string().uuid().optional(),
   name: z.string().min(1).max(100),
   displayName: z.string().min(1).max(100).optional(),
-  email: z.string().email().max(100).optional().nullable(),
+  email: z.string().email().max(320).optional().nullable(),
   password: z.string().min(6).max(100).optional().nullable(),
   status: z.enum(['pending', 'approved', 'rejected']).optional().default('pending'),
   emailVerified: z.string().optional().default('false'),
@@ -56,7 +56,7 @@ export const ParentSchema = z.object({
   wechatOpenId: z.string().optional(),
   wechatUnionId: z.string().optional(),
   avatarUrl: z.string().url().optional().nullable(),
-  authProvider: z.enum(['wechat']).optional().default('wechat'),
+  authProvider: z.enum(['wechat', 'google', 'reviewer']).optional().default('wechat'),
 });
 
 export const StudentSchema = z.object({
@@ -342,7 +342,7 @@ export const adminsTable = pgTable('admins', {
   id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
   name: varchar('name', { length: 100 }).notNull(),
   displayName: varchar('display_name', { length: 100 }),
-  email: varchar('email', { length: 100 }).unique(),
+  email: varchar('email', { length: 320 }).unique(),
   password: varchar('password', { length: 100 }),
   wechatOpenId: varchar('wechat_open_id', { length: 64 }).unique(),
   wechatUnionId: varchar('wechat_union_id', { length: 64 }).unique(),
@@ -356,7 +356,7 @@ export const teachersTable = pgTable('teacher', {
   id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
   name: varchar('name', { length: 100 }).notNull(),
   displayName: varchar('display_name', { length: 100 }),
-  email: varchar('email', { length: 100 }).unique(),
+  email: varchar('email', { length: 320 }).unique(),
   password: varchar('password', { length: 100 }),
   status: varchar('status', { length: 20 }).default('pending').notNull(),
   emailVerified: varchar('email_verified', { length: 5 }).default('false').notNull(),
@@ -374,7 +374,7 @@ export const parentsTable = pgTable('parents', {
   id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
   name: varchar('name', { length: 100 }).notNull(),
   displayName: varchar('display_name', { length: 100 }),
-  email: varchar('email', { length: 100 }).unique(),
+  email: varchar('email', { length: 320 }).unique(),
   password: varchar('password', { length: 100 }),
   status: varchar('status', { length: 20 }).default('pending').notNull(),
   emailVerified: varchar('email_verified', { length: 5 }).default('false').notNull(),
@@ -387,6 +387,26 @@ export const parentsTable = pgTable('parents', {
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 });
+
+export const authIdentitiesTable = pgTable('auth_identities', {
+  id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
+  accountRole: varchar('account_role', { length: 20 }).notNull(),
+  accountId: uuid('account_id').notNull(),
+  provider: varchar('provider', { length: 32 }).notNull(),
+  providerSubject: varchar('provider_subject', { length: 255 }).notNull(),
+  wechatUnionId: varchar('wechat_union_id', { length: 64 }),
+  email: varchar('email', { length: 320 }),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+  lastLoginAt: timestamp('last_login_at'),
+}, (table) => ({
+  uqProviderSubjectRole: uniqueIndex('uq_auth_identities_provider_subject_role')
+    .on(table.provider, table.providerSubject, table.accountRole),
+  uqAccountProvider: uniqueIndex('uq_auth_identities_account_provider')
+    .on(table.accountRole, table.accountId, table.provider),
+  idxAccount: index('idx_auth_identities_account').on(table.accountRole, table.accountId),
+  idxWechatUnionId: index('idx_auth_identities_wechat_union_id').on(table.wechatUnionId),
+}));
 
 export const studentsTable = pgTable('students', {
   id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),

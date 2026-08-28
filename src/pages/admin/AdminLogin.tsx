@@ -44,7 +44,7 @@ const AdminLogin: React.FC = () => {
         title: 'Welcome back, admin!',
       });
 
-      navigate('/admin/dashboard');
+      navigate('/admin/console');
     } catch (error) {
       console.error(error);
       toast({

@@ -18,5 +18,9 @@ services:
         sync: false
       - key: WECHAT_APP_SECRET
         sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: VITE_GOOGLE_CLIENT_ID
+        sync: false
       - key: CORS_ORIGIN
         sync: false

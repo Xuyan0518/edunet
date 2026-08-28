@@ -258,6 +258,13 @@
       "when": 1781767200000,
       "tag": "0036_add_student_parent_bindings",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1786348800000,
+      "tag": "0037_add_auth_identities",
+      "breakpoints": true
     }
   ]
 }

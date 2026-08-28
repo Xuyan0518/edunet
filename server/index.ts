@@ -36,7 +36,8 @@ import {
   YearlySummarySchema,
   StudentReportSchema,
   type Student,
-  adminsTable
+  adminsTable,
+  authIdentitiesTable,
 } from './schema';
 
 import { extractEnglishStats, normalizeActivities, normalizeEnglishFields } from './utils/englishNormalize';
@@ -201,6 +202,7 @@ import {
 } from './utils/subjectLevels';
 import { sendWeChatSubscribeMessage } from './utils/wechatNotify';
 import { DEFAULT_USER_NAME, pickDisplayName, toPublicUser } from './auth/userIdentity';
+import { GoogleIdentityError, verifyGoogleCredential } from './auth/googleIdentity';
 import { canAuthUserManageStudentsAndParents } from './utils/managementPermissions';
 
 dotenv.config();
@@ -9576,6 +9578,261 @@ app.post('/api/auth/wechat', async (req, res) => {
   } catch (err) {
     console.error('WeChat login error:', err);
     res.status(500).json({ error: 'WeChat login failed' });
+  }
+});
+
+type WebAccountRole = 'teacher' | 'parent';
+
+const accountTableForRole = (role: WebAccountRole) =>
+  role === 'teacher' ? teachersTable : parentsTable;
+
+const googlePublicUser = (row: any, role: WebAccountRole) => ({
+  ...toPublicUser(row, role),
+  email: row.email || null,
+  authProvider: 'google',
+});
+
+const sendGoogleAccountResult = (
+  res: express.Response,
+  row: any,
+  role: WebAccountRole,
+) => {
+  if (row.status !== 'approved') {
+    return res.status(401).json({
+      error: row.status === 'rejected'
+        ? 'Account rejected. Please contact an administrator.'
+        : 'Account pending admin approval.',
+      code: row.status === 'rejected' ? 'account_rejected' : 'pending_approval',
+      status: 'pending_approval',
+      user: googlePublicUser(row, role),
+    });
+  }
+
+  const token = generateToken({
+    id: row.id,
+    role,
+    name: row.displayName || row.name || DEFAULT_USER_NAME,
+  });
+  return res.json({ user: googlePublicUser(row, role), token });
+};
+
+const googleAuthErrorResponse = (res: express.Response, error: unknown) => {
+  if (error instanceof GoogleIdentityError) {
+    const status = error.code === 'google_not_configured' ? 503 : 401;
+    return res.status(status).json({ error: error.message, code: error.code });
+  }
+  console.error('Google authentication error:', getErrorDetails(error));
+  return res.status(500).json({ error: 'Google sign-in failed.', code: 'google_login_failed' });
+};
+
+app.post('/api/auth/google', async (req, res) => {
+  const credential = typeof req.body?.credential === 'string' ? req.body.credential.trim() : '';
+  const role = req.body?.role as WebAccountRole;
+
+  if (!credential || credential.length > 16_384) {
+    return res.status(400).json({ error: 'Missing or invalid Google credential.' });
+  }
+  if (role !== 'teacher' && role !== 'parent') {
+    return res.status(400).json({ error: 'Invalid role.' });
+  }
+
+  try {
+    const google = await verifyGoogleCredential(credential);
+    const table = accountTableForRole(role);
+    const [identity] = await db
+      .select()
+      .from(authIdentitiesTable)
+      .where(and(
+        eq(authIdentitiesTable.provider, 'google'),
+        eq(authIdentitiesTable.providerSubject, google.subject),
+        eq(authIdentitiesTable.accountRole, role),
+      ))
+      .limit(1);
+
+    if (identity) {
+      const [account] = await db.select().from(table).where(eq(table.id, identity.accountId)).limit(1);
+      if (!account) {
+        return res.status(409).json({
+          error: 'This Google login is linked to a missing account. Please contact an administrator.',
+          code: 'identity_account_missing',
+        });
+      }
+
+      await db.update(authIdentitiesTable).set({
+        email: google.email,
+        updatedAt: new Date(),
+        lastLoginAt: new Date(),
+      }).where(eq(authIdentitiesTable.id, identity.id));
+
+      return sendGoogleAccountResult(res, account, role);
+    }
+
+    const [emailAccount] = await db.select().from(table).where(eq(table.email, google.email)).limit(1);
+    if (emailAccount) {
+      return res.status(409).json({
+        error: 'An EduNet account already uses this email. Sign in with its current method, then link Google from Profile.',
+        code: 'account_link_required',
+      });
+    }
+
+    const accountId = crypto.randomUUID();
+    const identityId = crypto.randomUUID();
+    const displayName = (pickDisplayName(google.name) || google.email.split('@')[0]).slice(0, 100);
+    const now = new Date();
+    const account = {
+      id: accountId,
+      name: displayName,
+      displayName,
+      email: google.email,
+      password: null,
+      status: 'pending',
+      emailVerified: 'true',
+      avatarUrl: google.avatarUrl,
+      authProvider: 'google',
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await db.batch([
+      db.insert(table).values(account),
+      db.insert(authIdentitiesTable).values({
+        id: identityId,
+        accountRole: role,
+        accountId,
+        provider: 'google',
+        providerSubject: google.subject,
+        email: google.email,
+        createdAt: now,
+        updatedAt: now,
+        lastLoginAt: now,
+      }),
+    ] as any);
+
+    return res.status(201).json({
+      user: googlePublicUser(account, role),
+      status: 'pending_approval',
+      message: 'Account created. Pending admin approval.',
+    });
+  } catch (error) {
+    return googleAuthErrorResponse(res, error);
+  }
+});
+
+app.get('/api/auth/providers', authenticate, async (req, res) => {
+  const role = req.user?.role;
+  if (!req.user || (role !== 'teacher' && role !== 'parent')) {
+    return res.status(403).json({ error: 'Provider settings are available to teachers and parents.' });
+  }
+
+  try {
+    const table = accountTableForRole(role);
+    const [account] = await db.select().from(table).where(eq(table.id, req.user.id)).limit(1);
+    if (!account) return res.status(404).json({ error: 'Account not found.' });
+
+    const identities = await db.select().from(authIdentitiesTable).where(and(
+      eq(authIdentitiesTable.accountRole, role),
+      eq(authIdentitiesTable.accountId, req.user.id),
+    ));
+    const google = identities.find((item) => item.provider === 'google');
+    const hasFallback = Boolean(account.password || account.wechatOpenId || identities.some((item) => item.provider !== 'google'));
+
+    return res.json({
+      google: { linked: Boolean(google), email: google?.email || null, canUnlink: Boolean(google && hasFallback) },
+    });
+  } catch (error) {
+    console.error('Provider settings error:', getErrorDetails(error));
+    return res.status(500).json({ error: 'Could not load sign-in methods.' });
+  }
+});
+
+app.post('/api/auth/google/link', authenticate, async (req, res) => {
+  const role = req.user?.role;
+  const credential = typeof req.body?.credential === 'string' ? req.body.credential.trim() : '';
+  if (!req.user || (role !== 'teacher' && role !== 'parent')) {
+    return res.status(403).json({ error: 'Google linking is available to teachers and parents.' });
+  }
+  if (!credential || credential.length > 16_384) {
+    return res.status(400).json({ error: 'Missing or invalid Google credential.' });
+  }
+
+  try {
+    const google = await verifyGoogleCredential(credential);
+    const [subjectIdentity] = await db.select().from(authIdentitiesTable).where(and(
+      eq(authIdentitiesTable.provider, 'google'),
+      eq(authIdentitiesTable.providerSubject, google.subject),
+      eq(authIdentitiesTable.accountRole, role),
+    )).limit(1);
+
+    if (subjectIdentity && subjectIdentity.accountId !== req.user.id) {
+      return res.status(409).json({
+        error: 'This Google account is already linked to another EduNet account with this role.',
+        code: 'google_already_linked',
+      });
+    }
+
+    const [accountIdentity] = await db.select().from(authIdentitiesTable).where(and(
+      eq(authIdentitiesTable.provider, 'google'),
+      eq(authIdentitiesTable.accountRole, role),
+      eq(authIdentitiesTable.accountId, req.user.id),
+    )).limit(1);
+
+    if (accountIdentity) {
+      if (accountIdentity.providerSubject !== google.subject) {
+        return res.status(409).json({
+          error: 'A different Google account is already linked. Unlink it before linking another Google account.',
+          code: 'google_identity_replacement_requires_unlink',
+        });
+      }
+      await db.update(authIdentitiesTable).set({ email: google.email, updatedAt: new Date() })
+        .where(eq(authIdentitiesTable.id, accountIdentity.id));
+      return res.json({ google: { linked: true, email: google.email } });
+    }
+
+    await db.insert(authIdentitiesTable).values({
+      accountRole: role,
+      accountId: req.user.id,
+      provider: 'google',
+      providerSubject: google.subject,
+      email: google.email,
+      lastLoginAt: new Date(),
+    });
+    return res.status(201).json({ google: { linked: true, email: google.email } });
+  } catch (error) {
+    return googleAuthErrorResponse(res, error);
+  }
+});
+
+app.delete('/api/auth/google/link', authenticate, async (req, res) => {
+  const role = req.user?.role;
+  if (!req.user || (role !== 'teacher' && role !== 'parent')) {
+    return res.status(403).json({ error: 'Google linking is available to teachers and parents.' });
+  }
+
+  try {
+    const table = accountTableForRole(role);
+    const [account] = await db.select().from(table).where(eq(table.id, req.user.id)).limit(1);
+    if (!account) return res.status(404).json({ error: 'Account not found.' });
+
+    const identities = await db.select().from(authIdentitiesTable).where(and(
+      eq(authIdentitiesTable.accountRole, role),
+      eq(authIdentitiesTable.accountId, req.user.id),
+    ));
+    const google = identities.find((item) => item.provider === 'google');
+    if (!google) return res.status(204).send();
+
+    const hasFallback = Boolean(account.password || account.wechatOpenId || identities.some((item) => item.provider !== 'google'));
+    if (!hasFallback) {
+      return res.status(409).json({
+        error: 'Add another sign-in method before unlinking Google.',
+        code: 'last_sign_in_method',
+      });
+    }
+
+    await db.delete(authIdentitiesTable).where(eq(authIdentitiesTable.id, google.id));
+    return res.status(204).send();
+  } catch (error) {
+    console.error('Google unlink error:', getErrorDetails(error));
+    return res.status(500).json({ error: 'Could not unlink Google.' });
   }
 });
 

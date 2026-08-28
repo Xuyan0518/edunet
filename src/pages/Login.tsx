@@ -1,10 +1,13 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { CircleAlert, CircleCheck, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Separator } from '@/components/ui/separator';
+import { GoogleSignInButton } from '@/components/auth/GoogleSignInButton';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { useI18n } from '@/context/I18nContext';
@@ -14,7 +17,9 @@ const Login: React.FC = () => {
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<'teacher' | 'parent'>('parent');
   const [isLoading, setIsLoading] = useState(false);
-  const { login } = useAuth();
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const [providerNotice, setProviderNotice] = useState<{ type: 'pending' | 'rejected'; message: string } | null>(null);
+  const { login, loginWithGoogle } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
   const { language, setLanguage, t } = useI18n();
@@ -51,6 +56,31 @@ const Login: React.FC = () => {
     }
   };
 
+  const handleGoogleCredential = useCallback(async (credential: string) => {
+    setIsGoogleLoading(true);
+    setProviderNotice(null);
+    const result = await loginWithGoogle(credential, role);
+    setIsGoogleLoading(false);
+
+    if (result.success) {
+      navigate('/dashboard');
+      return;
+    }
+    if (result.status === 'pending_approval') {
+      setProviderNotice({ type: 'pending', message: t('login.google.pending') });
+      return;
+    }
+    if (result.status === 'account_rejected') {
+      setProviderNotice({ type: 'rejected', message: t('login.google.rejected') });
+      return;
+    }
+    toast({
+      title: t('toast.title.error'),
+      description: result.error || t('login.google.failed'),
+      variant: 'destructive',
+    });
+  }, [loginWithGoogle, navigate, role, t, toast]);
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-background px-4">
       <div className="w-full max-w-md space-y-8">
@@ -84,6 +114,39 @@ const Login: React.FC = () => {
                     <Label htmlFor="teacher" className="cursor-pointer">{t('login.role.teacher')}</Label>
                   </div>
                 </RadioGroup>
+              </div>
+
+              {providerNotice && (
+                <div
+                  className={`flex gap-3 border p-3 text-sm ${providerNotice.type === 'pending' ? 'border-primary/30 bg-primary/5' : 'border-destructive/30 bg-destructive/5'}`}
+                  role="status"
+                >
+                  {providerNotice.type === 'pending'
+                    ? <CircleCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                    : <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />}
+                  <span>{providerNotice.message}</span>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <GoogleSignInButton
+                  onCredential={handleGoogleCredential}
+                  onError={(message) => toast({ title: t('toast.title.error'), description: message, variant: 'destructive' })}
+                  disabled={isGoogleLoading}
+                  locale={language === 'zh-CN' ? 'zh_CN' : 'en'}
+                />
+                {isGoogleLoading && (
+                  <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground" role="status">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    {t('login.google.verifying')}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center gap-3">
+                <Separator className="flex-1" />
+                <span className="text-xs text-muted-foreground">{t('login.orEmail')}</span>
+                <Separator className="flex-1" />
               </div>
 
               <div className="space-y-2">

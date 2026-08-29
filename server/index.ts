@@ -206,10 +206,13 @@ import { sendWeChatSubscribeMessage } from './utils/wechatNotify';
 import { DEFAULT_USER_NAME, pickDisplayName, toPublicUser } from './auth/userIdentity';
 import { GoogleIdentityError, verifyGoogleCredential } from './auth/googleIdentity';
 import { canAuthUserManageStudentsAndParents } from './utils/managementPermissions';
+import { createLoginRateLimiter } from './middleware/loginRateLimit';
 
 dotenv.config();
 
 const app = express();
+const webLoginRateLimit = createLoginRateLimiter();
+const adminLoginRateLimit = createLoginRateLimiter();
 const port = process.env.API_PORT || process.env.PORT || 3003;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -6494,7 +6497,7 @@ app.delete('/api/students/:studentId/papers/:paperId', authenticate, requireTeac
 });
 
 // ========== ADMIN ROUTES ==========
-app.post('/api/admin/login', async (req, res) => {
+app.post('/api/admin/login', adminLoginRateLimit, async (req, res) => {
   const email = trimString(req.body?.email).toLowerCase();
   const password = typeof req.body?.password === 'string' ? req.body.password : '';
 
@@ -6511,8 +6514,15 @@ app.post('/api/admin/login', async (req, res) => {
     if (!admin || !admin.password) {
       return res.status(401).json({ error: 'This admin account uses WeChat login only.' });
     }
-    if (!safeEq(password, admin.password)) {
+    const passwordCheck = await verifyPassword(password, admin.password);
+    if (!passwordCheck.valid) {
       return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    if (passwordCheck.needsUpgrade) {
+      await db
+        .update(adminsTable)
+        .set({ password: await hashPassword(password), updatedAt: new Date() })
+        .where(eq(adminsTable.id, admin.id));
     }
 
     const token = generateToken({
@@ -9953,7 +9963,7 @@ const reviewerLoginHandler: express.RequestHandler = async (req, res) => {
 app.post('/api/auth/reviewer-login', reviewerLoginHandler);
 app.post('/auth/reviewer-login', reviewerLoginHandler);
 
-app.post('/api/login', async (req, res) => {
+app.post('/api/login', webLoginRateLimit, async (req, res) => {
   const email = trimString(req.body?.email).toLowerCase();
   const password = typeof req.body?.password === 'string' ? req.body.password : '';
   const role = req.body?.role;
@@ -9976,7 +9986,7 @@ app.post('/api/login', async (req, res) => {
     if (!userRow) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
-    if (!userRow.password) {
+    if (userRow.authProvider !== 'password' || !userRow.password) {
       return res.status(401).json({ error: 'This account uses WeChat login only.' });
     }
     const passwordCheck = await verifyPassword(password, userRow.password);

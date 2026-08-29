@@ -19,7 +19,8 @@ describe('password hashing', () => {
     await expect(verifyPassword('wrong', 'legacy-secret')).resolves.toEqual({ valid: false, needsUpgrade: false });
   });
 
-  it('rejects malformed scrypt values without throwing', async () => {
+  it('treats a malformed scrypt-prefixed legacy value as plaintext for one-time upgrade', async () => {
+    await expect(verifyPassword('scrypt$broken', 'scrypt$broken')).resolves.toEqual({ valid: true, needsUpgrade: true });
     await expect(verifyPassword('anything', 'scrypt$broken')).resolves.toEqual({ valid: false, needsUpgrade: false });
   });
 });

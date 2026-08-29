@@ -17,6 +17,11 @@ type PasswordVerification = {
 const safeEqual = (left: Buffer, right: Buffer): boolean =>
   left.length === right.length && crypto.timingSafeEqual(left, right);
 
+const verifyLegacyPassword = (password: string, stored: string): PasswordVerification => {
+  const valid = safeEqual(Buffer.from(password, 'utf8'), Buffer.from(stored, 'utf8'));
+  return { valid, needsUpgrade: valid };
+};
+
 export const hashPassword = async (password: string): Promise<string> => {
   const salt = crypto.randomBytes(SALT_LENGTH);
   const derivedKey = await scrypt(password, salt, KEY_LENGTH, {
@@ -37,24 +42,23 @@ export const hashPassword = async (password: string): Promise<string> => {
 
 export const verifyPassword = async (password: string, stored: string): Promise<PasswordVerification> => {
   if (!stored.startsWith(`${PREFIX}$`)) {
-    const valid = safeEqual(Buffer.from(password, 'utf8'), Buffer.from(stored, 'utf8'));
-    return { valid, needsUpgrade: valid };
+    return verifyLegacyPassword(password, stored);
   }
 
   const parts = stored.split('$');
-  if (parts.length !== 6) return { valid: false, needsUpgrade: false };
+  if (parts.length !== 6) return verifyLegacyPassword(password, stored);
   const [, costText, blockSizeText, parallelizationText, saltText, hashText] = parts;
   const cost = Number(costText);
   const blockSize = Number(blockSizeText);
   const parallelization = Number(parallelizationText);
   if (cost !== COST || blockSize !== BLOCK_SIZE || parallelization !== PARALLELIZATION || !saltText || !hashText) {
-    return { valid: false, needsUpgrade: false };
+    return verifyLegacyPassword(password, stored);
   }
 
   try {
     const salt = Buffer.from(saltText, 'base64url');
     const expected = Buffer.from(hashText, 'base64url');
-    if (salt.length !== SALT_LENGTH || expected.length !== KEY_LENGTH) return { valid: false, needsUpgrade: false };
+    if (salt.length !== SALT_LENGTH || expected.length !== KEY_LENGTH) return verifyLegacyPassword(password, stored);
     const actual = await scrypt(password, salt, expected.length, {
       N: cost,
       r: blockSize,

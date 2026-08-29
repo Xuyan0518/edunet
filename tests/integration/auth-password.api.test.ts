@@ -2,7 +2,7 @@ import request from 'supertest';
 import type { Express } from 'express';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMockDb } from '../helpers/mockDb';
-import { hashPassword } from '../../server/utils/passwordHash';
+import { hashPassword, verifyPassword } from '../../server/utils/passwordHash';
 
 const mockDb = createMockDb();
 vi.mock('../../server/db', () => ({ db: mockDb }));
@@ -13,6 +13,7 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
+  vi.restoreAllMocks();
   mockDb.reset();
 });
 
@@ -57,18 +58,71 @@ describe('POST /api/login', () => {
     expect(res.body.token).toEqual(expect.any(String));
   });
 
-  it('preserves the WeChat-only response for an existing passwordless account', async () => {
+  it('upgrades a valid legacy password-provider credential to scrypt', async () => {
+    const password = 'Legacy password-provider credential';
+    let storedPatch: Record<string, unknown> | undefined;
+    vi.spyOn(mockDb, 'update').mockImplementation(() => ({
+      set: (patch: Record<string, unknown>) => {
+        storedPatch = patch;
+        return { where: vi.fn().mockResolvedValue([]) } as never;
+      },
+    }));
+    mockDb.queueSelect([{
+      id: '6b8d18e5-a7b1-419d-9a8b-b572c00341a1',
+      name: 'Legacy Password Teacher',
+      email: 'legacy.password.teacher@example.invalid',
+      password,
+      status: 'approved',
+      authProvider: 'password',
+    }]);
+
+    const res = await request(app).post('/api/login').send({
+      email: 'legacy.password.teacher@example.invalid',
+      password,
+      role: 'teacher',
+    });
+
+    expect(res.status).toBe(200);
+    expect(storedPatch?.password).toEqual(expect.any(String));
+    expect(storedPatch?.password).not.toBe(password);
+    expect(await verifyPassword(password, String(storedPatch?.password))).toEqual({
+      valid: true,
+      needsUpgrade: false,
+    });
+  });
+
+  it('rejects web-password login for a WeChat identity that still has a legacy password', async () => {
     mockDb.queueSelect([{
       id: '3e24165c-e784-4dfa-9ad7-a66025be6fa1',
       name: 'WeChat Teacher',
-      email: null,
+      email: 'wechat.teacher@example.invalid',
+      password: 'legacy-password-that-must-not-authenticate',
+      status: 'approved',
+      authProvider: 'wechat',
+    }]);
+
+    const res = await request(app).post('/api/login').send({
+      email: 'wechat.teacher@example.invalid',
+      password: 'legacy-password-that-must-not-authenticate',
+      role: 'teacher',
+    });
+
+    expect(res.status).toBe(401);
+    expect(res.body).toEqual({ error: 'This account uses WeChat login only.' });
+  });
+
+  it('preserves the WeChat-only response for an existing passwordless account', async () => {
+    mockDb.queueSelect([{
+      id: '44108ddf-b8f0-4f9b-a4e2-5fdb2381587d',
+      name: 'Passwordless WeChat Teacher',
+      email: 'passwordless.wechat@example.invalid',
       password: null,
       status: 'approved',
       authProvider: 'wechat',
     }]);
 
     const res = await request(app).post('/api/login').send({
-      email: 'wechat-placeholder@example.invalid',
+      email: 'passwordless.wechat@example.invalid',
       password: 'irrelevant-password',
       role: 'teacher',
     });

@@ -14,6 +14,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/context/AuthContext';
 import { apiRequest, jsonBody } from '@/services/http';
 import { toBinMutationBody } from '@/utils/studentBin';
+import {
+  STUDENT_RECORDS_DEFAULT_TAB,
+  summarizeStudentRecords,
+  type StudentRecordCategoryCounts,
+} from '@/utils/studentProfileView';
 
 type Student = { id: string; name: string; grade: string };
 type ExamSubject = { name: string; score: string; scope?: string; examDate?: string | null };
@@ -52,13 +57,15 @@ export default function StudentRecords() {
   const [subjects, setSubjects] = useState<Option[]>([]);
   const [paperTypes, setPaperTypes] = useState<Option[]>([]);
   const [paperSchools, setPaperSchools] = useState<Option[]>([]);
+  const [dailyProgressCount, setDailyProgressCount] = useState(0);
+  const [weeklyFeedbackCount, setWeeklyFeedbackCount] = useState(0);
   const [year, setYear] = useState(currentYear);
 
   const load = useCallback(async () => {
     if (!id) return;
     setLoading(true);
     try {
-      const [studentData, examData, paperData, reportData, quarterlyData, yearlyData, subjectData, typeData, schoolData] = await Promise.all([
+      const [studentData, examData, paperData, reportData, quarterlyData, yearlyData, subjectData, typeData, schoolData, dailyProgressData, weeklyFeedbackData] = await Promise.all([
         apiRequest<Student>(`students/${id}`),
         apiRequest<Exam[]>(`students/${id}/exams`),
         apiRequest<Paper[]>(`students/${id}/papers`),
@@ -68,6 +75,8 @@ export default function StudentRecords() {
         apiRequest<Array<{ subject: Option }>>(`students/${id}/subjects/full`),
         apiRequest<Option[]>('paper-types'),
         apiRequest<Option[]>('paper-schools'),
+        apiRequest<unknown[]>(`students/${id}/progress`),
+        apiRequest<unknown[]>(`feedback/list?studentId=${encodeURIComponent(id)}`),
       ]);
       setStudent(studentData);
       setExams(examData || []);
@@ -78,6 +87,8 @@ export default function StudentRecords() {
       setSubjects((subjectData || []).map((entry) => entry.subject).filter(Boolean));
       setPaperTypes(typeData || []);
       setPaperSchools(schoolData || []);
+      setDailyProgressCount(dailyProgressData?.length || 0);
+      setWeeklyFeedbackCount(weeklyFeedbackData?.length || 0);
       if (canEdit) {
         const binData = await apiRequest<{ groups: Record<string, BinItem[]> }>(`students/${id}/bin`);
         setBin(binData.groups || {});
@@ -92,6 +103,15 @@ export default function StudentRecords() {
   useEffect(() => { void load(); }, [load]);
 
   const binItems = useMemo(() => Object.values(bin).flat(), [bin]);
+  const overview = useMemo(() => summarizeStudentRecords({
+    dailyProgress: dailyProgressCount,
+    weeklyFeedback: weeklyFeedbackCount,
+    exams: exams.length,
+    papers: papers.length,
+    reports: reports.length,
+    semesterSummaries: quarterly.length,
+    yearlySummaries: yearly ? 1 : 0,
+  }), [dailyProgressCount, exams.length, papers.length, quarterly.length, reports.length, weeklyFeedbackCount, yearly]);
 
   return (
     <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6">
@@ -109,13 +129,14 @@ export default function StudentRecords() {
         </Button>
       </div>
 
-      <Tabs defaultValue="exams">
+      <Tabs defaultValue={STUDENT_RECORDS_DEFAULT_TAB}>
         <TabsList className="mb-5 h-auto w-full justify-start gap-1 overflow-x-auto bg-transparent p-0">
-          {['exams', 'papers', 'reports', 'semester', 'yearly', ...(canEdit ? ['bin'] : [])].map((tab) => (
+          {['overview', 'exams', 'papers', 'reports', 'semester', 'yearly', ...(canEdit ? ['bin'] : [])].map((tab) => (
             <TabsTrigger key={tab} value={tab} className="shrink-0 capitalize data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">{tab}</TabsTrigger>
           ))}
         </TabsList>
 
+        <TabsContent value="overview"><StudentRecordsOverview counts={overview} /></TabsContent>
         <TabsContent value="exams"><ExamPanel studentId={id} canEdit={canEdit} items={exams} onChanged={load} /></TabsContent>
         <TabsContent value="papers"><PaperPanel studentId={id} canEdit={canEdit} items={papers} subjects={subjects} types={paperTypes} schools={paperSchools} onChanged={load} /></TabsContent>
         <TabsContent value="reports"><ReportPanel studentId={id} canEdit={canEdit} items={reports} onChanged={load} /></TabsContent>
@@ -125,6 +146,44 @@ export default function StudentRecords() {
       </Tabs>
     </main>
   );
+}
+
+function StudentRecordsOverview({ counts }: { counts: StudentRecordCategoryCounts & { total: number } }) {
+  const categories = [
+    { label: 'Daily progress', count: counts.dailyProgress, detail: 'Attendance, activities, and teacher notes' },
+    { label: 'Weekly feedback', count: counts.weeklyFeedback, detail: 'Weekly summaries, strengths, and next steps' },
+    { label: 'Exams', count: counts.exams, detail: 'Exam schedules, subjects, and scores' },
+    { label: 'Papers & quizzes', count: counts.papers, detail: 'Practice results, strengths, and improvements' },
+    { label: 'Structured reports', count: counts.reports, detail: 'Teacher drafts and published reports' },
+    { label: 'Semester summaries', count: counts.semesterSummaries, detail: 'Summaries for the selected year' },
+    { label: 'Yearly summaries', count: counts.yearlySummaries, detail: 'Year-end progress summaries' },
+  ];
+
+  return <div className="space-y-5">
+    <Card>
+      <CardHeader>
+        <CardTitle>Complete student record</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <p className="text-sm text-muted-foreground">
+          {counts.total} saved records are available across the profile and academic workspace. Daily progress and weekly feedback remain on the student profile; use the tabs above for exams, papers, reports, and summaries.
+        </p>
+      </CardContent>
+    </Card>
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {categories.map((category) => <Card key={category.label}>
+        <CardContent className="p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="font-medium">{category.label}</p>
+              <Meta>{category.detail}</Meta>
+            </div>
+            <Badge variant="outline" className="text-base">{category.count}</Badge>
+          </div>
+        </CardContent>
+      </Card>)}
+    </div>
+  </div>;
 }
 
 function ExamPanel({ studentId, canEdit, items, onChanged }: { studentId: string; canEdit: boolean; items: Exam[]; onChanged: () => Promise<void> }) {

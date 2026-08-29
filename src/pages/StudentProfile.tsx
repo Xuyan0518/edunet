@@ -12,6 +12,7 @@ import SubjectTopicsPanel from '@/components/ui/SubjectTopicsPanel';
 import { buildApiUrl } from '@/config/api';
 import { getAuthHeaders } from '@/utils/auth';
 import { isWithinInterval, parseISO } from 'date-fns';
+import { createInitialStudentProfileRange, getStudentPerformanceLabel } from '@/utils/studentProfileView';
 
 const StudentProfile: React.FC = () => {
   const { user, role } = useAuth();
@@ -26,15 +27,8 @@ const StudentProfile: React.FC = () => {
   const [progressLoading, setProgressLoading] = useState(false);
   const [feedbackLoading, setFeedbackLoading] = useState(false);
 
-  const defaultWeekRange = useMemo<DateRange>(() => {
-    const today = new Date();
-    const start = new Date(today.getFullYear(), today.getMonth(), today.getDate() - today.getDay());
-    const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
-    return { from: start, to: end };
-  }, []);
-
-  const [dateRange, setDateRange] = useState<DateRange>(defaultWeekRange);
-  const [feedbackDateRange, setFeedbackDateRange] = useState<DateRange>(defaultWeekRange);
+  const [dateRange, setDateRange] = useState<DateRange>(createInitialStudentProfileRange);
+  const [feedbackDateRange, setFeedbackDateRange] = useState<DateRange>(createInitialStudentProfileRange);
 
   useEffect(() => {
     if (id) {
@@ -129,11 +123,6 @@ const StudentProfile: React.FC = () => {
     });
   }, [weeklyFeedback, feedbackDateRange]);
 
-  // Debug logging for date range changes
-  useEffect(() => {
-    console.log('Date range changed:', dateRange);
-    console.log('Filtered progress count:', filteredProgress.length);
-  }, [dateRange, filteredProgress]);
 
   const handleDailyProgressClick = (progress: DailyProgress) => {
     if (!student) return;
@@ -196,18 +185,6 @@ const StudentProfile: React.FC = () => {
     }
   };
 
-  const getPerformanceLabel = (performance: string) => {
-    switch (performance.toLowerCase()) {
-      case 'excellent':
-        return t('dailyProgressForm.activity.performance.excellent');
-      case 'good':
-        return t('dailyProgressForm.activity.performance.good');
-      case 'needs improvement':
-        return t('dailyProgressForm.activity.performance.needsImprovement');
-      default:
-        return performance;
-    }
-  };
 
   // If viewing a specific student
   if (id && student) {
@@ -456,7 +433,7 @@ const StudentProfile: React.FC = () => {
                                 <div className="flex items-center gap-2 mb-1">
                                   <span className="font-medium text-sm">{activity.subject}</span>
                                   <Badge variant="outline" className="text-xs">
-                                    {getPerformanceLabel(activity.performance)}
+                                    {getStudentPerformanceLabel(activity.performance, t)}
                                   </Badge>
                                 </div>
                                 <p className="text-sm text-muted-foreground mb-1">

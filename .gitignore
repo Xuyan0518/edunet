@@ -24,6 +24,7 @@ dist-ssr
 *.sw?
 
 .env
+.env.backup
 Dockerfile.lock
 
 # WeChat DevTools per-user setting (urlCheck, etc.) — never commit

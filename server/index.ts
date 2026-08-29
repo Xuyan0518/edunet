@@ -78,6 +78,7 @@ import {
 } from './utils/studentAnalytics';
 import { pickCurrentTerm } from './utils/academicTerms';
 import { buildStudentReportAnalytics } from './services/reportAnalytics';
+import { hashPassword, verifyPassword } from './utils/passwordHash';
 import {
   DEEPSEEK_QUARTERLY_PROMPT,
   DEEPSEEK_YEARLY_PROMPT,
@@ -9978,7 +9979,8 @@ app.post('/api/login', async (req, res) => {
     if (!userRow.password) {
       return res.status(401).json({ error: 'This account uses WeChat login only.' });
     }
-    if (!safeEq(password, userRow.password)) {
+    const passwordCheck = await verifyPassword(password, userRow.password);
+    if (!passwordCheck.valid) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
     if (userRow.status !== 'approved') {
@@ -9987,6 +9989,12 @@ app.post('/api/login', async (req, res) => {
         status: 'pending_approval',
         user: toPublicUser(userRow, role),
       });
+    }
+    if (passwordCheck.needsUpgrade) {
+      await db
+        .update(table)
+        .set({ password: await hashPassword(password), updatedAt: new Date() })
+        .where(eq(table.id, userRow.id));
     }
 
     const token = generateToken({

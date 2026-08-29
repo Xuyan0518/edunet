@@ -24,7 +24,7 @@ export const AdminSchema = z.object({
   wechatOpenId: z.string().optional(),
   wechatUnionId: z.string().optional(),
   avatarUrl: z.string().url().optional().nullable(),
-  authProvider: z.enum(['wechat', 'google', 'reviewer']).optional().default('wechat'),
+  authProvider: z.enum(['wechat', 'google', 'reviewer', 'password']).optional().default('wechat'),
 });
 
 export const TeacherSchema = z.object({
@@ -40,7 +40,7 @@ export const TeacherSchema = z.object({
   wechatOpenId: z.string().optional(),
   wechatUnionId: z.string().optional(),
   avatarUrl: z.string().url().optional().nullable(),
-  authProvider: z.enum(['wechat', 'google', 'reviewer']).optional().default('wechat'),
+  authProvider: z.enum(['wechat', 'google', 'reviewer', 'password']).optional().default('wechat'),
 });
 
 export const ParentSchema = z.object({
@@ -56,7 +56,7 @@ export const ParentSchema = z.object({
   wechatOpenId: z.string().optional(),
   wechatUnionId: z.string().optional(),
   avatarUrl: z.string().url().optional().nullable(),
-  authProvider: z.enum(['wechat', 'google', 'reviewer']).optional().default('wechat'),
+  authProvider: z.enum(['wechat', 'google', 'reviewer', 'password']).optional().default('wechat'),
 });
 
 export const StudentSchema = z.object({

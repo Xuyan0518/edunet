@@ -207,6 +207,7 @@ import { DEFAULT_USER_NAME, pickDisplayName, toPublicUser } from './auth/userIde
 import { GoogleIdentityError, verifyGoogleCredential } from './auth/googleIdentity';
 import { canAuthUserManageStudentsAndParents } from './utils/managementPermissions';
 import { createLoginRateLimiter } from './middleware/loginRateLimit';
+import { buildStudentRecordsWorkbook, isValidExportDateRange } from './utils/studentRecordsWorkbook';
 
 dotenv.config();
 
@@ -6546,6 +6547,59 @@ app.get('/api/admin/pending', authenticate, requireAdmin, async (req, res) => {
     parents: parents.map((item) => toPublicUser(item, 'parent')),
     teachers: teachers.map((item) => toPublicUser(item, 'teacher')),
   });
+});
+
+app.get('/api/admin/student-records-export', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const startDate = String(req.query.startDate || '');
+    const endDate = String(req.query.endDate || '');
+    const requestedStudentId = String(req.query.studentId || 'all').trim();
+    if (!isValidExportDateRange(startDate, endDate)) {
+      return res.status(400).json({ error: 'startDate and endDate must be valid YYYY-MM-DD values with startDate on or before endDate' });
+    }
+    const start = new Date(`${startDate}T00:00:00.000Z`);
+    const end = new Date(`${endDate}T00:00:00.000Z`);
+    const rangeDays = Math.floor((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+    if (rangeDays > 370) {
+      return res.status(400).json({ error: 'Export date range cannot exceed 370 days' });
+    }
+
+    const [students, dailyRows, weeklyRows, cycleRows] = await Promise.all([
+      db.select().from(studentsTable).orderBy(studentsTable.name),
+      db.select().from(dailyProgress).where(activeRecord(dailyProgress)).orderBy(dailyProgress.date),
+      db.select().from(weeklyFeedback).where(activeRecord(weeklyFeedback)).orderBy(weeklyFeedback.weekStarting),
+      db.select({
+        id: weeklyStudyCyclesTable.id,
+        startDate: weeklyStudyCyclesTable.startDate,
+        endDate: weeklyStudyCyclesTable.endDate,
+        notes: weeklyStudyCyclesTable.notes,
+      }).from(weeklyStudyCyclesTable).orderBy(weeklyStudyCyclesTable.startDate),
+    ]);
+    const studentId = requestedStudentId && requestedStudentId !== 'all' ? requestedStudentId : undefined;
+    if (studentId && !students.some((student) => student.id === studentId)) {
+      return res.status(404).json({ error: 'Student not found' });
+    }
+
+    const workbook = await buildStudentRecordsWorkbook({
+      startDate,
+      endDate,
+      studentId,
+      students,
+      dailyRecords: dailyRows.map(withV2Activities),
+      weeklyRecords: weeklyRows,
+      weeklyCycles: cycleRows,
+    });
+    const scope = studentId ? 'student' : 'all-students';
+    const filename = `edunet-${scope}-${startDate}-to-${endDate}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Content-Length', workbook.length);
+    return res.send(workbook);
+  } catch (err) {
+    console.error('Error exporting admin student records:', err);
+    return res.status(500).json({ error: 'Failed to export student records' });
+  }
 });
 
 app.get('/api/admin/student-management', authenticate, requireAdmin, async (_req, res) => {

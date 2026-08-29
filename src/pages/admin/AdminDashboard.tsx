@@ -181,6 +181,12 @@ const downloadCsv = (filename: string, rows: Array<Record<string, unknown>>) => 
 
 const toLines = (items?: string[]) => (items || []).join('\n');
 const fromLines = (value: string) => value.split('\n').map((item) => item.trim()).filter(Boolean);
+const isoToday = () => new Date().toISOString().slice(0, 10);
+const isoDaysAgo = (days: number) => {
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() - days);
+  return date.toISOString().slice(0, 10);
+};
 
 const AdminDashboard: React.FC = () => {
   const [data, setData] = useState<AdminPayload | null>(null);
@@ -190,6 +196,10 @@ const AdminDashboard: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState('all');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportScope, setExportScope] = useState<'selected' | 'all'>('selected');
+  const [exportStartDate, setExportStartDate] = useState(() => isoDaysAgo(30));
+  const [exportEndDate, setExportEndDate] = useState(isoToday);
   const [studentForm, setStudentForm] = useState({ name: '', grade: '', parentId: '' });
   const [dailyForm, setDailyForm] = useState<EditableDaily | null>(null);
   const [dailyActivitiesText, setDailyActivitiesText] = useState('[]');
@@ -465,46 +475,46 @@ const AdminDashboard: React.FC = () => {
     })));
   };
 
-  const exportSelectedRecords = () => {
-    if (!selectedStudent) return;
-    const rows = [
-      ...selectedStudent.dailyProgress.map((record) => ({
-        type: 'daily',
-        date: shortDate(record.date),
-        rangeEnd: '',
-        title: record.attendance,
-        summary: record.summary || '',
-      })),
-      ...selectedStudent.weeklyFeedback.map((record) => ({
-        type: 'weekly',
-        date: shortDate(record.weekStarting),
-        rangeEnd: shortDate(record.weekEnding),
-        title: record.nextWeekFocus || '',
-        summary: record.summary,
-      })),
-      ...selectedStudent.quarterlySummaries.map((record) => ({
-        type: 'term',
-        date: `${record.year} Q${record.quarter}`,
-        rangeEnd: '',
-        title: '',
-        summary: record.summary,
-      })),
-      ...selectedStudent.yearlySummaries.map((record) => ({
-        type: 'yearly',
-        date: String(record.year),
-        rangeEnd: '',
-        title: '',
-        summary: record.summary,
-      })),
-      ...selectedStudent.reports.map((record) => ({
-        type: record.reportType,
-        date: shortDate(record.startDate),
-        rangeEnd: shortDate(record.endDate),
-        title: record.title || '',
-        summary: record.summaryText,
-      })),
-    ];
-    downloadCsv(`${selectedStudent.name}-records.csv`, rows);
+  const exportStudyRecords = async () => {
+    if (exportScope === 'selected' && !selectedStudent) return;
+    if (!exportStartDate || !exportEndDate || exportStartDate > exportEndDate) {
+      toast({ title: 'Invalid export date range', description: 'Choose a start date on or before the end date.', variant: 'destructive' });
+      return;
+    }
+    setExporting(true);
+    try {
+      const params = new URLSearchParams({
+        studentId: exportScope === 'all' ? 'all' : selectedStudent!.id,
+        startDate: exportStartDate,
+        endDate: exportEndDate,
+      });
+      const response = await fetch(buildApiUrl(`admin/student-records-export?${params.toString()}`), {
+        headers: getAdminHeaders(),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || 'Failed to export study records');
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get('content-disposition') || '';
+      const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1]
+        || `edunet-study-records-${exportStartDate}-to-${exportEndDate}.xlsx`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      link.click();
+      URL.revokeObjectURL(url);
+      toast({ title: 'Excel export downloaded', description: `${exportScope === 'all' ? 'All students' : selectedStudent?.name} · ${exportStartDate} to ${exportEndDate}` });
+    } catch (error) {
+      toast({
+        title: 'Failed to export study records',
+        description: error instanceof Error ? error.message : undefined,
+        variant: 'destructive',
+      });
+    } finally {
+      setExporting(false);
+    }
   };
 
   const metricItems = [
@@ -542,10 +552,6 @@ const AdminDashboard: React.FC = () => {
               <ArrowDownToLine className="mr-2 h-4 w-4" />
               Export Students
             </Button>
-            <Button onClick={exportSelectedRecords} disabled={!selectedStudent}>
-              <ArrowDownToLine className="mr-2 h-4 w-4" />
-              Export Selected
-            </Button>
           </div>
         </div>
       </div>
@@ -564,6 +570,41 @@ const AdminDashboard: React.FC = () => {
               </div>
             );
           })}
+        </section>
+
+        <section className="rounded-md border border-slate-200 bg-white p-4">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+            <div>
+              <h2 className="font-semibold">Export study records</h2>
+              <p className="mt-1 text-sm text-slate-500">Download daily and weekly records grouped week by week in an Excel spreadsheet.</p>
+            </div>
+            <div className="grid flex-1 gap-3 sm:grid-cols-2 xl:max-w-4xl xl:grid-cols-[1.2fr_1fr_1fr_auto]">
+              <div className="grid gap-1.5">
+                <Label htmlFor="export-scope">Students</Label>
+                <select
+                  id="export-scope"
+                  value={exportScope}
+                  onChange={(event) => setExportScope(event.target.value as 'selected' | 'all')}
+                  className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="selected">Selected student{selectedStudent ? `: ${selectedStudent.name}` : ''}</option>
+                  <option value="all">All students</option>
+                </select>
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="export-start-date">Start date</Label>
+                <Input id="export-start-date" type="date" value={exportStartDate} onChange={(event) => setExportStartDate(event.target.value)} />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="export-end-date">End date</Label>
+                <Input id="export-end-date" type="date" value={exportEndDate} onChange={(event) => setExportEndDate(event.target.value)} />
+              </div>
+              <Button onClick={exportStudyRecords} disabled={exporting || (exportScope === 'selected' && !selectedStudent)}>
+                <ArrowDownToLine className="mr-2 h-4 w-4" />
+                {exporting ? 'Exporting...' : 'Export Excel'}
+              </Button>
+            </div>
+          </div>
         </section>
 
         <section className="grid gap-6 lg:grid-cols-[minmax(420px,0.95fr)_1.4fr]">

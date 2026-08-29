@@ -6,7 +6,8 @@ const source = fs.readFileSync(path.resolve(process.cwd(), 'src/pages/admin/Admi
 
 describe('admin spreadsheet export controls', () => {
   it('offers selected-student/all-students scope and an inclusive date range for XLSX export', () => {
-    expect(source).toContain('Export study records');
+    expect(source).toContain('Export weekly student feedback');
+    expect(source).toContain('Unrecorded fields stay blank.');
     expect(source).toContain('All students');
     expect(source).toContain('Selected student');
     expect(source).toContain('type="date"');

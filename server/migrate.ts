@@ -5,6 +5,7 @@ import { migrate as migrateNeonHttp } from 'drizzle-orm/neon-http/migrator';
 import pg from 'pg';
 import dotenv from 'dotenv';
 import { neon, neonConfig } from '@neondatabase/serverless';
+import { databaseSslConfig, databaseSslRejectUnauthorized } from './utils/databaseSsl.ts';
 
 dotenv.config();
 
@@ -47,9 +48,11 @@ async function main() {
   } else {
     pool = new pg.Pool({
       connectionString: databaseUrl,
-      ssl: {
-        rejectUnauthorized: false,
-      },
+      ssl: databaseSslConfig(
+        databaseUrl,
+        databaseSslRejectUnauthorized(process.env.DATABASE_SSL_REJECT_UNAUTHORIZED),
+        process.env.DATABASE_SSL_MODE,
+      ),
     });
     const db = drizzlePg(pool);
     await migratePg(db, {

@@ -1,0 +1,12 @@
+{
+  "files": [
+    "0000_initial_setup.sql",
+    "0003_add_progress_tables.sql",
+    "0006_curious_wild_child.sql",
+    "0006_empty_vulture.sql",
+    "0007_update_progress_tables_to_new_schema.sql",
+    "0008_add_wechat_open_id.sql",
+    "2025_08_19_add_weekly_feedback_constraints.sql"
+  ],
+  "note": "Legacy/manual SQL retained for audit history. Drizzle executes only files in meta/_journal.json. The weekly-feedback constraints are applied idempotently by 0038_add_weekly_feedback_constraints.sql."
+}

@@ -11,6 +11,7 @@ vi.mock('../../server/db', () => ({
 let app: any;
 
 beforeAll(async () => {
+  process.env.REVIEWER_LOGIN_ENABLED = 'true';
   process.env.REVIEWER_USERNAME = 'account';
   process.env.REVIEWER_PASSWORD = 'xyz2026!!';
   process.env.REVIEWER_STUDENT_ID = '11111111-1111-1111-1111-111111111111';

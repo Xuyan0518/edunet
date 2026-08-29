@@ -5,7 +5,7 @@ import dotenv from 'dotenv';
 import crypto from 'crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { db } from './db';
+import { db, executeAtomicBatch } from './db';
 import { eq, desc, and, isNull, isNotNull, inArray, gte, lte, lt } from 'drizzle-orm';
 import type { SQLWrapper } from 'drizzle-orm';
 import { format } from 'date-fns';
@@ -208,8 +208,12 @@ import { GoogleIdentityError, verifyGoogleCredential } from './auth/googleIdenti
 import { canAuthUserManageStudentsAndParents } from './utils/managementPermissions';
 import { createLoginRateLimiter } from './middleware/loginRateLimit';
 import { buildStudentRecordsWorkbook, isValidExportDateRange } from './utils/studentRecordsWorkbook';
+import { isCanonicalWeeklyRange } from './utils/weekRange';
+import { toParentPaperDto } from './utils/paperVisibility';
+import { assertProductionConfig } from './utils/productionConfig';
 
 dotenv.config();
+assertProductionConfig(process.env);
 
 const app = express();
 const webLoginRateLimit = createLoginRateLimiter();
@@ -229,6 +233,7 @@ app.use(cors({
     if (!origin || allowedCorsOrigins.includes(origin)) return callback(null, true);
     return callback(new Error(`Not allowed by CORS: ${origin}`));
   },
+  exposedHeaders: ['X-Papers-Updated-At'],
 }));
 app.use(bodyParser.json());
 
@@ -335,8 +340,9 @@ const requirePaperEvaluations = (
   return details.length ? { ok: false, details } : { ok: true };
 };
 
-const REVIEWER_USERNAME = String(process.env.REVIEWER_USERNAME || 'account').trim();
-const REVIEWER_PASSWORD = String(process.env.REVIEWER_PASSWORD || 'xyz2026!!');
+const REVIEWER_LOGIN_ENABLED = String(process.env.REVIEWER_LOGIN_ENABLED || '').trim().toLowerCase() === 'true';
+const REVIEWER_USERNAME = String(process.env.REVIEWER_USERNAME || '').trim();
+const REVIEWER_PASSWORD = String(process.env.REVIEWER_PASSWORD || '');
 const REVIEWER_DISPLAY_NAME = String(process.env.REVIEWER_DISPLAY_NAME || '审核体验账号').trim() || '审核体验账号';
 const REVIEWER_EMAIL = String(process.env.REVIEWER_EMAIL || 'reviewer@local.edunet').trim();
 const REVIEWER_TEACHER_ID = String(process.env.REVIEWER_TEACHER_ID || '').trim();
@@ -6167,6 +6173,25 @@ app.get('/api/students/:studentId/papers', authenticate, verifyParentStudentAcce
     if (date) {
       conditions.push(eq(studentPapersTable.date, date));
     }
+    if (req.user?.role === 'parent') {
+      const parentRows = await db
+        .select({
+          id: studentPapersTable.id,
+          studentId: studentPapersTable.studentId,
+          subjectName: studentPapersTable.subjectName,
+          description: studentPapersTable.description,
+          date: studentPapersTable.date,
+          score: studentPapersTable.score,
+          total: studentPapersTable.total,
+        })
+        .from(studentPapersTable)
+        .where(and(...conditions))
+        .orderBy(desc(studentPapersTable.date));
+      return res.json(parentRows.map((paper) => toParentPaperDto({
+        ...paper,
+        ...parseScoreMeta(paper.score, paper.total),
+      })));
+    }
     const rows = await db
       .select({
         id: studentPapersTable.id,
@@ -6192,6 +6217,18 @@ app.get('/api/students/:studentId/papers', authenticate, verifyParentStudentAcce
       .leftJoin(paperSchoolsTable, eq(studentPapersTable.schoolId, paperSchoolsTable.id))
       .where(and(...conditions))
       .orderBy(desc(studentPapersTable.date));
+
+    const versionConditions = [eq(studentPapersTable.studentId, studentId)];
+    if (date) versionConditions.push(eq(studentPapersTable.date, date));
+    const [latestVersion] = await db
+      .select({ updatedAt: studentPapersTable.updatedAt })
+      .from(studentPapersTable)
+      .where(and(...versionConditions))
+      .orderBy(desc(studentPapersTable.updatedAt))
+      .limit(1);
+    if (req.user?.role !== 'parent' && latestVersion?.updatedAt) {
+      res.setHeader('X-Papers-Updated-At', latestVersion.updatedAt.toISOString());
+    }
 
     const result = rows.map((r) => ({
       ...r,
@@ -6256,7 +6293,7 @@ app.put('/api/students/:studentId/papers/batch', authenticate, requireTeacher, a
             updatedByName: studentPapersTable.updatedByName,
           })
           .from(studentPapersTable)
-          .where(and(eq(studentPapersTable.studentId, studentId), eq(studentPapersTable.date, date), activeRecord(studentPapersTable)))
+          .where(and(eq(studentPapersTable.studentId, studentId), eq(studentPapersTable.date, date)))
           .orderBy(desc(studentPapersTable.updatedAt))
           .limit(1);
         if (latest.length) {
@@ -6269,11 +6306,13 @@ app.put('/api/students/:studentId/papers/batch', authenticate, requireTeacher, a
             return;
           }
         }
-        await db
-          .delete(studentPapersTable)
-          .where(and(eq(studentPapersTable.studentId, studentId), eq(studentPapersTable.date, date), activeRecord(studentPapersTable)));
-
+        const deletePatch = softDeletePatch(req);
         if (papers.length === 0) {
+          await db
+            .update(studentPapersTable)
+            .set(deletePatch)
+            .where(and(eq(studentPapersTable.studentId, studentId), eq(studentPapersTable.date, date), activeRecord(studentPapersTable)));
+          res.setHeader('X-Papers-Updated-At', deletePatch.updatedAt.toISOString());
           res.json({ message: 'No papers to save' });
           return;
         }
@@ -6294,8 +6333,15 @@ app.put('/api/students/:studentId/papers/batch', authenticate, requireTeacher, a
           updatedAt: now,
           updatedByName: req.user?.name || null,
         }));
-        const inserted = await db.insert(studentPapersTable).values(values).returning();
-        res.json({ message: 'Saved', count: inserted.length });
+        await executeAtomicBatch((transaction) => [
+          transaction
+            .update(studentPapersTable)
+            .set(deletePatch)
+            .where(and(eq(studentPapersTable.studentId, studentId), eq(studentPapersTable.date, date), activeRecord(studentPapersTable))),
+          transaction.insert(studentPapersTable).values(values),
+        ]);
+        res.setHeader('X-Papers-Updated-At', now.toISOString());
+        res.json({ message: 'Saved', count: values.length });
       },
     );
     return;
@@ -6564,7 +6610,7 @@ app.get('/api/admin/student-records-export', authenticate, requireAdmin, async (
       return res.status(400).json({ error: 'Export date range cannot exceed 370 days' });
     }
 
-    const [students, dailyRows, weeklyRows, cycleRows] = await Promise.all([
+    const [students, dailyRows, weeklyRows, cycleRows, paperRows, examRows, examScoreRows] = await Promise.all([
       db.select().from(studentsTable).orderBy(studentsTable.name),
       db.select().from(dailyProgress).where(activeRecord(dailyProgress)).orderBy(dailyProgress.date),
       db.select().from(weeklyFeedback).where(activeRecord(weeklyFeedback)).orderBy(weeklyFeedback.weekStarting),
@@ -6574,6 +6620,9 @@ app.get('/api/admin/student-records-export', authenticate, requireAdmin, async (
         endDate: weeklyStudyCyclesTable.endDate,
         notes: weeklyStudyCyclesTable.notes,
       }).from(weeklyStudyCyclesTable).orderBy(weeklyStudyCyclesTable.startDate),
+      db.select().from(studentPapersTable).where(activeRecord(studentPapersTable)).orderBy(studentPapersTable.date),
+      db.select().from(examsTable).where(activeRecord(examsTable)).orderBy(examsTable.examDate),
+      db.select().from(examScoresTable).orderBy(examScoresTable.examDate),
     ]);
     const studentId = requestedStudentId && requestedStudentId !== 'all' ? requestedStudentId : undefined;
     if (studentId && !students.some((student) => student.id === studentId)) {
@@ -6588,6 +6637,9 @@ app.get('/api/admin/student-records-export', authenticate, requireAdmin, async (
       dailyRecords: dailyRows.map(withV2Activities),
       weeklyRecords: weeklyRows,
       weeklyCycles: cycleRows,
+      paperRecords: paperRows,
+      examRecords: examRows,
+      examScores: examScoreRows,
     });
     const scope = studentId ? 'student' : 'all-students';
     const filename = `edunet-${scope}-${startDate}-to-${endDate}.xlsx`;
@@ -8532,6 +8584,11 @@ app.post('/api/feedback', authenticate, requireRole('teacher', 'admin'), async (
       fieldPrefix: 'weeklyRange',
     });
     if (feedbackRangeIssues.length) return invalidInput(res, feedbackRangeIssues);
+    const canonicalWeekStart = format(parsedData.weekStarting, 'yyyy-MM-dd');
+    const canonicalWeekEnd = format(parsedData.weekEnding, 'yyyy-MM-dd');
+    if (!isCanonicalWeeklyRange(canonicalWeekStart, canonicalWeekEnd)) {
+      return invalidInput(res, [{ field: 'weeklyRange', message: 'Week must run from Sunday through the following Saturday' }]);
+    }
     if (trimString(parsedData.summary).length > INPUT_LIMITS.summaryTextMax) {
       return invalidInput(res, [{ field: 'summary', message: `文本过长（最多 ${INPUT_LIMITS.summaryTextMax} 字）` }]);
     }
@@ -8603,6 +8660,11 @@ app.put('/api/feedback/:id', authenticate, requireRole('teacher', 'admin'), asyn
       fieldPrefix: 'weeklyRange',
     });
     if (feedbackRangeIssues.length) return invalidInput(res, feedbackRangeIssues);
+    const canonicalWeekStart = format(parsedData.weekStarting, 'yyyy-MM-dd');
+    const canonicalWeekEnd = format(parsedData.weekEnding, 'yyyy-MM-dd');
+    if (!isCanonicalWeeklyRange(canonicalWeekStart, canonicalWeekEnd)) {
+      return invalidInput(res, [{ field: 'weeklyRange', message: 'Week must run from Sunday through the following Saturday' }]);
+    }
     if (trimString(parsedData.summary).length > INPUT_LIMITS.summaryTextMax) {
       return invalidInput(res, [{ field: 'summary', message: `文本过长（最多 ${INPUT_LIMITS.summaryTextMax} 字）` }]);
     }
@@ -9901,6 +9963,9 @@ app.delete('/api/auth/google/link', authenticate, async (req, res) => {
 });
 
 const reviewerLoginHandler: express.RequestHandler = async (req, res) => {
+  if (!REVIEWER_LOGIN_ENABLED) {
+    return res.status(404).json({ error: 'Not found' });
+  }
   const username = trimString(req.body?.username);
   const password = typeof req.body?.password === 'string' ? req.body.password : '';
   if (!username || !password) {

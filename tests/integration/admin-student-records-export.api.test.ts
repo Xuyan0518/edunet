@@ -33,6 +33,15 @@ describe('admin student records spreadsheet export', () => {
     ]);
     mockDb.queueSelect([]);
     mockDb.queueSelect([]);
+    mockDb.queueSelect([
+      { studentId: 'student-1', date: '2026-08-06', subjectName: 'Mathematics', description: 'Practice paper', score: 18, total: 20 },
+    ]);
+    mockDb.queueSelect([
+      { id: 'exam-1', studentId: 'student-1', name: 'WA3', examDate: '2026-08-07', examType: 'WA3' },
+    ]);
+    mockDb.queueSelect([
+      { examId: 'exam-1', name: 'English', score: '85/100' },
+    ]);
 
     const response = await request(app)
       .get('/api/admin/student-records-export?studentId=all&startDate=2026-08-03&endDate=2026-08-09')
@@ -55,5 +64,9 @@ describe('admin student records spreadsheet export', () => {
     const values = JSON.stringify(workbook.getWorksheet('Weekly Records')!.getSheetValues());
     expect(values).toContain('Alice');
     expect(values).toContain('Bob');
+    const weeklyValues = JSON.stringify(workbook.getWorksheet('Weekly Feedback')!.getSheetValues());
+    expect(weeklyValues).toContain('Practice paper');
+    expect(weeklyValues).toContain('WA3');
+    expect(weeklyValues).toContain('85/100');
   });
 });

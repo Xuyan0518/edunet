@@ -715,6 +715,7 @@ Page({
     lastUpdatedAt: "",
     lastUpdatedBy: "",
     lastUpdatedAtText: "",
+    preservedWeeklyFields: null,
   },
 
   onLoad(query) {
@@ -817,6 +818,7 @@ Page({
               lastUpdatedAt: "",
               lastUpdatedBy: "",
               lastUpdatedAtText: "",
+              preservedWeeklyFields: null,
             });
           }
           return;
@@ -833,6 +835,7 @@ Page({
                 lastUpdatedAt: "",
                 lastUpdatedBy: "",
                 lastUpdatedAtText: "",
+                preservedWeeklyFields: null,
               });
             }
             return;
@@ -851,6 +854,12 @@ Page({
             lastUpdatedAt: entry.updatedAt || "",
             lastUpdatedBy: entry.updatedByName || "",
             lastUpdatedAtText: updatedAtText,
+            preservedWeeklyFields: {
+              strengths: Array.isArray(entry.strengths) ? entry.strengths : [],
+              areasToImprove: Array.isArray(entry.areasToImprove) ? entry.areasToImprove : [],
+              teacherNotes: entry.teacherNotes || "",
+              nextWeekFocus: entry.nextWeekFocus || "",
+            },
           });
           this.fetchWeeklyProgress();
           this.fetchWeeklyPapers();
@@ -881,6 +890,7 @@ Page({
       lastUpdatedAt: "",
       lastUpdatedBy: "",
       lastUpdatedAtText: "",
+      preservedWeeklyFields: null,
     });
     this.fetchFeedback();
     this.fetchWeeklyProgress();
@@ -1061,16 +1071,16 @@ Page({
   },
 
   persist() {
-    
+    const preservedWeeklyFields = this.data.preservedWeeklyFields || {};
     const payload = {
       studentId: this.studentId,
       weekStarting: this.data.weekStarting,
       weekEnding: this.data.weekEnding,
       summary: this.data.summary || "",
-      strengths: [],
-      areasToImprove: [],
-      teacherNotes: "",
-      nextWeekFocus: "",
+      strengths: Array.isArray(preservedWeeklyFields.strengths) ? preservedWeeklyFields.strengths : [],
+      areasToImprove: Array.isArray(preservedWeeklyFields.areasToImprove) ? preservedWeeklyFields.areasToImprove : [],
+      teacherNotes: preservedWeeklyFields.teacherNotes || "",
+      nextWeekFocus: preservedWeeklyFields.nextWeekFocus || "",
     };
 
     const requestConfig = this.data.existingId

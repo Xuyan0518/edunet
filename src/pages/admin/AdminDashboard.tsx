@@ -575,8 +575,8 @@ const AdminDashboard: React.FC = () => {
         <section className="rounded-md border border-slate-200 bg-white p-4">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
             <div>
-              <h2 className="font-semibold">Export study records</h2>
-              <p className="mt-1 text-sm text-slate-500">Download daily and weekly records grouped week by week in an Excel spreadsheet.</p>
+              <h2 className="font-semibold">Export weekly student feedback</h2>
+              <p className="mt-1 text-sm text-slate-500">Download one row per student and week with separate subject and English-task columns, teacher comments, practice papers, and exams. Unrecorded fields stay blank.</p>
             </div>
             <div className="grid flex-1 gap-3 sm:grid-cols-2 xl:max-w-4xl xl:grid-cols-[1.2fr_1fr_1fr_auto]">
               <div className="grid gap-1.5">

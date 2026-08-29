@@ -5,7 +5,7 @@ import dotenv from 'dotenv';
 import crypto from 'crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { db } from './db';
+import { db, executeAtomicBatch } from './db';
 import { eq, desc, and, isNull, isNotNull, inArray, gte, lte, lt } from 'drizzle-orm';
 import type { SQLWrapper } from 'drizzle-orm';
 import { format } from 'date-fns';
@@ -36,7 +36,8 @@ import {
   YearlySummarySchema,
   StudentReportSchema,
   type Student,
-  adminsTable
+  adminsTable,
+  authIdentitiesTable,
 } from './schema';
 
 import { extractEnglishStats, normalizeActivities, normalizeEnglishFields } from './utils/englishNormalize';
@@ -77,6 +78,7 @@ import {
 } from './utils/studentAnalytics';
 import { pickCurrentTerm } from './utils/academicTerms';
 import { buildStudentReportAnalytics } from './services/reportAnalytics';
+import { hashPassword, verifyPassword } from './utils/passwordHash';
 import {
   DEEPSEEK_QUARTERLY_PROMPT,
   DEEPSEEK_YEARLY_PROMPT,
@@ -113,6 +115,7 @@ import {
   validateYearRange,
 } from './utils/inputValidation';
 import { parseScoreMeta } from './utils/scoreGrade';
+import { buildAllowedCorsOrigins } from './utils/corsOrigins';
 
 // Apply V2 English normalization to a daily_progress row's activities. Used at
 // every read/write boundary so legacy rows look V2 to consumers and new writes
@@ -201,21 +204,28 @@ import {
 } from './utils/subjectLevels';
 import { sendWeChatSubscribeMessage } from './utils/wechatNotify';
 import { DEFAULT_USER_NAME, pickDisplayName, toPublicUser } from './auth/userIdentity';
+import { GoogleIdentityError, verifyGoogleCredential } from './auth/googleIdentity';
 import { canAuthUserManageStudentsAndParents } from './utils/managementPermissions';
+import { createLoginRateLimiter } from './middleware/loginRateLimit';
+import { buildStudentRecordsWorkbook, isValidExportDateRange } from './utils/studentRecordsWorkbook';
+import { isCanonicalWeeklyRange } from './utils/weekRange';
+import { toParentPaperDto } from './utils/paperVisibility';
+import { assertProductionConfig } from './utils/productionConfig';
 
 dotenv.config();
+assertProductionConfig(process.env);
 
 const app = express();
+const webLoginRateLimit = createLoginRateLimiter();
+const adminLoginRateLimit = createLoginRateLimiter();
 const port = process.env.API_PORT || process.env.PORT || 3003;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const webDistDir = path.resolve(__dirname, '../dist');
-const configuredCorsOrigins = (process.env.CORS_ORIGIN || '')
-  .split(',')
-  .map((item) => item.trim())
-  .filter(Boolean);
-const fallbackCorsOrigins = ['http://localhost:3001', 'http://localhost:5173'];
-const allowedCorsOrigins = configuredCorsOrigins.length ? configuredCorsOrigins : fallbackCorsOrigins;
+const allowedCorsOrigins = buildAllowedCorsOrigins(
+  process.env.CORS_ORIGIN || '',
+  process.env.RENDER_EXTERNAL_HOSTNAME || '',
+);
 
 app.use(cors({
   origin: (origin, callback) => {
@@ -223,6 +233,7 @@ app.use(cors({
     if (!origin || allowedCorsOrigins.includes(origin)) return callback(null, true);
     return callback(new Error(`Not allowed by CORS: ${origin}`));
   },
+  exposedHeaders: ['X-Papers-Updated-At'],
 }));
 app.use(bodyParser.json());
 
@@ -329,8 +340,9 @@ const requirePaperEvaluations = (
   return details.length ? { ok: false, details } : { ok: true };
 };
 
-const REVIEWER_USERNAME = String(process.env.REVIEWER_USERNAME || 'account').trim();
-const REVIEWER_PASSWORD = String(process.env.REVIEWER_PASSWORD || 'xyz2026!!');
+const REVIEWER_LOGIN_ENABLED = String(process.env.REVIEWER_LOGIN_ENABLED || '').trim().toLowerCase() === 'true';
+const REVIEWER_USERNAME = String(process.env.REVIEWER_USERNAME || '').trim();
+const REVIEWER_PASSWORD = String(process.env.REVIEWER_PASSWORD || '');
 const REVIEWER_DISPLAY_NAME = String(process.env.REVIEWER_DISPLAY_NAME || '审核体验账号').trim() || '审核体验账号';
 const REVIEWER_EMAIL = String(process.env.REVIEWER_EMAIL || 'reviewer@local.edunet').trim();
 const REVIEWER_TEACHER_ID = String(process.env.REVIEWER_TEACHER_ID || '').trim();
@@ -6161,6 +6173,25 @@ app.get('/api/students/:studentId/papers', authenticate, verifyParentStudentAcce
     if (date) {
       conditions.push(eq(studentPapersTable.date, date));
     }
+    if (req.user?.role === 'parent') {
+      const parentRows = await db
+        .select({
+          id: studentPapersTable.id,
+          studentId: studentPapersTable.studentId,
+          subjectName: studentPapersTable.subjectName,
+          description: studentPapersTable.description,
+          date: studentPapersTable.date,
+          score: studentPapersTable.score,
+          total: studentPapersTable.total,
+        })
+        .from(studentPapersTable)
+        .where(and(...conditions))
+        .orderBy(desc(studentPapersTable.date));
+      return res.json(parentRows.map((paper) => toParentPaperDto({
+        ...paper,
+        ...parseScoreMeta(paper.score, paper.total),
+      })));
+    }
     const rows = await db
       .select({
         id: studentPapersTable.id,
@@ -6186,6 +6217,18 @@ app.get('/api/students/:studentId/papers', authenticate, verifyParentStudentAcce
       .leftJoin(paperSchoolsTable, eq(studentPapersTable.schoolId, paperSchoolsTable.id))
       .where(and(...conditions))
       .orderBy(desc(studentPapersTable.date));
+
+    const versionConditions = [eq(studentPapersTable.studentId, studentId)];
+    if (date) versionConditions.push(eq(studentPapersTable.date, date));
+    const [latestVersion] = await db
+      .select({ updatedAt: studentPapersTable.updatedAt })
+      .from(studentPapersTable)
+      .where(and(...versionConditions))
+      .orderBy(desc(studentPapersTable.updatedAt))
+      .limit(1);
+    if (req.user?.role !== 'parent' && latestVersion?.updatedAt) {
+      res.setHeader('X-Papers-Updated-At', latestVersion.updatedAt.toISOString());
+    }
 
     const result = rows.map((r) => ({
       ...r,
@@ -6250,7 +6293,7 @@ app.put('/api/students/:studentId/papers/batch', authenticate, requireTeacher, a
             updatedByName: studentPapersTable.updatedByName,
           })
           .from(studentPapersTable)
-          .where(and(eq(studentPapersTable.studentId, studentId), eq(studentPapersTable.date, date), activeRecord(studentPapersTable)))
+          .where(and(eq(studentPapersTable.studentId, studentId), eq(studentPapersTable.date, date)))
           .orderBy(desc(studentPapersTable.updatedAt))
           .limit(1);
         if (latest.length) {
@@ -6263,11 +6306,13 @@ app.put('/api/students/:studentId/papers/batch', authenticate, requireTeacher, a
             return;
           }
         }
-        await db
-          .delete(studentPapersTable)
-          .where(and(eq(studentPapersTable.studentId, studentId), eq(studentPapersTable.date, date), activeRecord(studentPapersTable)));
-
+        const deletePatch = softDeletePatch(req);
         if (papers.length === 0) {
+          await db
+            .update(studentPapersTable)
+            .set(deletePatch)
+            .where(and(eq(studentPapersTable.studentId, studentId), eq(studentPapersTable.date, date), activeRecord(studentPapersTable)));
+          res.setHeader('X-Papers-Updated-At', deletePatch.updatedAt.toISOString());
           res.json({ message: 'No papers to save' });
           return;
         }
@@ -6288,8 +6333,15 @@ app.put('/api/students/:studentId/papers/batch', authenticate, requireTeacher, a
           updatedAt: now,
           updatedByName: req.user?.name || null,
         }));
-        const inserted = await db.insert(studentPapersTable).values(values).returning();
-        res.json({ message: 'Saved', count: inserted.length });
+        await executeAtomicBatch((transaction) => [
+          transaction
+            .update(studentPapersTable)
+            .set(deletePatch)
+            .where(and(eq(studentPapersTable.studentId, studentId), eq(studentPapersTable.date, date), activeRecord(studentPapersTable))),
+          transaction.insert(studentPapersTable).values(values),
+        ]);
+        res.setHeader('X-Papers-Updated-At', now.toISOString());
+        res.json({ message: 'Saved', count: values.length });
       },
     );
     return;
@@ -6492,7 +6544,7 @@ app.delete('/api/students/:studentId/papers/:paperId', authenticate, requireTeac
 });
 
 // ========== ADMIN ROUTES ==========
-app.post('/api/admin/login', async (req, res) => {
+app.post('/api/admin/login', adminLoginRateLimit, async (req, res) => {
   const email = trimString(req.body?.email).toLowerCase();
   const password = typeof req.body?.password === 'string' ? req.body.password : '';
 
@@ -6509,8 +6561,15 @@ app.post('/api/admin/login', async (req, res) => {
     if (!admin || !admin.password) {
       return res.status(401).json({ error: 'This admin account uses WeChat login only.' });
     }
-    if (!safeEq(password, admin.password)) {
+    const passwordCheck = await verifyPassword(password, admin.password);
+    if (!passwordCheck.valid) {
       return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    if (passwordCheck.needsUpgrade) {
+      await db
+        .update(adminsTable)
+        .set({ password: await hashPassword(password), updatedAt: new Date() })
+        .where(eq(adminsTable.id, admin.id));
     }
 
     const token = generateToken({
@@ -6534,6 +6593,65 @@ app.get('/api/admin/pending', authenticate, requireAdmin, async (req, res) => {
     parents: parents.map((item) => toPublicUser(item, 'parent')),
     teachers: teachers.map((item) => toPublicUser(item, 'teacher')),
   });
+});
+
+app.get('/api/admin/student-records-export', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const startDate = String(req.query.startDate || '');
+    const endDate = String(req.query.endDate || '');
+    const requestedStudentId = String(req.query.studentId || 'all').trim();
+    if (!isValidExportDateRange(startDate, endDate)) {
+      return res.status(400).json({ error: 'startDate and endDate must be valid YYYY-MM-DD values with startDate on or before endDate' });
+    }
+    const start = new Date(`${startDate}T00:00:00.000Z`);
+    const end = new Date(`${endDate}T00:00:00.000Z`);
+    const rangeDays = Math.floor((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+    if (rangeDays > 370) {
+      return res.status(400).json({ error: 'Export date range cannot exceed 370 days' });
+    }
+
+    const [students, dailyRows, weeklyRows, cycleRows, paperRows, examRows, examScoreRows] = await Promise.all([
+      db.select().from(studentsTable).orderBy(studentsTable.name),
+      db.select().from(dailyProgress).where(activeRecord(dailyProgress)).orderBy(dailyProgress.date),
+      db.select().from(weeklyFeedback).where(activeRecord(weeklyFeedback)).orderBy(weeklyFeedback.weekStarting),
+      db.select({
+        id: weeklyStudyCyclesTable.id,
+        startDate: weeklyStudyCyclesTable.startDate,
+        endDate: weeklyStudyCyclesTable.endDate,
+        notes: weeklyStudyCyclesTable.notes,
+      }).from(weeklyStudyCyclesTable).orderBy(weeklyStudyCyclesTable.startDate),
+      db.select().from(studentPapersTable).where(activeRecord(studentPapersTable)).orderBy(studentPapersTable.date),
+      db.select().from(examsTable).where(activeRecord(examsTable)).orderBy(examsTable.examDate),
+      db.select().from(examScoresTable).orderBy(examScoresTable.examDate),
+    ]);
+    const studentId = requestedStudentId && requestedStudentId !== 'all' ? requestedStudentId : undefined;
+    if (studentId && !students.some((student) => student.id === studentId)) {
+      return res.status(404).json({ error: 'Student not found' });
+    }
+
+    const workbook = await buildStudentRecordsWorkbook({
+      startDate,
+      endDate,
+      studentId,
+      students,
+      dailyRecords: dailyRows.map(withV2Activities),
+      weeklyRecords: weeklyRows,
+      weeklyCycles: cycleRows,
+      paperRecords: paperRows,
+      examRecords: examRows,
+      examScores: examScoreRows,
+    });
+    const scope = studentId ? 'student' : 'all-students';
+    const filename = `edunet-${scope}-${startDate}-to-${endDate}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Content-Length', workbook.length);
+    return res.send(workbook);
+  } catch (err) {
+    console.error('Error exporting admin student records:', err);
+    return res.status(500).json({ error: 'Failed to export student records' });
+  }
 });
 
 app.get('/api/admin/student-management', authenticate, requireAdmin, async (_req, res) => {
@@ -8466,6 +8584,11 @@ app.post('/api/feedback', authenticate, requireRole('teacher', 'admin'), async (
       fieldPrefix: 'weeklyRange',
     });
     if (feedbackRangeIssues.length) return invalidInput(res, feedbackRangeIssues);
+    const canonicalWeekStart = format(parsedData.weekStarting, 'yyyy-MM-dd');
+    const canonicalWeekEnd = format(parsedData.weekEnding, 'yyyy-MM-dd');
+    if (!isCanonicalWeeklyRange(canonicalWeekStart, canonicalWeekEnd)) {
+      return invalidInput(res, [{ field: 'weeklyRange', message: 'Week must run from Sunday through the following Saturday' }]);
+    }
     if (trimString(parsedData.summary).length > INPUT_LIMITS.summaryTextMax) {
       return invalidInput(res, [{ field: 'summary', message: `文本过长（最多 ${INPUT_LIMITS.summaryTextMax} 字）` }]);
     }
@@ -8537,6 +8660,11 @@ app.put('/api/feedback/:id', authenticate, requireRole('teacher', 'admin'), asyn
       fieldPrefix: 'weeklyRange',
     });
     if (feedbackRangeIssues.length) return invalidInput(res, feedbackRangeIssues);
+    const canonicalWeekStart = format(parsedData.weekStarting, 'yyyy-MM-dd');
+    const canonicalWeekEnd = format(parsedData.weekEnding, 'yyyy-MM-dd');
+    if (!isCanonicalWeeklyRange(canonicalWeekStart, canonicalWeekEnd)) {
+      return invalidInput(res, [{ field: 'weeklyRange', message: 'Week must run from Sunday through the following Saturday' }]);
+    }
     if (trimString(parsedData.summary).length > INPUT_LIMITS.summaryTextMax) {
       return invalidInput(res, [{ field: 'summary', message: `文本过长（最多 ${INPUT_LIMITS.summaryTextMax} 字）` }]);
     }
@@ -9579,7 +9707,265 @@ app.post('/api/auth/wechat', async (req, res) => {
   }
 });
 
+type WebAccountRole = 'teacher' | 'parent';
+
+const accountTableForRole = (role: WebAccountRole) =>
+  role === 'teacher' ? teachersTable : parentsTable;
+
+const googlePublicUser = (row: any, role: WebAccountRole) => ({
+  ...toPublicUser(row, role),
+  email: row.email || null,
+  authProvider: 'google',
+});
+
+const sendGoogleAccountResult = (
+  res: express.Response,
+  row: any,
+  role: WebAccountRole,
+) => {
+  if (row.status !== 'approved') {
+    return res.status(401).json({
+      error: row.status === 'rejected'
+        ? 'Account rejected. Please contact an administrator.'
+        : 'Account pending admin approval.',
+      code: row.status === 'rejected' ? 'account_rejected' : 'pending_approval',
+      status: 'pending_approval',
+      user: googlePublicUser(row, role),
+    });
+  }
+
+  const token = generateToken({
+    id: row.id,
+    role,
+    name: row.displayName || row.name || DEFAULT_USER_NAME,
+  });
+  return res.json({ user: googlePublicUser(row, role), token });
+};
+
+const googleAuthErrorResponse = (res: express.Response, error: unknown) => {
+  if (error instanceof GoogleIdentityError) {
+    const status = error.code === 'google_not_configured' ? 503 : 401;
+    return res.status(status).json({ error: error.message, code: error.code });
+  }
+  console.error('Google authentication error:', getErrorDetails(error));
+  return res.status(500).json({ error: 'Google sign-in failed.', code: 'google_login_failed' });
+};
+
+app.post('/api/auth/google', async (req, res) => {
+  const credential = typeof req.body?.credential === 'string' ? req.body.credential.trim() : '';
+  const role = req.body?.role as WebAccountRole;
+
+  if (!credential || credential.length > 16_384) {
+    return res.status(400).json({ error: 'Missing or invalid Google credential.' });
+  }
+  if (role !== 'teacher' && role !== 'parent') {
+    return res.status(400).json({ error: 'Invalid role.' });
+  }
+
+  try {
+    const google = await verifyGoogleCredential(credential);
+    const table = accountTableForRole(role);
+    const [identity] = await db
+      .select()
+      .from(authIdentitiesTable)
+      .where(and(
+        eq(authIdentitiesTable.provider, 'google'),
+        eq(authIdentitiesTable.providerSubject, google.subject),
+        eq(authIdentitiesTable.accountRole, role),
+      ))
+      .limit(1);
+
+    if (identity) {
+      const [account] = await db.select().from(table).where(eq(table.id, identity.accountId)).limit(1);
+      if (!account) {
+        return res.status(409).json({
+          error: 'This Google login is linked to a missing account. Please contact an administrator.',
+          code: 'identity_account_missing',
+        });
+      }
+
+      await db.update(authIdentitiesTable).set({
+        email: google.email,
+        updatedAt: new Date(),
+        lastLoginAt: new Date(),
+      }).where(eq(authIdentitiesTable.id, identity.id));
+
+      return sendGoogleAccountResult(res, account, role);
+    }
+
+    const [emailAccount] = await db.select().from(table).where(eq(table.email, google.email)).limit(1);
+    if (emailAccount) {
+      return res.status(409).json({
+        error: 'An EduNet account already uses this email. Sign in with its current method, then link Google from Profile.',
+        code: 'account_link_required',
+      });
+    }
+
+    const accountId = crypto.randomUUID();
+    const identityId = crypto.randomUUID();
+    const displayName = (pickDisplayName(google.name) || google.email.split('@')[0]).slice(0, 100);
+    const now = new Date();
+    const account = {
+      id: accountId,
+      name: displayName,
+      displayName,
+      email: google.email,
+      password: null,
+      status: 'pending',
+      emailVerified: 'true',
+      avatarUrl: google.avatarUrl,
+      authProvider: 'google',
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await db.batch([
+      db.insert(table).values(account),
+      db.insert(authIdentitiesTable).values({
+        id: identityId,
+        accountRole: role,
+        accountId,
+        provider: 'google',
+        providerSubject: google.subject,
+        email: google.email,
+        createdAt: now,
+        updatedAt: now,
+        lastLoginAt: now,
+      }),
+    ] as any);
+
+    return res.status(201).json({
+      user: googlePublicUser(account, role),
+      status: 'pending_approval',
+      message: 'Account created. Pending admin approval.',
+    });
+  } catch (error) {
+    return googleAuthErrorResponse(res, error);
+  }
+});
+
+app.get('/api/auth/providers', authenticate, async (req, res) => {
+  const role = req.user?.role;
+  if (!req.user || (role !== 'teacher' && role !== 'parent')) {
+    return res.status(403).json({ error: 'Provider settings are available to teachers and parents.' });
+  }
+
+  try {
+    const table = accountTableForRole(role);
+    const [account] = await db.select().from(table).where(eq(table.id, req.user.id)).limit(1);
+    if (!account) return res.status(404).json({ error: 'Account not found.' });
+
+    const identities = await db.select().from(authIdentitiesTable).where(and(
+      eq(authIdentitiesTable.accountRole, role),
+      eq(authIdentitiesTable.accountId, req.user.id),
+    ));
+    const google = identities.find((item) => item.provider === 'google');
+    const hasFallback = Boolean(account.password || account.wechatOpenId || identities.some((item) => item.provider !== 'google'));
+
+    return res.json({
+      google: { linked: Boolean(google), email: google?.email || null, canUnlink: Boolean(google && hasFallback) },
+    });
+  } catch (error) {
+    console.error('Provider settings error:', getErrorDetails(error));
+    return res.status(500).json({ error: 'Could not load sign-in methods.' });
+  }
+});
+
+app.post('/api/auth/google/link', authenticate, async (req, res) => {
+  const role = req.user?.role;
+  const credential = typeof req.body?.credential === 'string' ? req.body.credential.trim() : '';
+  if (!req.user || (role !== 'teacher' && role !== 'parent')) {
+    return res.status(403).json({ error: 'Google linking is available to teachers and parents.' });
+  }
+  if (!credential || credential.length > 16_384) {
+    return res.status(400).json({ error: 'Missing or invalid Google credential.' });
+  }
+
+  try {
+    const google = await verifyGoogleCredential(credential);
+    const [subjectIdentity] = await db.select().from(authIdentitiesTable).where(and(
+      eq(authIdentitiesTable.provider, 'google'),
+      eq(authIdentitiesTable.providerSubject, google.subject),
+      eq(authIdentitiesTable.accountRole, role),
+    )).limit(1);
+
+    if (subjectIdentity && subjectIdentity.accountId !== req.user.id) {
+      return res.status(409).json({
+        error: 'This Google account is already linked to another EduNet account with this role.',
+        code: 'google_already_linked',
+      });
+    }
+
+    const [accountIdentity] = await db.select().from(authIdentitiesTable).where(and(
+      eq(authIdentitiesTable.provider, 'google'),
+      eq(authIdentitiesTable.accountRole, role),
+      eq(authIdentitiesTable.accountId, req.user.id),
+    )).limit(1);
+
+    if (accountIdentity) {
+      if (accountIdentity.providerSubject !== google.subject) {
+        return res.status(409).json({
+          error: 'A different Google account is already linked. Unlink it before linking another Google account.',
+          code: 'google_identity_replacement_requires_unlink',
+        });
+      }
+      await db.update(authIdentitiesTable).set({ email: google.email, updatedAt: new Date() })
+        .where(eq(authIdentitiesTable.id, accountIdentity.id));
+      return res.json({ google: { linked: true, email: google.email } });
+    }
+
+    await db.insert(authIdentitiesTable).values({
+      accountRole: role,
+      accountId: req.user.id,
+      provider: 'google',
+      providerSubject: google.subject,
+      email: google.email,
+      lastLoginAt: new Date(),
+    });
+    return res.status(201).json({ google: { linked: true, email: google.email } });
+  } catch (error) {
+    return googleAuthErrorResponse(res, error);
+  }
+});
+
+app.delete('/api/auth/google/link', authenticate, async (req, res) => {
+  const role = req.user?.role;
+  if (!req.user || (role !== 'teacher' && role !== 'parent')) {
+    return res.status(403).json({ error: 'Google linking is available to teachers and parents.' });
+  }
+
+  try {
+    const table = accountTableForRole(role);
+    const [account] = await db.select().from(table).where(eq(table.id, req.user.id)).limit(1);
+    if (!account) return res.status(404).json({ error: 'Account not found.' });
+
+    const identities = await db.select().from(authIdentitiesTable).where(and(
+      eq(authIdentitiesTable.accountRole, role),
+      eq(authIdentitiesTable.accountId, req.user.id),
+    ));
+    const google = identities.find((item) => item.provider === 'google');
+    if (!google) return res.status(204).send();
+
+    const hasFallback = Boolean(account.password || account.wechatOpenId || identities.some((item) => item.provider !== 'google'));
+    if (!hasFallback) {
+      return res.status(409).json({
+        error: 'Add another sign-in method before unlinking Google.',
+        code: 'last_sign_in_method',
+      });
+    }
+
+    await db.delete(authIdentitiesTable).where(eq(authIdentitiesTable.id, google.id));
+    return res.status(204).send();
+  } catch (error) {
+    console.error('Google unlink error:', getErrorDetails(error));
+    return res.status(500).json({ error: 'Could not unlink Google.' });
+  }
+});
+
 const reviewerLoginHandler: express.RequestHandler = async (req, res) => {
+  if (!REVIEWER_LOGIN_ENABLED) {
+    return res.status(404).json({ error: 'Not found' });
+  }
   const username = trimString(req.body?.username);
   const password = typeof req.body?.password === 'string' ? req.body.password : '';
   if (!username || !password) {
@@ -9696,7 +10082,7 @@ const reviewerLoginHandler: express.RequestHandler = async (req, res) => {
 app.post('/api/auth/reviewer-login', reviewerLoginHandler);
 app.post('/auth/reviewer-login', reviewerLoginHandler);
 
-app.post('/api/login', async (req, res) => {
+app.post('/api/login', webLoginRateLimit, async (req, res) => {
   const email = trimString(req.body?.email).toLowerCase();
   const password = typeof req.body?.password === 'string' ? req.body.password : '';
   const role = req.body?.role;
@@ -9716,10 +10102,14 @@ app.post('/api/login', async (req, res) => {
     const rows = await db.select().from(table).where(eq(table.email, email)).limit(1);
     const userRow = rows[0];
 
-    if (!userRow || !userRow.password) {
+    if (!userRow) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    if (userRow.authProvider !== 'password' || !userRow.password) {
       return res.status(401).json({ error: 'This account uses WeChat login only.' });
     }
-    if (!safeEq(password, userRow.password)) {
+    const passwordCheck = await verifyPassword(password, userRow.password);
+    if (!passwordCheck.valid) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
     if (userRow.status !== 'approved') {
@@ -9728,6 +10118,12 @@ app.post('/api/login', async (req, res) => {
         status: 'pending_approval',
         user: toPublicUser(userRow, role),
       });
+    }
+    if (passwordCheck.needsUpgrade) {
+      await db
+        .update(table)
+        .set({ password: await hashPassword(password), updatedAt: new Date() })
+        .where(eq(table.id, userRow.id));
     }
 
     const token = generateToken({

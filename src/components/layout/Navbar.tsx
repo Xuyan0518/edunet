@@ -17,11 +17,15 @@ import { useI18n } from '@/context/I18nContext';
 const Navbar: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const location = useLocation();
-  const { user, logout } = useAuth();
+  const { user, role, logout } = useAuth();
   const { t } = useI18n();
 
   const navItems = [
     { name: t('nav.dashboard'), path: '/dashboard', visible: true },
+    { name: 'Students', path: '/students', visible: true },
+    { name: 'Daily progress', path: '/daily-progress', visible: role === 'teacher' },
+    { name: 'Weekly feedback', path: '/weekly-feedback', visible: role === 'teacher' },
+    { name: 'Teaching', path: '/teaching', visible: role === 'teacher' },
   ].filter(item => item.visible);
 
   const toggleMenu = () => setIsOpen(!isOpen);

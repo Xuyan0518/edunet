@@ -1,0 +1,47 @@
+services:
+  - type: web
+    name: edunet-api-staging
+    runtime: node
+    plan: free
+    region: singapore
+    branch: feat/web-platform-migration
+    autoDeployTrigger: off
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm run db:migrate && npm run start:api
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: edunet-staging-db
+          property: connectionString
+      - key: DATABASE_SSL_REJECT_UNAUTHORIZED
+        value: "true"
+      - key: DATABASE_SSL_MODE
+        value: "disable"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: WECHAT_APP_ID
+        sync: false
+      - key: WECHAT_APP_SECRET
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: VITE_GOOGLE_CLIENT_ID
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: REVIEWER_LOGIN_ENABLED
+        value: "false"
+
+databases:
+  - name: edunet-staging-db
+    databaseName: edunet_staging
+    user: edunet_staging
+    plan: free
+    region: singapore

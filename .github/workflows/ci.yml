@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - feat/web-platform-migration
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/edunet_ci?sslmode=disable
+      TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/edunet_ci?sslmode=disable
+      JWT_SECRET: ci-only-secret-not-for-deployment
+      NODE_ENV: test
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: edunet_ci
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d edunet_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Check SQL migration integrity
+        run: node scripts/check-migrations.mjs
+
+      - name: Bootstrap an empty database and verify repeat migration
+        run: |
+          npm run db:migrate
+          npm run db:migrate
+          test "$(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM information_schema.columns WHERE table_name = 'weekly_feedback' AND column_name = 'period';")" = "1"
+          test "$(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM pg_constraint WHERE conname = 'ex_weekly_feedback_no_overlap';")" = "1"
+
+      - name: Run test suite
+        run: npm test
+
+      - name: Type-check
+        run: npx tsc --noEmit
+
+      - name: Build production bundle
+        run: npm run build
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Lint release-critical files
+        run: >-
+          npx eslint
+          src/components/ui/DailyProgressForm.tsx
+          src/components/ui/WeeklyFeedbackForm.tsx
+          src/utils/dailyProgressParity.ts
+          src/utils/weeklyFeedbackParity.ts
+          server/db.ts
+          server/migrate.ts
+          server/utils/databaseSsl.ts
+          server/utils/paperVisibility.ts
+          server/utils/productionConfig.ts
+          server/utils/weekRange.ts
+          tests/integration/auth-reviewer-disabled.api.test.ts
+          tests/integration/databaseAtomicBatch.integration.test.ts
+          tests/integration/parent-paper-visibility.api.test.ts
+          tests/integration/weeklyFeedbackConstraint.integration.test.ts
+          tests/unit/databaseSsl.test.ts
+          tests/unit/migrationsIntegrity.test.ts
+          tests/unit/paperVisibility.test.ts
+          tests/unit/productionConfig.test.ts
+          tests/unit/weekRange.test.ts
+          tests/unit/webMiniProgramParity.test.ts
+
+      - name: Reject whitespace errors
+        run: git diff --check

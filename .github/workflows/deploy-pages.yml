@@ -1,10 +1,9 @@
-# Deploy Vite SPA to GitHub Pages
-# IMPORTANT: In repo Settings → Pages → Source, choose "GitHub Actions" (not "Deploy from a branch")
-name: Deploy to GitHub Pages
+# Manual Vite SPA preview deployment.
+# Production is deployed by Render from render.yaml; this workflow must not
+# automatically compete with the production deployment.
+name: Manual GitHub Pages Preview
 
 on:
-  push:
-    branches: ["main", "master"]
   workflow_dispatch:
 
 permissions:
@@ -13,7 +12,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: "pages"
+  group: pages-preview
   cancel-in-progress: true
 
 jobs:
@@ -24,22 +23,18 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
-          cache: "npm"
+          node-version: '20'
+          cache: npm
 
       - run: npm ci
 
-      # Base path must match GitHub Pages URL (lowercase): https://user.github.io/repo-name/
       - name: Build for GitHub Pages
         run: npm run build
         env:
           BASE_PATH: /${{ github.event.repository.name }}/
 
       - name: Verify build output
-        run: |
-          echo "BASE_PATH was: /${{ github.event.repository.name }}/"
-          grep -E '(base href|src=)' dist/index.html | head -5
-          ls -la dist/
+        run: test -f dist/index.html
 
       - uses: actions/upload-pages-artifact@v3
         with:

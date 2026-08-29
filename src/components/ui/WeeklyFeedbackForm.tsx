@@ -16,6 +16,17 @@ import { buildApiUrl } from '@/config/api';
 import { getAuthHeaders } from '@/utils/auth';
 import { useAuth } from '@/context/AuthContext';
 import { useI18n } from '@/context/I18nContext';
+import {
+  type DailyProgressRecord,
+  type WeeklyProgressDay,
+  toWeeklyProgressDays,
+} from '@/utils/dailyProgressParity';
+import {
+  buildWeeklyFeedbackWritePayload,
+  canonicalWeekStarting,
+  describeApiSaveError,
+  resolveInitialWeekStarting,
+} from '@/utils/weeklyFeedbackParity';
 
 interface WeeklyFeedbackEntry {
   id?: string;
@@ -27,7 +38,21 @@ interface WeeklyFeedbackEntry {
   areasToImprove: string[];
   teacherNotes: string;
   nextWeekFocus: string;
+  updatedAt?: string | null;
 }
+
+type WeeklyPaper = {
+  id?: string;
+  date: string;
+  subjectName?: string;
+  description?: string;
+  typeName?: string;
+  schoolName?: string;
+  score?: number | string | null;
+  total?: number | string | null;
+  strengths?: string;
+  improvements?: string;
+};
 
 function previousSunday(d: Date) {
   const date = new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -35,6 +60,88 @@ function previousSunday(d: Date) {
   date.setDate(date.getDate() - dow);
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
+
+const WeeklyDailyProgress: React.FC<{
+  days: WeeklyProgressDay[];
+  loading: boolean;
+  onOpenDay: (date: string) => void;
+}> = ({ days, loading, onOpenDay }) => (
+  <Card className="hover-card">
+    <CardHeader>
+      <CardTitle>Daily progress for this week</CardTitle>
+      <CardDescription>
+        The same day-by-day activity, English score, attendance, and paper data shown in the WeChat Mini Program.
+      </CardDescription>
+    </CardHeader>
+    <CardContent className="space-y-4">
+      {loading ? <p className="text-sm text-muted-foreground">Loading daily progress…</p> : null}
+      {!loading && days.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No daily progress was recorded for this week.</p>
+      ) : null}
+      {days.map((day) => (
+        <div key={day.id || day.date} className="rounded-lg border p-4 space-y-3">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <p className="font-semibold">
+                {new Date(`${day.date}T00:00:00`).toLocaleDateString(undefined, { weekday: 'long' })} · {day.date}
+              </p>
+              {day.isAbsent ? (
+                <p className="text-sm text-destructive">Absent{day.absenceReason ? ` — ${day.absenceReason}` : ''}</p>
+              ) : day.attendanceStart || day.attendanceEnd ? (
+                <p className="text-xs text-muted-foreground">
+                  Attendance {day.attendanceStart || '--'} – {day.attendanceEnd || '--'}
+                </p>
+              ) : null}
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={() => onOpenDay(day.date)}>
+              Open daily record
+            </Button>
+          </div>
+
+          {day.activities.map((activity, index) => (
+            <div key={`${day.date}-${activity.subjectName}-${index}`} className="rounded-md bg-muted/40 p-3 space-y-2">
+              <p className="font-medium">{activity.subjectName}</p>
+              {activity.summary ? <p className="text-sm">{activity.summary}</p> : null}
+              {activity.sections.map((section, sectionIndex) => (
+                <div key={`${section.title}-${sectionIndex}`} className="border-t pt-2 text-sm">
+                  <p className="font-medium">{section.title}</p>
+                  {section.rows.map((row, rowIndex) => (
+                    <p key={`${row.label}-${rowIndex}`} className="text-muted-foreground">
+                      {row.label}: {row.scoreText || row.value || '--'}
+                      {row.problems ? ` · ${row.problems}` : ''}
+                    </p>
+                  ))}
+                </div>
+              ))}
+            </div>
+          ))}
+
+          {!day.isAbsent && day.summary ? (
+            <div className="text-sm"><span className="font-medium">Daily summary:</span> {day.summary}</div>
+          ) : null}
+        </div>
+      ))}
+    </CardContent>
+  </Card>
+);
+
+const WeeklyPracticePapers: React.FC<{ papers: WeeklyPaper[]; loading: boolean; showTeacherDetails: boolean }> = ({ papers, loading, showTeacherDetails }) => {
+  const groups = Object.entries(papers.reduce<Record<string, WeeklyPaper[]>>((result, paper) => {
+    const key = paper.subjectName || 'Unassigned subject';
+    (result[key] ||= []).push(paper);
+    return result;
+  }, {}));
+  return <Card className="hover-card"><CardHeader><CardTitle>Practice papers and quizzes this week</CardTitle><CardDescription>Loaded from the same paper records as the WeChat Mini Program.</CardDescription></CardHeader><CardContent className="space-y-4">
+    {loading ? <p className="text-sm text-muted-foreground">Loading practice papers…</p> : null}
+    {!loading && papers.length === 0 ? <p className="text-sm text-muted-foreground">No practice papers were recorded for this week.</p> : null}
+    {groups.map(([subjectName, rows]) => <div key={subjectName} className="rounded-lg border p-4"><p className="mb-2 font-semibold">{subjectName} · {rows.length}</p>{rows.map((paper, index) => <div key={paper.id || index} className="border-t py-2 text-sm first:border-t-0">
+      <p>{paper.date} · {paper.description || 'Practice paper'} · {paper.score ?? '--'}/{paper.total ?? '--'}</p>
+      {showTeacherDetails && (paper.typeName || paper.schoolName) ? <p className="text-muted-foreground">{paper.typeName || '--'} · {paper.schoolName || '--'}</p> : null}
+      {showTeacherDetails && paper.strengths ? <p className="text-muted-foreground">What went well: {paper.strengths}</p> : null}
+      {showTeacherDetails && paper.improvements ? <p className="text-muted-foreground">Needs improvement: {paper.improvements}</p> : null}
+    </div>)}</div>)}
+  </CardContent></Card>;
+};
 
 const WeeklyFeedbackForm: React.FC = () => {
   const navigate = useNavigate();
@@ -49,10 +156,23 @@ const WeeklyFeedbackForm: React.FC = () => {
   const [students, setStudents] = useState<{ id: string; name: string }[]>([]);
   const [selectedStudent, setSelectedStudent] = useState<string>(studentIdFromUrl || '');
 
-  // Week selection (default current Sunday -> Thursday). Not synced to URL.
+  // Week selection follows the Mini Program's full Sunday-to-Saturday range.
   const defaultStart = useMemo(() => previousSunday(new Date()), []);
-  const [weekStarting, setWeekStarting] = useState<Date | undefined>(defaultStart);
-  const weekEnding = useMemo(() => (weekStarting ? addDays(weekStarting, 4) : undefined), [weekStarting]);
+  const [weekStarting, setWeekStarting] = useState<Date | undefined>(() => {
+    const initial = resolveInitialWeekStarting(weekStartingFromUrl, format(defaultStart, 'yyyy-MM-dd'));
+    return parse(initial, 'yyyy-MM-dd', new Date());
+  });
+  const weekEnding = useMemo(() => (weekStarting ? addDays(weekStarting, 6) : undefined), [weekStarting]);
+  const [dailyProgress, setDailyProgress] = useState<DailyProgressRecord[]>([]);
+  const [progressLoading, setProgressLoading] = useState(false);
+  const [weeklyPapers, setWeeklyPapers] = useState<WeeklyPaper[]>([]);
+  const [weeklyPapersLoading, setWeeklyPapersLoading] = useState(false);
+  const weeklyProgressDays = useMemo(
+    () => weekStarting && weekEnding
+      ? toWeeklyProgressDays(dailyProgress, format(weekStarting, 'yyyy-MM-dd'), format(weekEnding, 'yyyy-MM-dd'))
+      : [],
+    [dailyProgress, weekStarting, weekEnding]
+  );
 
   // Form state
   const [summary, setSummary] = useState<string>('');
@@ -63,16 +183,18 @@ const WeeklyFeedbackForm: React.FC = () => {
 
   // View/edit flow
   const [existingId, setExistingId] = useState<string | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState('');
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [backup, setBackup] = useState<WeeklyFeedbackEntry | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [aiLoading, setAiLoading] = useState(false);
 
   const didLoadStudentsRef = useRef(false);
   const didSyncWeekRef = useRef(false);
 
   const { role } = useAuth();
   const { t, language } = useI18n();
-  const isReadOnly = role !== 'teacher';
+  const isReadOnly = role !== 'teacher' && role !== 'admin';
   const isEditable = isEditing && !isReadOnly;
   const locale = language === 'zh-CN' ? zhCN : enUS;
 
@@ -176,10 +298,11 @@ const WeeklyFeedbackForm: React.FC = () => {
 
   useEffect(() => {
     if (!weekStartingFromUrl) return;
-    const parsedDate = parse(weekStartingFromUrl, 'yyyy-MM-dd', new Date());
-    if (isNaN(parsedDate.getTime())) return;
-    if (!didSyncWeekRef.current || (weekStarting && format(weekStarting, 'yyyy-MM-dd') !== weekStartingFromUrl)) {
-      safeSetWeekStarting(parsedDate);
+    const canonical = canonicalWeekStarting(weekStartingFromUrl);
+    if (!canonical) return;
+    const parsedDate = parse(canonical, 'yyyy-MM-dd', new Date());
+    if (!didSyncWeekRef.current || (weekStarting && format(weekStarting, 'yyyy-MM-dd') !== canonical)) {
+      if (!weekStarting || parsedDate.getTime() !== weekStarting.getTime()) setWeekStarting(parsedDate);
       didSyncWeekRef.current = true;
     }
   }, [weekStartingFromUrl, weekStarting]);
@@ -188,6 +311,7 @@ const WeeklyFeedbackForm: React.FC = () => {
   useEffect(() => {
     if (!selectedStudent || !weekStarting) {
       setExistingId(null);
+      setLastUpdatedAt('');
       setIsEditing(false);
       resetForm();
       return;
@@ -212,6 +336,7 @@ const WeeklyFeedbackForm: React.FC = () => {
 
         if (data) {
           setExistingId(data.id || null);
+          setLastUpdatedAt(data.updatedAt || '');
           setSummary(data.summary ?? '');
           setStrengths(Array.isArray(data.strengths) && data.strengths.length ? data.strengths : ['']);
           setAreasToImprove(
@@ -222,6 +347,7 @@ const WeeklyFeedbackForm: React.FC = () => {
           setIsEditing(false);
         } else {
           setExistingId(null);
+          setLastUpdatedAt('');
           setIsEditing(!isReadOnly);
           resetForm();
         }
@@ -230,6 +356,7 @@ const WeeklyFeedbackForm: React.FC = () => {
         console.error(e);
         toast({ title: t('toast.title.error'), description: t('weeklyFeedback.toast.fetchEntry'), variant: 'destructive' });
         setExistingId(null);
+        setLastUpdatedAt('');
         setIsEditing(!isReadOnly);
         resetForm();
       } finally {
@@ -241,6 +368,67 @@ const WeeklyFeedbackForm: React.FC = () => {
     // Only re-run on actual triggers; do NOT include toast/searchParams/etc.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedStudent, weekStarting]);
+
+  useEffect(() => {
+    if (!selectedStudent || !weekStarting || !weekEnding) {
+      setDailyProgress([]);
+      return;
+    }
+
+    const ac = new AbortController();
+    (async () => {
+      setProgressLoading(true);
+      try {
+        const startDate = format(weekStarting, 'yyyy-MM-dd');
+        const endDate = format(weekEnding, 'yyyy-MM-dd');
+        const res = await fetch(
+          buildApiUrl(`progress/list?studentId=${encodeURIComponent(selectedStudent)}&startDate=${startDate}&endDate=${endDate}`),
+          { signal: ac.signal, headers: getAuthHeaders() }
+        );
+        if (!res.ok) throw new Error('Failed to fetch daily progress for weekly feedback');
+        const body = await res.json();
+        if (!ac.signal.aborted) setDailyProgress(Array.isArray(body) ? body : Array.isArray(body?.entries) ? body.entries : []);
+      } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') return;
+        console.error('Error fetching weekly daily progress:', error);
+        if (!ac.signal.aborted) {
+          setDailyProgress([]);
+          toast({
+            title: t('toast.title.error'),
+            description: 'Daily progress for this week could not be loaded.',
+            variant: 'destructive',
+          });
+        }
+      } finally {
+        if (!ac.signal.aborted) setProgressLoading(false);
+      }
+    })();
+    return () => ac.abort();
+  }, [selectedStudent, weekStarting, weekEnding, toast, t]);
+
+  useEffect(() => {
+    if (!selectedStudent || !weekStarting || !weekEnding) {
+      setWeeklyPapers([]);
+      return;
+    }
+    const ac = new AbortController();
+    setWeeklyPapersLoading(true);
+    const startDate = format(weekStarting, 'yyyy-MM-dd');
+    const endDate = format(weekEnding, 'yyyy-MM-dd');
+    fetch(buildApiUrl(`students/${selectedStudent}/papers?startDate=${startDate}&endDate=${endDate}`), {
+      signal: ac.signal,
+      headers: getAuthHeaders(),
+    }).then(async (response) => {
+      if (!response.ok) throw new Error('Failed to fetch weekly practice papers');
+      const rows = await response.json();
+      setWeeklyPapers((Array.isArray(rows) ? rows : []).filter((paper: WeeklyPaper) => paper.date >= startDate && paper.date <= endDate));
+    }).catch((error) => {
+      if (error instanceof Error && error.name === 'AbortError') return;
+      setWeeklyPapers([]);
+      toast({ title: t('toast.title.error'), description: 'Practice papers for this week could not be loaded.', variant: 'destructive' });
+    }).finally(() => { if (!ac.signal.aborted) setWeeklyPapersLoading(false); });
+    return () => ac.abort();
+  }, [selectedStudent, weekStarting, weekEnding, toast, t]);
 
   // List field handlers (respect view/edit)
   const handleAddStrength = () => isEditable && setStrengths((s) => [...s, '']);
@@ -265,6 +453,30 @@ const WeeklyFeedbackForm: React.FC = () => {
 
   const handleWeekSelect = (date: Date | undefined) => {
     if (date && date.getDay() === 0) safeSetWeekStarting(date);
+  };
+
+  const generateSummary = async () => {
+    if (!isEditable || !selectedStudent || !weekStarting || !weekEnding) return;
+    setAiLoading(true);
+    try {
+      const response = await fetch(buildApiUrl('ai/weekly-summary'), {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          studentId: selectedStudent,
+          weekStarting: format(weekStarting, 'yyyy-MM-dd'),
+          weekEnding: format(weekEnding, 'yyyy-MM-dd'),
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result?.error === 'AI_NOT_CONFIGURED' ? 'AI is not configured.' : result?.message || result?.error || 'Unable to generate summary');
+      setSummary(result?.summary || '');
+      toast({ title: 'Weekly summary generated' });
+    } catch (error) {
+      toast({ title: error instanceof Error ? error.message : 'Unable to generate summary', variant: 'destructive' });
+    } finally {
+      setAiLoading(false);
+    }
   };
 
   // Validation
@@ -297,7 +509,7 @@ const WeeklyFeedbackForm: React.FC = () => {
     e.preventDefault();
     if (!validate()) return;
 
-    const payload: WeeklyFeedbackEntry = {
+    const payload = buildWeeklyFeedbackWritePayload({
       studentId: selectedStudent,
       weekStarting: format(weekStarting!, 'yyyy-MM-dd'),
       weekEnding: format(weekEnding!, 'yyyy-MM-dd'),
@@ -306,7 +518,7 @@ const WeeklyFeedbackForm: React.FC = () => {
       areasToImprove: areasToImprove.map((a) => a.trim()),
       teacherNotes: teacherNotes.trim(),
       nextWeekFocus: nextWeekFocus.trim(),
-    };
+    }, existingId ? lastUpdatedAt : undefined);
 
     try {
       let res: Response;
@@ -314,8 +526,7 @@ const WeeklyFeedbackForm: React.FC = () => {
         res = await fetch(buildApiUrl(`feedback/${existingId}`), {
           method: 'PUT',
           headers: getAuthHeaders(),
-          body: JSON.stringify({ ...payload, id: existingId }),
-          // backend accepts id in body
+          body: JSON.stringify(payload),
         });
       } else if (!existingId) {
         res = await fetch(buildApiUrl('feedback'), {
@@ -330,11 +541,12 @@ const WeeklyFeedbackForm: React.FC = () => {
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.error || 'Failed to save weekly feedback');
+        throw new Error(describeApiSaveError(errorData, res.status));
       }
 
       const saved = await res.json();
       setExistingId(saved.id ?? existingId);
+      setLastUpdatedAt(saved.updatedAt || lastUpdatedAt);
       setIsEditing(false);
       setBackup(null);
 
@@ -348,7 +560,11 @@ const WeeklyFeedbackForm: React.FC = () => {
       });
     } catch (err: unknown) {
       console.error('Error saving weekly feedback:', err);
-      toast({ title: t('toast.title.error'), description: t('weeklyFeedback.toast.saveFailed'), variant: 'destructive' });
+      toast({
+        title: t('toast.title.error'),
+        description: err instanceof Error ? err.message : t('weeklyFeedback.toast.saveFailed'),
+        variant: 'destructive',
+      });
     }
   };
 
@@ -448,10 +664,24 @@ const WeeklyFeedbackForm: React.FC = () => {
           </CardContent>
         </Card>
 
+        <WeeklyDailyProgress
+          days={weeklyProgressDays}
+          loading={progressLoading}
+          onOpenDay={(date) => navigate(`/daily-progress?tab=form&student=${encodeURIComponent(selectedStudent)}&date=${date}`)}
+        />
+
+        <WeeklyPracticePapers
+          papers={weeklyPapers}
+          loading={weeklyPapersLoading}
+          showTeacherDetails={!isReadOnly}
+        />
+
         <Card className="hover-card">
           <CardHeader>
-            <CardTitle>{t('weeklyFeedbackForm.summary.title')}</CardTitle>
-            <CardDescription>{t('weeklyFeedbackForm.summary.desc')}</CardDescription>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div><CardTitle>{t('weeklyFeedbackForm.summary.title')}</CardTitle><CardDescription>{t('weeklyFeedbackForm.summary.desc')}</CardDescription></div>
+              {isEditable ? <Button type="button" variant="outline" onClick={generateSummary} disabled={aiLoading || progressLoading}>{aiLoading ? 'Generating…' : 'Generate from daily progress'}</Button> : null}
+            </div>
           </CardHeader>
           <CardContent>
             <Textarea

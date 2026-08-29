@@ -2,22 +2,33 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner'; // Fix the import
 import { buildApiUrl } from '@/config/api';
-import { saveAuthToken, removeAuthToken } from '@/utils/auth';
+import { getAuthToken, saveAuthToken, removeAuthToken } from '@/utils/auth';
+import { parseStoredUser } from '@/utils/authSession';
 
 export type UserRole = 'teacher' | 'parent' | null;
 
 interface User {
   id: string;
   name: string;
-  email: string;
+  email?: string | null;
   role: UserRole;
+  status?: string;
+  authProvider?: string;
   children?: string[]; // Make children an optional property
 }
+
+export type ProviderLoginResult = {
+  success: boolean;
+  status?: 'pending_approval' | 'account_rejected';
+  error?: string;
+  user?: User;
+};
 
 interface AuthContextType {
   user: User | null;
   role: UserRole;
   login: (email: string, password: string, role: UserRole) => Promise<boolean>;
+  loginWithGoogle: (credential: string, role: Exclude<UserRole, null>) => Promise<ProviderLoginResult>;
   logout: () => void;
   updateUser: (user: User) => void;
   isAuthenticated: boolean;
@@ -26,19 +37,17 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [user, setUser] = useState<User | null>(() => parseStoredUser<User>(
+    localStorage.getItem('edunet-user'),
+    getAuthToken(),
+  ));
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Check if user is logged in from localStorage
-    const storedUser = localStorage.getItem('edunet-user');
-    if (storedUser) {
-      const parsedUser = JSON.parse(storedUser);
-      setUser(parsedUser);
-      setIsAuthenticated(true);
+    if (!user && localStorage.getItem('edunet-user')) {
+      localStorage.removeItem('edunet-user');
     }
-  }, []);
+  }, [user]);
 
   const login = async (email: string, password: string, role: UserRole): Promise<boolean> => {
     try {
@@ -48,11 +57,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         body: JSON.stringify({ email, password, role }),
       });
       const data = await res.json();
-      console.log('Login response:', JSON.stringify(data));
-      
       if (res.ok && data.user) {
         setUser(data.user);
-        setIsAuthenticated(true);
         localStorage.setItem('edunet-user', JSON.stringify(data.user));
         
         // Save token if provided
@@ -77,9 +83,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }; 
 
+  const loginWithGoogle = async (
+    credential: string,
+    role: Exclude<UserRole, null>,
+  ): Promise<ProviderLoginResult> => {
+    try {
+      const res = await fetch(buildApiUrl('auth/google'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential, role }),
+      });
+      const data = await res.json();
+
+      if (res.ok && data.user && data.token) {
+        setUser(data.user);
+        localStorage.setItem('edunet-user', JSON.stringify(data.user));
+        saveAuthToken(data.token);
+        return { success: true, user: data.user };
+      }
+
+      if (data.status === 'pending_approval' || data.code === 'account_rejected') {
+        return {
+          success: false,
+          status: data.code === 'account_rejected' ? 'account_rejected' : 'pending_approval',
+          error: data.error,
+          user: data.user,
+        };
+      }
+
+      return { success: false, error: data.error || 'Google sign-in failed.' };
+    } catch {
+      return { success: false, error: 'Google sign-in failed. Please try again.' };
+    }
+  };
+
   const logout = () => {
     setUser(null);
-    setIsAuthenticated(false);
     localStorage.removeItem('edunet-user');
     removeAuthToken();
     toast.success('Logged out successfully.');
@@ -95,9 +134,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     user,
     role: user?.role || null,
     login,
+    loginWithGoogle,
     logout,
     updateUser,
-    isAuthenticated,
+    isAuthenticated: Boolean(user && getAuthToken()),
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -105,7 +145,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  console.log('useAuth context:', context); 
   if (context === undefined) {
     throw new Error('useAuth must be used within an AuthProvider');
   }

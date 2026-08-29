@@ -24,6 +24,10 @@ import VerifyEmail from './pages/VerifyEmail';
 import Profile from './pages/Profile';
 import Settings from './pages/Settings';
 import WebAuth from './pages/WebAuth';
+import StudentRecords from './pages/StudentRecords';
+import TeacherTools from './pages/TeacherTools';
+import AdminConsole from './pages/admin/AdminConsole';
+import { hasStoredToken } from '@/utils/authSession';
 
 
 const queryClient = new QueryClient();
@@ -64,6 +68,12 @@ const TeacherRoute = ({ children }: { children: React.ReactNode }) => {
   );
 };
 
+const AdminRoute = ({ children }: { children: React.ReactNode }) => {
+  const hasAdminToken = hasStoredToken(localStorage.getItem('adminToken'));
+
+  return hasAdminToken ? children : <Navigate to="/admin/login" replace />;
+};
+
 // App Routes setup
 const AppRoutes = () => {
   return (
@@ -74,8 +84,9 @@ const AppRoutes = () => {
       <Route path="/verify-email" element={<VerifyEmail />} />
       <Route path="/web-auth" element={<WebAuth />} />
       <Route path="/admin/login" element={<AdminLogin />} />
-      <Route path="/admin/dashboard" element={<AdminDashboard />} />
-      <Route path="/progress-form" element={<ProgressForm />} />
+      <Route path="/admin/dashboard" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
+      <Route path="/admin/console" element={<AdminRoute><AdminConsole /></AdminRoute>} />
+      <Route path="/progress-form" element={<TeacherRoute><ProgressForm /></TeacherRoute>} />
       <Route
         path="/dashboard"
         element={
@@ -114,6 +125,22 @@ const AppRoutes = () => {
           <ProtectedRoute>
             <StudentProfile />
           </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/student/:id/records"
+        element={
+          <ProtectedRoute>
+            <StudentRecords />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/teaching"
+        element={
+          <TeacherRoute>
+            <TeacherTools />
+          </TeacherRoute>
         }
       />
       <Route

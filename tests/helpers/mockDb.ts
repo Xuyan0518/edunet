@@ -36,6 +36,7 @@ export const createMockDb = () => {
     update: [],
     delete: [],
   };
+  let selectArguments: unknown[] = [];
 
   const next = (bucket: keyof QueueBuckets): QueryResult => {
     return queues[bucket].length ? queues[bucket].shift()! : [];
@@ -59,8 +60,15 @@ export const createMockDb = () => {
       queues.insert = [];
       queues.update = [];
       queues.delete = [];
+      selectArguments = [];
     },
-    select: () => buildQuery(next('select')),
+    getSelectArguments() {
+      return selectArguments;
+    },
+    select: (selection?: unknown) => {
+      selectArguments.push(selection);
+      return buildQuery(next('select'));
+    },
     insert: () => {
       const query = buildQuery(next('insert'));
       return {
@@ -79,6 +87,7 @@ export const createMockDb = () => {
         where: () => query,
       };
     },
+    batch: (queries: any[]) => Promise.all(queries),
   };
 
   return db;

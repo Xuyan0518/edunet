@@ -24,7 +24,11 @@ dist-ssr
 *.sw?
 
 .env
+.env.backup
 Dockerfile.lock
 
 # WeChat DevTools per-user setting (urlCheck, etc.) — never commit
 miniprogram/project.private.config.json
+
+# Local Hermes execution plans are workstation-specific.
+.hermes/plans/

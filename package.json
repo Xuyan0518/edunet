@@ -30,7 +30,14 @@
     "test:api": "vitest run tests/integration tests/business",
     "test:e2e": "vitest run tests/business",
     "test:coverage": "vitest run --coverage",
-    "test:load": "node tests/load/smoke-load.mjs"
+    "test:load": "node tests/load/smoke-load.mjs",
+    "test:web": "vitest run --config vitest.web.config.ts",
+    "preview:web:fixtures": "node tests/web/preview.mjs",
+    "dev:connected": "node scripts/dev/server.mjs",
+    "dev:db:check": "tsx scripts/dev/check.ts",
+    "dev:seed": "tsx scripts/dev/seed.ts --confirm-dev",
+    "test:connected": "tsx scripts/dev/smoke.ts",
+    "dev:web": "VITE_API_URL=/api concurrently --kill-others -n WEB,API -c cyan,green \"vite --host 0.0.0.0 --port 3001 --strictPort\" \"node scripts/dev/server.mjs --web\""
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",

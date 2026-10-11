@@ -1,16 +1,40 @@
 {
-    "name": "Edunet Dev",
-    "context": "..",
-    "dockerComposeFile": "../docker-compose.yml",
-    "service": "frontend",
-    "workspaceFolder": "/app",
-    "settings": {
-      "terminal.integrated.defaultProfile.linux": "bash"
+  "name": "Edunet Dev",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "workspaceMount": "source=${localWorkspaceFolder},target=/app,type=bind",
+  "workspaceFolder": "/app",
+  "mounts": [
+    "source=edunet-${devcontainerId}-node-modules,target=/app/node_modules,type=volume"
+  ],
+  "init": true,
+  "shutdownAction": "stopContainer",
+  "forwardPorts": [
+    3001
+  ],
+  "portsAttributes": {
+    "3001": {
+      "label": "Edunet web and dev API",
+      "requireLocalPort": true,
+      "onAutoForward": "notify"
     },
-    "extensions": [
-      "dbaeumer.vscode-eslint",
-      "esbenp.prettier-vscode"
-    ],
-    "postCreateCommand": "npm install"
+    "3003": {
+      "label": "Internal API (use port 3001)",
+      "onAutoForward": "ignore"
+    }
+  },
+  "postCreateCommand": "npm ci",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash"
+      },
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode"
+      ]
+    }
   }
-  
+}

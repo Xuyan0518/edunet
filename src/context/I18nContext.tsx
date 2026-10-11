@@ -27,7 +27,7 @@ export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const t = useMemo(() => {
     return (key: TranslationKey, params?: Record<string, string | number>) => {
       const dict = translations[language] ?? translations['zh-CN'];
-      let template = dict[key] ?? translations.en[key] ?? key;
+      let template: string = dict[key] ?? translations.en[key] ?? key;
       if (params) {
         for (const [paramKey, value] of Object.entries(params)) {
           template = template.replace(new RegExp(`\\{${paramKey}\\}`, 'g'), String(value));

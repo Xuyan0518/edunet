@@ -30,3 +30,11 @@ export const toPublicUser = (user: any, role: 'teacher' | 'parent' | 'admin') =>
     updatedAt: user.updatedAt || null,
   };
 };
+
+// Session claims come only from authenticated server middleware, never from a DB row or request body.
+export const toSessionUser = (user: Parameters<typeof toPublicUser>[0], session: { role: 'teacher' | 'parent' | 'admin'; isReviewer?: boolean; reviewerStudentId?: string }) => ({
+  ...toPublicUser(user, session.role),
+  ...(session.role === 'teacher' && session.isReviewer === true ? {
+    isReviewer: true, reviewerStudentId: session.reviewerStudentId || null, canManageStudentsAndParents: false,
+  } : {}),
+});

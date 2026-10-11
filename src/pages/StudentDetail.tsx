@@ -1,3 +1,4 @@
+import { fetchApiResponse } from '@/services/http';
 import React, { useEffect, useState } from "react";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -22,7 +23,7 @@ const StudentDetail: React.FC = () => {
 
   useEffect(() => {
     if (!student && id) {
-      fetch(buildApiUrl(`students/${id}`))
+      fetchApiResponse(buildApiUrl(`students/${id}`))
         .then((res) => {
           if (!res.ok) throw new Error("Failed to fetch student");
           return res.json();

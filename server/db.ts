@@ -16,7 +16,7 @@ const sql = neon(process.env.DATABASE_URL!);
 // Initialize Drizzle with Neon
 export const db = drizzle(sql, { 
   schema,
-  logger: process.env.NODE_ENV !== 'production' // Enable logging in dev
+  logger: process.env.DB_LOG_QUERIES === 'true' // Enable logging in dev
 });
 
 // Type exports for your database

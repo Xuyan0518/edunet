@@ -20,10 +20,13 @@ function baseHrefPlugin() {
 
 // Copy index.html to 404.html for GitHub Pages SPA fallback (so /repo/dashboard etc. load the app)
 function copy404Plugin() {
+  let outDir = path.resolve(__dirname, "dist");
   return {
     name: "copy-404",
+    configResolved(config: { root: string; build: { outDir: string } }) {
+      outDir = path.resolve(config.root, config.build.outDir);
+    },
     closeBundle() {
-      const outDir = path.resolve(__dirname, "dist");
       const indexPath = path.join(outDir, "index.html");
       const notFoundPath = path.join(outDir, "404.html");
       if (fs.existsSync(indexPath)) {
@@ -44,7 +47,7 @@ export default defineConfig(({ mode }) => ({
     port: 3001,
     proxy: {
       "/api": {
-        target: "http://localhost:3003", // Your backend API
+        target: "http://127.0.0.1:3003", // Match the dev API loopback listener.
         changeOrigin: true,
       },
     },

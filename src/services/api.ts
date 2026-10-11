@@ -1,3 +1,4 @@
+import { fetchApiResponse } from '@/services/http';
 
 import { toast } from 'sonner';
 
@@ -8,7 +9,7 @@ import { getAuthHeaders } from '@/utils/auth';
 
 // Error handler helper
 const handleError = (error: unknown) => {
-  console.error('API Error:', error);
+  // Do not log student records or transport payloads.
   toast.error('Error connecting to the server. Please try again later.');
   return null;
 };
@@ -55,7 +56,7 @@ export const api = {
   // Students
   async getStudents(): Promise<Student[] | null> {
     try {
-      const response = await fetch(buildApiUrl('students'), {
+      const response = await fetchApiResponse(buildApiUrl('students'), {
         headers: getAuthHeaders(),
       });
       if (!response.ok) throw new Error(`HTTP error ${response.status}`);
@@ -67,7 +68,7 @@ export const api = {
 
   async getStudent(id: string): Promise<Student | null> {
     try {
-      const response = await fetch(buildApiUrl(`students/${id}`), {
+      const response = await fetchApiResponse(buildApiUrl(`students/${id}`), {
         headers: getAuthHeaders(),
       });
       if (!response.ok) throw new Error(`HTTP error ${response.status}`);
@@ -79,7 +80,7 @@ export const api = {
 
   async createStudent(student: { name: string; grade: string; parentId?: string | null }) {
     try {
-      const response = await fetch(buildApiUrl('students'), {
+      const response = await fetchApiResponse(buildApiUrl('students'), {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify(student),
@@ -98,7 +99,7 @@ export const api = {
 
   async updateStudent(id: string, student: Partial<Student>): Promise<Student | null> {
     try {
-      const response = await fetch(buildApiUrl(`students/${id}`), {
+      const response = await fetchApiResponse(buildApiUrl(`students/${id}`), {
         method: 'PUT',
         headers: getAuthHeaders(),
         body: JSON.stringify(student),
@@ -114,7 +115,7 @@ export const api = {
 
   async getUnassignedParents(): Promise<{ id: string; name: string }[]> {
     try {
-      const response = await fetch(buildApiUrl('parents/unassigned'), {
+      const response = await fetchApiResponse(buildApiUrl('parents/unassigned'), {
         headers: getAuthHeaders(),
       });
       if (!response.ok) throw new Error(`HTTP error ${response.status}`);
@@ -126,7 +127,7 @@ export const api = {
 
   async getChildren(): Promise<Student[] | null> {
     try {
-      const response = await fetch(buildApiUrl('students/children'));
+      const response = await fetchApiResponse(buildApiUrl('students/children'));
       if (!response.ok) throw new Error(`HTTP error ${response.status}`);
       return await response.json();
     } catch (error) {
@@ -145,7 +146,7 @@ export const api = {
       const url = date
         ? `${buildApiUrl('daily-progress/missing')}?date=${encodeURIComponent(date)}`
         : buildApiUrl('daily-progress/missing');
-      const response = await fetch(url, { headers: getAuthHeaders() });
+      const response = await fetchApiResponse(url, { headers: getAuthHeaders() });
       if (!response.ok) throw new Error(`HTTP error ${response.status}`);
       return await response.json();
     } catch (error) {
@@ -174,7 +175,7 @@ export const api = {
       const url = date
         ? `${buildApiUrl('exams/upcoming')}?date=${encodeURIComponent(date)}`
         : buildApiUrl('exams/upcoming');
-      const response = await fetch(url, { headers: getAuthHeaders() });
+      const response = await fetchApiResponse(url, { headers: getAuthHeaders() });
       if (!response.ok) throw new Error(`HTTP error ${response.status}`);
       return await response.json();
     } catch (error) {
@@ -205,7 +206,7 @@ export const api = {
       const url = date
         ? `${buildApiUrl('weekly-tasks/incomplete')}?date=${encodeURIComponent(date)}`
         : buildApiUrl('weekly-tasks/incomplete');
-      const response = await fetch(url, { headers: getAuthHeaders() });
+      const response = await fetchApiResponse(url, { headers: getAuthHeaders() });
       if (!response.ok) throw new Error(`HTTP error ${response.status}`);
       return await response.json();
     } catch (error) {
@@ -216,7 +217,7 @@ export const api = {
   // Daily Progress
   async getStudentProgress(studentId: string): Promise<DailyProgress[] | null> {
     try {
-      const response = await fetch(buildApiUrl(`students/${studentId}/progress`), {
+      const response = await fetchApiResponse(buildApiUrl(`students/${studentId}/progress`), {
         headers: getAuthHeaders(),
       });
       if (!response.ok) throw new Error(`HTTP error ${response.status}`);
@@ -228,7 +229,7 @@ export const api = {
 
   async createProgress(progress: Omit<DailyProgress, 'id' | 'createdAt'>): Promise<DailyProgress | null> {
     try {
-      const response = await fetch(buildApiUrl('progress'), {
+      const response = await fetchApiResponse(buildApiUrl('progress'), {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify(progress),
@@ -245,7 +246,7 @@ export const api = {
   // Weekly Feedback
   async getStudentFeedback(studentId: string): Promise<WeeklyFeedback[] | null> {
     try {
-      const response = await fetch(buildApiUrl(`students/${studentId}/feedback`), {
+      const response = await fetchApiResponse(buildApiUrl(`students/${studentId}/feedback`), {
         headers: getAuthHeaders(),
       });
       if (!response.ok) throw new Error(`HTTP error ${response.status}`);
@@ -257,7 +258,7 @@ export const api = {
 
   async createFeedback(feedback: Omit<WeeklyFeedback, 'id' | 'createdAt'>): Promise<WeeklyFeedback | null> {
     try {
-      const response = await fetch(buildApiUrl('feedback'), {
+      const response = await fetchApiResponse(buildApiUrl('feedback'), {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify(feedback),
@@ -272,16 +273,16 @@ export const api = {
   },
 
   listSubjects: async () =>
-    fetch(buildApiUrl('subjects'), {
+    fetchApiResponse(buildApiUrl('subjects'), {
       headers: getAuthHeaders(),
     }).then(r => r.json()),
 
   // assign (replace) subjects via PUT /api/students/:studentId/subjects
   replaceStudentSubjects: async (studentId: string, subjectIds: string[]) =>
-    fetch(buildApiUrl(`students/${studentId}/subjects`), {
+    fetchApiResponse(buildApiUrl(`students/${studentId}/subjects`), {
       method: 'PUT',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ subjectIds }),
+      body: JSON.stringify({ subjectIds, resetProgress: 'keep' }),
     }).then(async r => {
       if (!r.ok) throw new Error(await r.text());
       return r.json();
@@ -290,7 +291,7 @@ export const api = {
   // get student's current subjects
   getStudentSubjects: async (studentId: string): Promise<string[]> => {
     try {
-      const response = await fetch(buildApiUrl(`students/${studentId}/subjects`), {
+      const response = await fetchApiResponse(buildApiUrl(`students/${studentId}/subjects`), {
         headers: getAuthHeaders(),
       });
       if (!response.ok) throw new Error(`HTTP error ${response.status}`);

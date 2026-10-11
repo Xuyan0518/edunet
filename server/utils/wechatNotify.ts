@@ -43,6 +43,7 @@ export const sendWeChatSubscribeMessage = async (payload: {
   page: string;
   data: Record<string, { value: string }>;
 }) => {
+  if (process.env.NOTIFICATIONS_ENABLED === 'false') return { ok: true as const, skipped: true as const };
   const token = await getAccessToken();
   if (!token) return { ok: false as const, error: 'Missing access token', errcode: null, errmsg: null };
 

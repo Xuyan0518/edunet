@@ -1,113 +1,54 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useEffect, useState, useSyncExternalStore } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { toast } from 'sonner'; // Fix the import
-import { buildApiUrl } from '@/config/api';
-import { saveAuthToken, removeAuthToken } from '@/utils/auth';
-
-export type UserRole = 'teacher' | 'parent' | null;
-
-interface User {
-  id: string;
-  name: string;
-  email: string;
-  role: UserRole;
-  children?: string[]; // Make children an optional property
-}
-
+import { useQueryClient } from '@tanstack/react-query';
+import { SessionController, type SessionUser, type SessionState } from '@/features/auth/session';
+import { SESSION_EXPIRED } from '@/services/http';
+export type UserRole = SessionUser['role'] | null;
 interface AuthContextType {
-  user: User | null;
-  role: UserRole;
-  login: (email: string, password: string, role: UserRole) => Promise<boolean>;
-  logout: () => void;
-  updateUser: (user: User) => void;
-  isAuthenticated: boolean;
+    user: SessionUser | null;
+    role: UserRole;
+    status: SessionState['status'];
+    isAuthenticated: boolean;
+    login: (email: string, password: string, role: UserRole) => Promise<boolean>;
+    reviewerLogin: (account: string, password: string) => Promise<boolean>;
+    logout: () => void;
+    retry: () => Promise<void>;
+    refreshProfile: () => Promise<void>;
+    updateUser: (user: SessionUser) => void;
 }
-
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    // Check if user is logged in from localStorage
-    const storedUser = localStorage.getItem('edunet-user');
-    if (storedUser) {
-      const parsedUser = JSON.parse(storedUser);
-      setUser(parsedUser);
-      setIsAuthenticated(true);
-    }
-  }, []);
-
-  const login = async (email: string, password: string, role: UserRole): Promise<boolean> => {
-    try {
-      const res = await fetch(buildApiUrl('login'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, role }),
-      });
-      const data = await res.json();
-      console.log('Login response:', JSON.stringify(data));
-      
-      if (res.ok && data.user) {
-        setUser(data.user);
-        setIsAuthenticated(true);
-        localStorage.setItem('edunet-user', JSON.stringify(data.user));
-        
-        // Save token if provided
-        if (data.token) {
-          saveAuthToken(data.token);
-        }
-        
-        toast.success(`Welcome back, ${data.user.name}!`);
-        return true;
-      } else {
-        // Handle specific error cases
-        if (data.status === 'pending_approval') {
-          toast.error('Your account is pending admin approval. You will be notified once approved.');
-        } else {
-          toast.error(data.error || 'Invalid credentials. Please try again.');
-        }
-        return false;
-      }
-    } catch (error) {
-      toast.error('Login failed. Please try again.');
-      return false;
-    }
-  }; 
-
-  const logout = () => {
-    setUser(null);
-    setIsAuthenticated(false);
-    localStorage.removeItem('edunet-user');
-    removeAuthToken();
-    toast.success('Logged out successfully.');
-    navigate('/login');
-  };
-
-  const updateUser = (nextUser: User) => {
-    setUser(nextUser);
-    localStorage.setItem('edunet-user', JSON.stringify(nextUser));
-  };
-
-  const value = {
-    user,
-    role: user?.role || null,
-    login,
-    logout,
-    updateUser,
-    isAuthenticated,
-  };
-
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+export const AuthProvider = ({ children }: {
+    children: React.ReactNode;
+}) => {
+    const queryClient = useQueryClient();
+    const navigate = useNavigate();
+    const [controller] = useState(() => new SessionController(localStorage, () => { void queryClient.cancelQueries(); queryClient.clear(); }));
+    const state = useSyncExternalStore(controller.subscribe, controller.snapshot, controller.snapshot);
+    useEffect(() => {
+        void controller.restore();
+        const expired = (event: Event) => {
+            if ((event as CustomEvent).detail === localStorage.getItem('edunet-token'))
+                controller.clear();
+        };
+        const changed = (event: StorageEvent) => { if (event.key === 'edunet-token' || event.key === null)
+            void controller.restore(); };
+        window.addEventListener(SESSION_EXPIRED, expired);
+        window.addEventListener('storage', changed);
+        return () => { window.removeEventListener(SESSION_EXPIRED, expired); window.removeEventListener('storage', changed); };
+    }, [controller]);
+    const value: AuthContextType = {
+        ...state, role: state.user?.role ?? null, isAuthenticated: state.status === 'authenticated',
+        login: (email, password, role) => controller.login(role === 'admin' ? 'admin/login' : 'login', { email, password, role: role || '' }),
+        reviewerLogin: (account, password) => controller.login('auth/reviewer-login', { username: account, password }),
+        logout: () => { controller.clear(); navigate('/login', { replace: true }); },
+        retry: controller.restore, refreshProfile: controller.refreshProfile,
+        updateUser: () => { void controller.refreshProfile(); },
+    };
+    return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
-
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  console.log('useAuth context:', context); 
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
-};
+export function useAuth() {
+    const context = useContext(AuthContext);
+    if (!context)
+        throw new Error('useAuth must be used within an AuthProvider');
+    return context;
+}

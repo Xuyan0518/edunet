@@ -1,393 +1,196 @@
-import React, { useEffect, useState } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Users, Plus, Clock, Calendar, CheckCircle } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '@/context/AuthContext';
-import { Student, DailyProgress, WeeklyFeedback, api } from '@/services/api';
-import { buildApiUrl } from '@/config/api';
-import { getAuthHeaders } from '@/utils/auth';
-import { useI18n } from '@/context/I18nContext';
-
-type FilterType = 'all' | 'pending-daily' | 'pending-weekly';
-
-const Students: React.FC = () => {
-  const navigate = useNavigate();
-  const { user, role } = useAuth();
-  const { t } = useI18n();
-
-  // State for students and filtering
-  const [students, setStudents] = useState<Student[]>([]);
-  const [dailyProgress, setDailyProgress] = useState<DailyProgress[]>([]);
-  const [weeklyFeedback, setWeeklyFeedback] = useState<WeeklyFeedback[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<FilterType>('all');
-
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setError(null);
-        
-        // Always fetch students first
-        const studentsRes = await fetch(buildApiUrl('students'), {
-          headers: getAuthHeaders(),
-        });
-        if (!studentsRes.ok) throw new Error(`Failed to fetch students: ${studentsRes.status}`);
-        const studentsData = await studentsRes.json();
-        setStudents(studentsData);
-        
-        // Try to fetch progress and feedback, but don't fail if they error
-        try {
-          const progressRes = await fetch(buildApiUrl('progress'), {
-            headers: getAuthHeaders(),
-          });
-          if (progressRes.ok) {
-            const progressData = await progressRes.json();
-            setDailyProgress(progressData);
-          }
-        } catch (progressError) {
-          console.warn('Failed to fetch daily progress:', progressError);
-          setDailyProgress([]);
-        }
-        
-        try {
-          const feedbackRes = await fetch(buildApiUrl('feedback'), {
-            headers: getAuthHeaders(),
-          });
-          if (feedbackRes.ok) {
-            const feedbackData = await feedbackRes.json();
-            setWeeklyFeedback(feedbackData);
-          }
-        } catch (feedbackError) {
-          console.warn('Failed to fetch weekly feedback:', feedbackError);
-          setWeeklyFeedback([]);
-        }
-        
-      } catch (error) {
-        console.error('Failed to fetch students:', error);
-        setError(t('students.error.load'));
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchData();
-  }, [t]);
-
-  // Helper functions to determine pending status
-  const getTodayProgressStatus = (studentId: string) => {
-    // If no progress data available, assume pending
-    if (dailyProgress.length === 0) return 'pending';
-    
-    const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
-    
-    // Check if today is Sunday-Thursday (0=Sunday, 1=Monday, 2=Tuesday, 3=Wednesday, 4=Thursday)
-    const dayOfWeek = today.getDay();
-    const isStudyDay = dayOfWeek >= 0 && dayOfWeek <= 4; // Sunday to Thursday
-    
-    if (!isStudyDay) return 'no-class'; // No class on Friday/Saturday
-    
-    const hasProgress = dailyProgress.some(p => 
-      p.studentId === studentId && 
-      p.date === todayStr
-    );
-    
-    return hasProgress ? 'completed' : 'pending';
-  };
-
-  const getWeeklyFeedbackStatus = (studentId: string) => {
-    // If no feedback data available, assume pending
-    if (weeklyFeedback.length === 0) return 'pending';
-    
-    const today = new Date();
-    const dayOfWeek = today.getDay();
-    
-    // Check if it's Friday (5) or Saturday (6) - time to write weekly feedback
-    const isFeedbackTime = dayOfWeek === 5 || dayOfWeek === 6;
-    
-    if (!isFeedbackTime) return 'not-time';
-    
-    // Get the most recent Sunday (start of week)
-    const daysSinceSunday = dayOfWeek;
-    const lastSunday = new Date(today);
-    lastSunday.setDate(today.getDate() - daysSinceSunday);
-    const lastSundayStr = lastSunday.toISOString().split('T')[0];
-    
-    // Check if weekly feedback exists for this week
-    const hasFeedback = weeklyFeedback.some(f => 
-      f.studentId === studentId && 
-      new Date(f.weekEnding) >= lastSunday
-    );
-    
-    return hasFeedback ? 'completed' : 'pending';
-  };
-
-  // Filter students based on selected filter
-  const getFilteredStudents = () => {
-    if (filter === 'all') return students;
-    
-    if (filter === 'pending-daily') {
-      return students.filter(student => getTodayProgressStatus(student.id) === 'pending');
-    }
-    
-    if (filter === 'pending-weekly') {
-      return students.filter(student => getWeeklyFeedbackStatus(student.id) === 'pending');
-    }
-    
-    return students;
-  };
-
-  const visibleStudents = role === 'teacher'
-    ? getFilteredStudents()
-    : students.filter((s) => (s.parentId || s.parent_id) === user?.id);
-
-  const getStatusBadge = (student: Student) => {
-    const dailyStatus = getTodayProgressStatus(student.id);
-    const weeklyStatus = getWeeklyFeedbackStatus(student.id);
-    
-    if (filter === 'pending-daily') {
-      if (dailyStatus === 'no-class') {
-        return <Badge variant="secondary">{t('students.status.noClass')}</Badge>;
-      }
-      return <Badge variant="destructive">{t('students.status.pendingDaily')}</Badge>;
-    }
-    
-    if (filter === 'pending-weekly') {
-      if (weeklyStatus === 'not-time') {
-        return <Badge variant="secondary">{t('students.status.notFeedbackTime')}</Badge>;
-      }
-      return <Badge variant="destructive">{t('students.status.pendingWeekly')}</Badge>;
-    }
-    
-    // For 'all' filter, show current status
-    if (dailyStatus === 'pending') {
-      return <Badge variant="destructive">{t('students.status.pendingDaily')}</Badge>;
-    } else if (dailyStatus === 'completed') {
-      return <Badge variant="default">{t('students.status.dailyCompleted')} ✓</Badge>;
-    } else if (dailyStatus === 'no-class') {
-      return <Badge variant="secondary">{t('students.status.noClass')}</Badge>;
-    }
-    
-    return null;
-  };
-
+import { useState } from "react";
+import { StudentDeleteDialog } from "@/features/StudentDeleteDialog";
+import { Student } from "@/services/studentsApi";
+import { Button } from "@/components/ui/button";
+import { Link, useSearchParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/context/AuthContext";
+import { studentsApi } from "@/services/studentsApi";
+import { queryKeys } from "@/app/queryKeys";
+import { can } from "@/app/permissions";
+import { useWebCopy } from "@/i18n/web";
+import { AsyncState } from "@/components/shared/AsyncState";
+import { Input } from "@/components/ui/input";
+export default function Students({
+  management = false
+}: {
+  management?: boolean;
+}) {
+  const [deleting, setDeleting] = useState<Student>();
+  const { user } = useAuth();
+  const c = useWebCopy();
+  const [params, setParams] = useSearchParams();
+  const search = params.get("q") || "";
+  const grade = params.get("grade") || "";
+  const query = useQuery({
+    queryKey: queryKeys.students(user),
+    queryFn: ({ signal }) => studentsApi.list(signal)
+  });
+  const students = query.data || [];
+  const filtered = students.filter(
+    student =>
+      (!grade || student.grade === grade) &&
+      `${student.name} ${student.grade}`
+        .toLowerCase()
+        .includes(search.toLowerCase())
+  );
+  function filter(key: string, value: string) {
+    const next = new URLSearchParams(params);
+    if (value) next.set(key, value);
+    else next.delete(key);
+    setParams(next, { replace: true });
+  }
   return (
-    <div className="container mx-auto py-8 px-4 animate-fade-in">
-      <div className="mb-8 flex items-center justify-between">
+    <section className="web-content">
+      <div className="web-heading">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">{t('students.title')}</h1>
-          <p className="text-muted-foreground mt-1">
-            {role === 'teacher' ? t('students.subtitle.teacher') : t('students.subtitle.parent')}
+          <p className="web-eyebrow">EDUNET / STUDENTS</p>
+          <h1>
+            {user.role === "parent"
+              ? c("我的孩子", "My children")
+              : c("学生档案", "Students")}
+          </h1>
+          <p>
+            {c(
+              "每一份成长，都值得认真记录。",
+              "Every step of growth deserves care."
+            )}
           </p>
         </div>
-
-        {role === 'teacher' && (
-          <Button onClick={() => navigate('/add-student')}>
-            <Plus className="h-4 w-4 mr-2" />
-            {t('students.addStudent')}
-          </Button>
+        {can(user, "createStudent") && (
+          <Link className="web-primary-link" to="/students/new">
+            + {c("添加学生", "Add student")}
+          </Link>
         )}
       </div>
-
-      {role === 'teacher' && (
-        <div className="mb-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-            <Card className="bg-blue-50 border-blue-200">
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
-                    <Users className="h-5 w-5 text-blue-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm text-blue-600 font-medium">{t('students.stats.total')}</p>
-                    <p className="text-2xl font-bold text-blue-800">{students.length}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            
-            <Card className="bg-orange-50 border-orange-200">
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center">
-                    <Clock className="h-5 w-5 text-orange-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm text-orange-600 font-medium">{t('students.stats.pendingDaily')}</p>
-                    <p className="text-2xl font-bold text-orange-800">
-                      {students.filter(s => getTodayProgressStatus(s.id) === 'pending').length}
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            
-            <Card className="bg-purple-50 border-purple-200">
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center">
-                    <Calendar className="h-5 w-5 text-purple-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm text-purple-600 font-medium">{t('students.stats.pendingWeekly')}</p>
-                    <p className="text-2xl font-bold text-purple-800">
-                      {students.filter(s => getWeeklyFeedbackStatus(s.id) === 'pending').length}
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-          
-          <div className="flex items-center gap-4">
-            <Select value={filter} onValueChange={(value: FilterType) => setFilter(value)}>
-              <SelectTrigger className="w-64">
-                <SelectValue placeholder={t('students.filter.placeholder')} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">
-                  <div className="flex items-center gap-2">
-                    <Users className="h-4 w-4" />
-                    {t('students.filter.all', { count: students.length })}
-                  </div>
-                </SelectItem>
-                <SelectItem value="pending-daily">
-                  <div className="flex items-center gap-2">
-                    <Clock className="h-4 w-4" />
-                    {t('students.filter.pendingDaily')}
-                  </div>
-                </SelectItem>
-                <SelectItem value="pending-weekly">
-                  <div className="flex items-center gap-2">
-                    <Calendar className="h-4 w-4" />
-                    {t('students.filter.pendingWeekly')}
-                  </div>
-                </SelectItem>
-              </SelectContent>
-            </Select>
-            
-            {filter !== 'all' && (
-              <div className="text-sm text-muted-foreground">
-                {t('students.filter.showing', { filtered: getFilteredStudents().length, total: students.length })}
-              </div>
-            )}
-          </div>
-          
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-            <div className="flex items-start gap-3">
-              <div className="w-5 h-5 rounded-full bg-blue-200 flex items-center justify-center mt-0.5">
-                <span className="text-xs text-blue-600 font-bold">i</span>
-              </div>
-              <div className="text-sm text-blue-800">
-                <p className="font-medium mb-1">{t('students.schedule.title')}</p>
-                <p>- <strong>{t('students.schedule.regular')}</strong></p>
-                <p>- <strong>{t('students.schedule.daily')}</strong></p>
-                <p>- <strong>{t('students.schedule.weekly')}</strong></p>
-                <p>- <strong>{t('students.schedule.occasional')}</strong></p>
-                {(dailyProgress.length === 0 || weeklyFeedback.length === 0) && (
-                  <div className="mt-2 p-2 bg-yellow-100 border border-yellow-300 rounded">
-                    <p className="text-yellow-800 text-xs">
-                      ! {t('students.schedule.warning')}
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
+      {can(user, "manageStudents") && (
+        <Link
+          className="underline"
+          to={management ? "/students" : "/students/manage"}
+        >
+          {management
+            ? c("返回学生列表", "Back to students")
+            : c("管理学生", "Manage students")}
+        </Link>
       )}
-
-      {loading ? (
-        <div className="flex items-center justify-center py-12">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-            <p className="text-muted-foreground">{t('students.loading')}</p>
-          </div>
+      <div className="web-card mt-5">
+        <div className="section-heading">
+          <h2>{c("学生列表", "Student directory")}</h2>
+          <span className="record-badge">
+            {filtered.length} {c("位学生", "students")}
+          </span>
         </div>
-      ) : error ? (
-        <div className="text-center py-12">
-          <p className="text-red-600 mb-4">{error}</p>
-          <Button onClick={() => window.location.reload()}>{t('students.retry')}</Button>
-        </div>
-      ) : visibleStudents.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {visibleStudents.map((student) => (
-            <Card key={student.id} className="hover:shadow-lg transition-all duration-200 border-l-4 border-l-blue-500">
-              <CardHeader>
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-100 to-blue-200 flex items-center justify-center">
-                    <Users className="h-6 w-6 text-blue-600" />
-                  </div>
-                  <div className="flex-1">
-                    <CardTitle className="text-lg text-gray-900">{student.name}</CardTitle>
-                    <div className="flex items-center gap-2 mt-1">
-                      <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-                        {t('students.card.grade')} {student.grade}
-                      </Badge>
-                    </div>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {role === 'teacher' && getStatusBadge(student)}
-                
-                {role === 'teacher' && (
-                  <div className="flex gap-2">
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      className="flex-1"
-                      onClick={() => navigate(`/daily-progress?student=${student.id}`)}
-                    >
-                      <Clock className="h-3 w-3 mr-1" />
-                      {t('students.card.daily')}
-                    </Button>
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      className="flex-1"
-                      onClick={() => navigate(`/weekly-feedback?student=${student.id}`)}
-                    >
-                      <Calendar className="h-3 w-3 mr-1" />
-                      {t('students.card.weekly')}
-                    </Button>
-                  </div>
-                )}
-                
-                <div className="pt-2">
-                  <Button asChild className="w-full bg-blue-600 hover:bg-blue-700">
-                    <Link to={`/student/${student.id}`}>
-                      {t('students.card.viewProfile')}
-                    </Link>
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      ) : (
-        <div className="text-center py-12">
-          {filter === 'all' ? (
-            <p className="text-muted-foreground">{t('students.empty.all')}</p>
-          ) : filter === 'pending-daily' ? (
-            <div>
-              <p className="text-muted-foreground mb-2">{t('students.empty.pendingDaily.title')}</p>
-              <p className="text-sm text-green-600">{t('students.empty.pendingDaily.desc')}</p>
-            </div>
-          ) : (
-            <div>
-              <p className="text-muted-foreground mb-2">{t('students.empty.pendingWeekly.title')}</p>
-              <p className="text-sm text-green-600">{t('students.empty.pendingWeekly.desc')}</p>
-            </div>
+        <div className="web-filters">
+          <label>
+            {c("搜索", "Search")}
+            <Input
+              value={search}
+              onChange={event => filter("q", event.target.value)}
+              placeholder={c("姓名或年级", "Name or grade")}
+            />
+          </label>
+          <label>
+            {c("年级", "Grade")}
+            <select
+              value={grade}
+              onChange={event => filter("grade", event.target.value)}
+            >
+              <option value="">{c("全部年级", "All grades")}</option>
+              {[...new Set(students.map(student => student.grade))]
+                .sort()
+                .map(value => (
+                  <option key={value}>{value}</option>
+                ))}
+            </select>
+          </label>
+          {(search || grade) && (
+            <Button variant="ghost" onClick={() => setParams({})}>
+              {c("清除筛选", "Clear filters")}
+            </Button>
           )}
         </div>
+        <AsyncState
+          pending={query.isPending}
+          error={query.error}
+          retry={() => void query.refetch()}
+          empty={query.isSuccess && !filtered.length}
+        />
+        {query.isSuccess && !!filtered.length && (
+          <div className="web-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>{c("学生", "Student")}</th>
+                  <th>{c("年级", "Grade")}</th>
+                  <th>{c("查看", "Open")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map(student => (
+                  <tr key={student.id}>
+                    <td>
+                      <Link to={`/students/${encodeURIComponent(student.id)}`}>
+                        {student.name}
+                      </Link>
+                    </td>
+                    <td>{student.grade}</td>
+                    <td>
+                      <Link
+                        className="underline"
+                        to={`/students/${encodeURIComponent(student.id)}`}
+                      >
+                        {c("成长档案 →", "Learning profile →")}
+                      </Link>
+                      {management && can(user, "manageStudents") && (
+                        <div className="flex flex-wrap gap-3 mt-2">
+                          <Link
+                            className="underline"
+                            to={`/students/${encodeURIComponent(
+                              student.id
+                            )}/edit`}
+                          >
+                            {c("编辑", "Edit")}
+                          </Link>
+                          <Link
+                            className="underline"
+                            to={`/students/${encodeURIComponent(
+                              student.id
+                            )}/parents`}
+                          >
+                            {c("家长关联", "Parents")}
+                          </Link>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => setDeleting(student)}
+                          >
+                            {c("删除", "Delete")}
+                          </Button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {query.isSuccess && !students.length && user.role === "parent" && (
+          <p>
+            {c(
+              "尚未关联孩子，请联系教师确认家长绑定。",
+              "No children are linked yet. Contact a teacher to confirm your parent binding."
+            )}
+          </p>
+        )}
+      </div>
+      {deleting && (
+        <StudentDeleteDialog
+          key={deleting.id}
+          student={deleting}
+          onClose={() => setDeleting(undefined)}
+        />
       )}
-    </div>
+    </section>
   );
-};
-
-export default Students;
+}

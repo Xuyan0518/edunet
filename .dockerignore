@@ -1,5 +1,13 @@
 node_modules
+dist
 build
+.git
+.env
+.env.*
+.dev
 .vscode
-Dockerfile
-.dockerignore
+.codex
+.agents
+tests
+miniprogram
+*.log

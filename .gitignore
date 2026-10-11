@@ -28,3 +28,6 @@ Dockerfile.lock
 
 # WeChat DevTools per-user setting (urlCheck, etc.) — never commit
 miniprogram/project.private.config.json
+
+# Private local integration credentials and evidence
+.dev/

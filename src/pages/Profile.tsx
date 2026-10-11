@@ -1,110 +1,35 @@
-import React, { useEffect, useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { useToast } from '@/hooks/use-toast';
+import { useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import { useI18n } from '@/context/I18nContext';
-import { buildApiUrl } from '@/config/api';
-import { getAuthHeaders } from '@/utils/auth';
-
-const Profile: React.FC = () => {
-  const { user, updateUser } = useAuth();
-  const { t } = useI18n();
-  const { toast } = useToast();
-  const [name, setName] = useState(user?.name ?? '');
-  const [email, setEmail] = useState(user?.email ?? '');
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    setName(user?.name ?? '');
-    setEmail(user?.email ?? '');
-  }, [user]);
-
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim() || !email.trim()) {
-      toast({ title: t('toast.title.error'), description: t('profile.toast.missing'), variant: 'destructive' });
-      return;
+import { useWebCopy } from '@/i18n/web';
+import { requestJson } from '@/services/http';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+export default function Profile() {
+    const { user, refreshProfile } = useAuth();
+    const c = useWebCopy();
+    const loaded = user.displayName || user.name;
+    const [name, setName] = useState(loaded);
+    const [pending, setPending] = useState(false);
+    const [message, setMessage] = useState('');
+    useEffect(() => { setName(loaded); }, [loaded]);
+    async function save(event: React.FormEvent) {
+        event.preventDefault();
+        setPending(true);
+        setMessage('');
+        let saved = false;
+        try {
+            await requestJson('profile', { method: 'PUT', body: { displayName: name.trim() } });
+            saved = true;
+            await refreshProfile();
+            setMessage(c('资料已保存。', 'Profile saved.'));
+        }
+        catch {
+            setMessage(saved ? c('资料已保存，但刷新失败。请刷新资料确认。', 'Profile saved, but refresh failed. Refresh to confirm.') : c('无法确认保存结果。请刷新资料后重试。', 'Save could not be confirmed. Refresh before retrying.'));
+        }
+        finally {
+            setPending(false);
+        }
     }
-    setSaving(true);
-    try {
-      const res = await fetch(buildApiUrl('profile'), {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-        body: JSON.stringify({ name: name.trim(), email: email.trim() }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to update profile');
-
-      if (user) {
-        updateUser({ ...user, name: data.user.name, email: data.user.email });
-      }
-
-      toast({ title: t('toast.title.success'), description: t('profile.toast.saved') });
-    } catch (err) {
-      toast({
-        title: t('toast.title.error'),
-        description: t('profile.toast.error'),
-        variant: 'destructive',
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="container mx-auto py-8 px-4 animate-fade-in max-w-3xl">
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('profile.title')}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSave} className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="name">{t('profile.fullName')}</Label>
-                <Input
-                  id="name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder={t('profile.fullName')}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="email">{t('profile.email')}</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@email.com"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>{t('profile.role')}</Label>
-                <Input value={user?.role ?? ''} disabled />
-              </div>
-              <div className="space-y-2">
-                <Label>{t('profile.userId')}</Label>
-                <Input value={user?.id ?? ''} disabled />
-              </div>
-            </div>
-
-            <div className="flex justify-end">
-              <Button type="submit" disabled={saving}>
-                {saving ? t('profile.saving') : t('profile.save')}
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-    </div>
-  );
-};
-
-export default Profile;
+    return <section className="web-content"><h1>{c('个人资料', 'Profile')}</h1><form className="web-card web-form" onSubmit={save}><Label htmlFor="displayName">{c('显示名称', 'Display name')}</Label><Input id="displayName" required maxLength={40} value={name} onChange={event => setName(event.target.value)}/><p className="text-muted-foreground">{user.role} · {user.id}</p><div className="flex gap-2"><Button disabled={pending || !name.trim()}>{c('保存', 'Save')}</Button><Button type="button" variant="outline" disabled={pending} onClick={() => { setName(loaded); setMessage(''); }}>{c('取消', 'Cancel')}</Button><Button type="button" variant="ghost" disabled={pending} onClick={() => { void refreshProfile().catch(() => setMessage(c('刷新失败。', 'Refresh failed.'))); }}>{c('刷新资料', 'Refresh profile')}</Button></div>{message && <p role="status">{message}</p>}</form></section>;
+}

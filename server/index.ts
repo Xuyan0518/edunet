@@ -1,3 +1,9 @@
+import { scopeDaily, scopePapers, scopeExams, scopeGeneratedReport, assignedSubjectPrompt } from './utils/assignedSubjectContext';
+import { devTestMetadata } from './utils/devTesting';
+import { loadStudentRecords, studentRecordSheets } from './services/studentRecordsExport';
+import { replaceDayPapers } from './services/paperBatch';
+import { parentRoleHasBindings, applyUserRoles } from './services/userRoles';
+import { deleteStudentCascade } from './services/studentDeletion';
 import express from 'express';
 import cors from 'cors';
 import bodyParser from 'body-parser';
@@ -188,7 +194,7 @@ import {
 } from './schema';
 
 import { generateToken } from './utils/auth';
-import { authenticate, requireTeacher, requireParent, requireAdmin, requireRole } from './middleware/auth';
+import { authenticate, requireTeachingAuthor, requireParent, requireAdmin, requireRole } from './middleware/auth';
 import { verifyParentStudentAccess } from './middleware/parentStudent';
 import { syncCatalogForStudentSubjects } from './utils/catalogSync';
 import { DEFAULT_ENGLISH_TASKS, hasCustomEnglishTaskConfig, normalizeEnglishTaskConfig } from './utils/englishTasks';
@@ -200,7 +206,7 @@ import {
   sanitizeSortOrder,
 } from './utils/subjectLevels';
 import { sendWeChatSubscribeMessage } from './utils/wechatNotify';
-import { DEFAULT_USER_NAME, pickDisplayName, toPublicUser } from './auth/userIdentity';
+import { DEFAULT_USER_NAME, pickDisplayName, toPublicUser, toSessionUser } from './auth/userIdentity';
 import { canAuthUserManageStudentsAndParents } from './utils/managementPermissions';
 
 dotenv.config();
@@ -565,7 +571,7 @@ const quarterlySummaryPrompt = process.env.DEEPSEEK_QUARTERLY_PROMPT || '';
 const yearlySummaryPrompt = process.env.DEEPSEEK_YEARLY_PROMPT || '';
 
 app.get('/api/health', (_, res) => {
-  res.json({ ok: true, timestamp: new Date().toISOString() });
+  res.json({ ok: true, timestamp: new Date().toISOString(), ...devTestMetadata() });
 });
 
 const notifyParent = async (payload: {
@@ -693,6 +699,12 @@ const callDeepSeek = async (
   const data = await resp.json();
   return data?.choices?.[0]?.message?.content || '';
 };
+
+const getAssignedSubjectsForSummary = (studentId: string) => db
+  .select({id: subjectsTable.id, name: subjectsTable.name, code: subjectsTable.code})
+  .from(studentSubjectsTable)
+  .innerJoin(subjectsTable, eq(studentSubjectsTable.subjectId, subjectsTable.id))
+  .where(and(eq(studentSubjectsTable.studentId, studentId), eq(subjectsTable.isActive, true)));
 
 const getSubjectProgressSummary = async (studentId: string) => {
   const rows = await db
@@ -1139,8 +1151,18 @@ const buildZipStore = (files: Array<{ path: string; content: string | Buffer }>)
   return Buffer.concat([...localParts, centralDirectory, endOfCentralDirectory]);
 };
 
-const xlsxTextEscape = (value: unknown) =>
-  excelXmlEscape(clipCell(stringifyCell(value), 32767).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, ''));
+const xlsxTextEscape = (value: unknown) => {
+  // Preserve whitespace and structured activity arrays. Raw JSON is split into
+  // smaller cells by the student export so it can be reconstructed without loss.
+  const text = (value != null && typeof value === 'object' ? JSON.stringify(value) : String(value ?? ''))
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
+  let clipped = text.length > 32767 ? text.slice(0, 32764) : text;
+  if (clipped.length < text.length) {
+    if (/[\uD800-\uDBFF]/.test(clipped.at(-1) || '')) clipped = clipped.slice(0, -1);
+    clipped += '...';
+  }
+  return excelXmlEscape(clipped);
+};
 
 const xlsxColumnName = (index: number) => {
   let n = index + 1;
@@ -2266,7 +2288,7 @@ app.post('/api/teachers', async (req, res) => {
   });
 });
 
-app.put('/api/teachers/:id', async (req, res) => {
+app.put('/api/teachers/:id', authenticate, requireAdmin, async (req, res) => {
   const id = req.params.id;
   try {
     const nextName = pickDisplayName(req.body?.displayName) || pickDisplayName(req.body?.name);
@@ -2645,32 +2667,22 @@ app.delete('/api/students/:id', authenticate, requireRole('teacher', 'admin'), r
   if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot manage student roster' });
   const id = req.params.id;
   try {
-    const existing = await db
-      .select({ id: studentsTable.id })
-      .from(studentsTable)
-      .where(eq(studentsTable.id, id))
-      .limit(1);
-    if (!existing.length) return res.status(404).json({ error: 'Student not found' });
-
-    // Delete dependent records first to avoid FK errors
-    await db.delete(studentParentBindingsTable).where(eq(studentParentBindingsTable.studentId, id));
-    await db.delete(studentTopicProgressTable).where(eq(studentTopicProgressTable.studentId, id));
-    await db.delete(studentSubjectsTable).where(eq(studentSubjectsTable.studentId, id));
-    await db.delete(weeklyFeedback).where(eq(weeklyFeedback.studentId, id));
-    await db.delete(dailyProgress).where(eq(dailyProgress.studentId, id));
-    const examRows = await db.select({ id: examsTable.id }).from(examsTable).where(eq(examsTable.studentId, id));
-    const examIds = examRows.map(r => r.id);
-    if (examIds.length) {
-      await db.delete(examScoresTable).where(inArray(examScoresTable.examId, examIds));
-    }
-    await db.delete(examsTable).where(eq(examsTable.studentId, id));
-    await db.delete(quarterlySummaryTable).where(eq(quarterlySummaryTable.studentId, id));
-    await db.delete(yearlySummaryTable).where(eq(yearlySummaryTable.studentId, id));
-    await db.delete(studentReportsTable).where(eq(studentReportsTable.studentId, id));
-
-    await db.delete(studentsTable).where(eq(studentsTable.id, id));
-    res.json({ message: 'Student deleted successfully' });
+    await withActionLock(
+      {
+        lockKey: studentWriteLockKey(id),
+        actionType: '永久删除学生',
+        ttlMs: ACTION_LOCK_TTL.studentWriteMs,
+        ...withLockActor(req),
+        metadata: { route: '/api/students/:id', id },
+      },
+      async () => {
+        const deleted = await deleteStudentCascade(db, id);
+        if (!deleted) return res.status(404).json({ error: 'Student not found' });
+        res.json({ message: 'Student deleted successfully' });
+      },
+    );
   } catch (err) {
+    if (isActionLockConflictError(err)) return res.status(409).json(buildActionLockConflictPayload(err.conflict));
     console.error('Error deleting student:', err);
     res.status(500).json({ error: 'Database error' });
   }
@@ -3288,7 +3300,7 @@ app.get('/api/students/:studentId/exams', authenticate, verifyParentStudentAcces
   }
 });
 
-app.post('/api/students/:studentId/exams', authenticate, requireTeacher, async (req, res) => {
+app.post('/api/students/:studentId/exams', authenticate, requireTeachingAuthor, async (req, res) => {
   const { studentId } = req.params;
   if (!enforceReviewerScope(req, res, studentId)) return;
   const name = String(req.body?.name || '').trim();
@@ -3391,7 +3403,7 @@ app.post('/api/students/:studentId/exams', authenticate, requireTeacher, async (
   }
 });
 
-app.put('/api/exams/:id', authenticate, requireTeacher, async (req, res) => {
+app.put('/api/exams/:id', authenticate, requireTeachingAuthor, async (req, res) => {
   const { id } = req.params;
   const name = String(req.body?.name || '').trim();
   const studentId = String(req.body?.studentId || '').trim();
@@ -3493,7 +3505,7 @@ app.put('/api/exams/:id', authenticate, requireTeacher, async (req, res) => {
   }
 });
 
-app.delete('/api/exams/:id', authenticate, requireTeacher, async (req, res) => {
+app.delete('/api/exams/:id', authenticate, requireTeachingAuthor, async (req, res) => {
   const { id } = req.params;
   try {
     const clientUpdatedAt = parseTimestamp((req.query as any).updatedAt || req.body?.updatedAt);
@@ -3540,7 +3552,7 @@ app.delete('/api/exams/:id', authenticate, requireTeacher, async (req, res) => {
 
 // "即将到来的考试" dashboard card. Returns exams across all students that are
 // inside their reminder window (effective reminder ≤ today ≤ examDate).
-app.get('/api/exams/upcoming', authenticate, requireTeacher, async (req, res) => {
+app.get('/api/exams/upcoming', authenticate, requireTeachingAuthor, async (req, res) => {
   if (isReviewerSession(req)) {
     return res.status(403).json({ error: 'Reviewer account cannot access cross-student reminders' });
   }
@@ -4167,6 +4179,7 @@ app.get('/api/reports/:reportId', authenticate, async (req, res) => {
   try {
     const report = await getReportWithStudent(req.params.reportId);
     if (!report) return res.status(404).json({ error: 'Report not found' });
+    if (!enforceReviewerScope(req, res, report.studentId)) return;
 
     const allowed = canUserAccessReport({
       user,
@@ -4377,7 +4390,7 @@ app.delete('/api/reports/:reportId', authenticate, requireRole('teacher', 'admin
 // Part 7 term analytics endpoint to default the date window when caller
 // omits startDate/endDate.
 
-app.get('/api/academic-terms', authenticate, requireTeacher, async (_, res) => {
+app.get('/api/academic-terms', authenticate, requireTeachingAuthor, async (_, res) => {
   try {
     const rows = await db
       .select()
@@ -4390,7 +4403,7 @@ app.get('/api/academic-terms', authenticate, requireTeacher, async (_, res) => {
   }
 });
 
-app.post('/api/academic-terms', authenticate, requireTeacher, async (req, res) => {
+app.post('/api/academic-terms', authenticate, requireTeachingAuthor, async (req, res) => {
   const parsed = AcademicTermSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const { year, termType, startDate, endDate, notes } = parsed.data;
@@ -4419,7 +4432,7 @@ app.post('/api/academic-terms', authenticate, requireTeacher, async (req, res) =
   }
 });
 
-app.put('/api/academic-terms/:id', authenticate, requireTeacher, async (req, res) => {
+app.put('/api/academic-terms/:id', authenticate, requireTeachingAuthor, async (req, res) => {
   const { id } = req.params;
   const parsed = AcademicTermSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
@@ -4457,7 +4470,7 @@ app.put('/api/academic-terms/:id', authenticate, requireTeacher, async (req, res
   }
 });
 
-app.delete('/api/academic-terms/:id', authenticate, requireTeacher, async (req, res) => {
+app.delete('/api/academic-terms/:id', authenticate, requireTeachingAuthor, async (req, res) => {
   const { id } = req.params;
   try {
     const clientUpdatedAt = parseTimestamp((req.query as any).updatedAt || req.body?.updatedAt);
@@ -4479,7 +4492,7 @@ app.delete('/api/academic-terms/:id', authenticate, requireTeacher, async (req, 
   }
 });
 
-app.get('/api/academic-terms/current', authenticate, requireTeacher, async (req, res) => {
+app.get('/api/academic-terms/current', authenticate, requireTeachingAuthor, async (req, res) => {
   try {
     const requested = req.query?.date;
     const date = requested ? parseDateString(requested) : chinaTodayDateString();
@@ -5842,7 +5855,7 @@ app.get('/api/students/:studentId/subjects/full', authenticate, verifyParentStud
 });
 
 // Update or insert progress status for a student's topic
-app.put('/api/students/:studentId/topics/:topicId/progress', authenticate, requireTeacher, async (req, res) => {
+app.put('/api/students/:studentId/topics/:topicId/progress', authenticate, requireTeachingAuthor, async (req, res) => {
   const { studentId, topicId } = req.params;
   if (!enforceReviewerScope(req, res, studentId)) return;
   const { status, definitionRecited, chapterExerciseCompleted } = req.body as {
@@ -5990,7 +6003,7 @@ app.get('/api/paper-types', authenticate, async (_, res) => {
   }
 });
 
-app.post('/api/paper-types', authenticate, requireTeacher, async (req, res) => {
+app.post('/api/paper-types', authenticate, requireTeachingAuthor, async (req, res) => {
   if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot edit paper catalog' });
   const { name } = req.body || {};
   if (!name || !String(name).trim()) {
@@ -6031,7 +6044,7 @@ app.post('/api/paper-types', authenticate, requireTeacher, async (req, res) => {
   }
 });
 
-app.delete('/api/paper-types/:id', authenticate, requireTeacher, async (req, res) => {
+app.delete('/api/paper-types/:id', authenticate, requireTeachingAuthor, async (req, res) => {
   if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot edit paper catalog' });
   const { id } = req.params;
   try {
@@ -6076,7 +6089,7 @@ app.get('/api/paper-schools', authenticate, async (_, res) => {
   }
 });
 
-app.post('/api/paper-schools', authenticate, requireTeacher, async (req, res) => {
+app.post('/api/paper-schools', authenticate, requireTeachingAuthor, async (req, res) => {
   if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot edit paper catalog' });
   const { name } = req.body || {};
   if (!name || !String(name).trim()) {
@@ -6117,7 +6130,7 @@ app.post('/api/paper-schools', authenticate, requireTeacher, async (req, res) =>
   }
 });
 
-app.delete('/api/paper-schools/:id', authenticate, requireTeacher, async (req, res) => {
+app.delete('/api/paper-schools/:id', authenticate, requireTeachingAuthor, async (req, res) => {
   if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot edit paper catalog' });
   const { id } = req.params;
   try {
@@ -6206,7 +6219,7 @@ app.get('/api/students/:studentId/papers', authenticate, verifyParentStudentAcce
 });
 
 // Replace all papers for a student on a specific date
-app.put('/api/students/:studentId/papers/batch', authenticate, requireTeacher, async (req, res) => {
+app.put('/api/students/:studentId/papers/batch', authenticate, requireTeachingAuthor, async (req, res) => {
   const { studentId } = req.params;
   if (!enforceReviewerScope(req, res, studentId)) return;
   const { date, papers, expectedUpdatedAt } = req.body || {};
@@ -6263,15 +6276,6 @@ app.put('/api/students/:studentId/papers/batch', authenticate, requireTeacher, a
             return;
           }
         }
-        await db
-          .delete(studentPapersTable)
-          .where(and(eq(studentPapersTable.studentId, studentId), eq(studentPapersTable.date, date), activeRecord(studentPapersTable)));
-
-        if (papers.length === 0) {
-          res.json({ message: 'No papers to save' });
-          return;
-        }
-
         const now = new Date();
         const values = papers.map((p: any) => ({
           studentId,
@@ -6288,8 +6292,8 @@ app.put('/api/students/:studentId/papers/batch', authenticate, requireTeacher, a
           updatedAt: now,
           updatedByName: req.user?.name || null,
         }));
-        const inserted = await db.insert(studentPapersTable).values(values).returning();
-        res.json({ message: 'Saved', count: inserted.length });
+        const count = await replaceDayPapers(db, studentId, date, values);
+        res.json(papers.length ? { message: 'Saved', count } : { message: 'No papers to save' });
       },
     );
     return;
@@ -6302,7 +6306,7 @@ app.put('/api/students/:studentId/papers/batch', authenticate, requireTeacher, a
 });
 
 // Create single paper
-app.post('/api/students/:studentId/papers', authenticate, requireTeacher, async (req, res) => {
+app.post('/api/students/:studentId/papers', authenticate, requireTeachingAuthor, async (req, res) => {
   const { studentId } = req.params;
   if (!enforceReviewerScope(req, res, studentId)) return;
   const { subjectId, subjectName, typeId, schoolId, description, strengths, improvements, date, score, total } = req.body || {};
@@ -6359,7 +6363,7 @@ app.post('/api/students/:studentId/papers', authenticate, requireTeacher, async 
 });
 
 // Update single paper
-app.put('/api/students/:studentId/papers/:paperId', authenticate, requireTeacher, async (req, res) => {
+app.put('/api/students/:studentId/papers/:paperId', authenticate, requireTeachingAuthor, async (req, res) => {
   const { studentId, paperId } = req.params;
   if (!enforceReviewerScope(req, res, studentId)) return;
   const { subjectId, subjectName, typeId, schoolId, description, strengths, improvements, date, score, total, updatedAt } = req.body || {};
@@ -6441,7 +6445,7 @@ app.put('/api/students/:studentId/papers/:paperId', authenticate, requireTeacher
 });
 
 // Delete single paper
-app.delete('/api/students/:studentId/papers/:paperId', authenticate, requireTeacher, async (req, res) => {
+app.delete('/api/students/:studentId/papers/:paperId', authenticate, requireTeachingAuthor, async (req, res) => {
   const { studentId, paperId } = req.params;
   if (!enforceReviewerScope(req, res, studentId)) return;
   try {
@@ -7113,15 +7117,8 @@ app.post('/api/admin/users/set-roles', authenticate, requireAdmin, async (req, r
       }
     }
 
-    if (existing.parent && !nextRoles.includes('parent')) {
-      const linkedStudents = await db
-        .select({ id: studentsTable.id })
-        .from(studentsTable)
-        .where(eq(studentsTable.parentId, existing.parent.id))
-        .limit(1);
-      if (linkedStudents.length) {
-        return res.status(400).json({ error: 'Cannot remove parent role while students are linked' });
-      }
+    if (existing.parent && !nextRoles.includes('parent') && await parentRoleHasBindings(db, existing.parent.id)) {
+      return res.status(400).json({ error: 'Cannot remove parent role while students are linked' });
     }
 
     const baseValues = {
@@ -7136,42 +7133,26 @@ app.post('/api/admin/users/set-roles', authenticate, requireAdmin, async (req, r
       updatedAt: new Date(),
     };
 
-    if (nextRoles.includes('admin')) {
-      if (existing.admin) {
-        await db.update(adminsTable).set(baseValues).where(eq(adminsTable.id, existing.admin.id));
-      } else {
-        await db.insert(adminsTable).values(baseValues);
-      }
-    } else if (existing.admin) {
-      await db.delete(adminsTable).where(eq(adminsTable.id, existing.admin.id));
-    }
-
-    if (nextRoles.includes('teacher')) {
-      const values = { ...baseValues, status: 'approved', emailVerified: 'true' };
-      if (existing.teacher) {
-        await db.update(teachersTable).set(values).where(eq(teachersTable.id, existing.teacher.id));
-      } else {
-        await db.insert(teachersTable).values(values);
-      }
-    } else if (existing.teacher) {
-      await db.delete(teachersTable).where(eq(teachersTable.id, existing.teacher.id));
-    }
-
-    if (nextRoles.includes('parent')) {
-      const values = { ...baseValues, status: 'approved', emailVerified: 'true' };
-      if (existing.parent) {
-        await db.update(parentsTable).set(values).where(eq(parentsTable.id, existing.parent.id));
-      } else {
-        await db.insert(parentsTable).values(values);
-      }
-    } else if (existing.parent) {
-      await db.delete(parentsTable).where(eq(parentsTable.id, existing.parent.id));
-    }
+    await applyUserRoles(db, nextRoles, existing, baseValues);
 
     res.json({ success: true, roles: nextRoles });
   } catch (err) {
     console.error('Error setting user roles:', err);
     res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
+  }
+});
+
+app.get('/api/admin/students/:studentId/records-export', authenticate, requireAdmin, async (req,res) => {
+  try {
+    const records = await loadStudentRecords(db, req.params.studentId);
+    if(!records)return res.status(404).json({error:'Student not found'});
+    const filename = `${records.student.name.replace(/[\\/:*?"<>|]+/g,'_')}_records_${chinaTodayDateString()}.xlsx`;
+    res.setHeader('Content-Type','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition',`attachment; filename="student-records.xlsx"; filename*=UTF-8''${encodeURIComponent(filename)}`);
+    res.send(buildXlsxWorkbook(studentRecordSheets(records)));
+  } catch(error) {
+    console.error('Student records export failed', error);
+    res.status(500).json({error:'Student records export failed'});
   }
 });
 
@@ -7541,7 +7522,7 @@ app.get('/api/feedback/missing', authenticate, requireRole('teacher', 'admin'), 
 
 // Returns categories with their active loss points nested. Used by the
 // miniprogram to populate the multi-select chips on the daily-progress page.
-app.get('/api/loss-points', authenticate, requireTeacher, async (_, res) => {
+app.get('/api/loss-points', authenticate, requireTeachingAuthor, async (_, res) => {
   try {
     const categories = await db
       .select()
@@ -7595,7 +7576,7 @@ const resolveCycleForDate = async (dateStr: string): Promise<ResolvedCycle> => {
   return pickCoveringCycle(allCycles, dateStr) ?? syntheticCycleFor(dateStr);
 };
 
-app.get('/api/weekly-cycles', authenticate, requireTeacher, async (_, res) => {
+app.get('/api/weekly-cycles', authenticate, requireTeachingAuthor, async (_, res) => {
   try {
     const rows = await db
       .select()
@@ -7608,7 +7589,7 @@ app.get('/api/weekly-cycles', authenticate, requireTeacher, async (_, res) => {
   }
 });
 
-app.post('/api/weekly-cycles', authenticate, requireTeacher, async (req, res) => {
+app.post('/api/weekly-cycles', authenticate, requireTeachingAuthor, async (req, res) => {
   const parsed = WeeklyStudyCycleSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const { startDate, endDate, notes } = parsed.data;
@@ -7648,7 +7629,7 @@ app.post('/api/weekly-cycles', authenticate, requireTeacher, async (req, res) =>
   }
 });
 
-app.get('/api/weekly-cycles/current', authenticate, requireTeacher, async (req, res) => {
+app.get('/api/weekly-cycles/current', authenticate, requireTeachingAuthor, async (req, res) => {
   try {
     const requested = req.query?.date;
     const date = requested ? parseDateString(requested) : chinaTodayDateString();
@@ -7663,7 +7644,7 @@ app.get('/api/weekly-cycles/current', authenticate, requireTeacher, async (req, 
 
 // ========== STUDENT WEEKLY TASK TARGETS (Part 3) ==========
 
-app.get('/api/students/:studentId/weekly-targets', authenticate, requireTeacher, async (req, res) => {
+app.get('/api/students/:studentId/weekly-targets', authenticate, requireTeachingAuthor, async (req, res) => {
   const { studentId } = req.params;
   if (!enforceReviewerScope(req, res, studentId)) return;
   const cycleIdParam = req.query?.cycleId;
@@ -7703,7 +7684,7 @@ app.get('/api/students/:studentId/weekly-targets', authenticate, requireTeacher,
   }
 });
 
-app.put('/api/students/:studentId/weekly-targets', authenticate, requireTeacher, async (req, res) => {
+app.put('/api/students/:studentId/weekly-targets', authenticate, requireTeachingAuthor, async (req, res) => {
   const { studentId } = req.params;
   if (!enforceReviewerScope(req, res, studentId)) return;
   const parsed = StudentWeeklyTaskTargetsSchema.safeParse({ ...req.body, studentId });
@@ -7784,7 +7765,7 @@ app.put('/api/students/:studentId/weekly-targets', authenticate, requireTeacher,
 // across the cycle covering `date` (default: today CST) and returns any whose
 // required tasks aren't all met. Heavy: O(students) progress reads — fine for
 // classroom-sized rosters; revisit if rosters grow into the thousands.
-app.get('/api/weekly-tasks/incomplete', authenticate, requireTeacher, async (req, res) => {
+app.get('/api/weekly-tasks/incomplete', authenticate, requireTeachingAuthor, async (req, res) => {
   if (isReviewerSession(req)) {
     return res.status(403).json({ error: 'Reviewer account cannot access cross-student reminders' });
   }
@@ -8295,6 +8276,7 @@ app.put('/api/progress/:id', authenticate, requireRole('teacher', 'admin'), asyn
           res.status(404).json({ error: 'Progress not found' });
           return;
         }
+        if (!enforceReviewerScope(req, res, existing[0].studentId)) return;
         const clientUpdatedAt = parseTimestamp(updatedAt);
         if (!clientUpdatedAt) {
           res.status(400).json({ error: 'Missing updatedAt' });
@@ -8514,6 +8496,7 @@ app.put('/api/feedback/:id', authenticate, requireRole('teacher', 'admin'), asyn
   try {
     const existing = await db.select().from(weeklyFeedback).where(and(eq(weeklyFeedback.id, req.params.id), activeRecord(weeklyFeedback))).limit(1);
     if (!existing.length) return res.status(404).json({ error: 'Not found' });
+    if (!enforceReviewerScope(req, res, existing[0].studentId)) return;
     const clientUpdatedAt = parseTimestamp(req.body?.updatedAt);
     if (!clientUpdatedAt) {
       return res.status(400).json({ error: 'Missing updatedAt' });
@@ -8711,14 +8694,17 @@ app.post('/api/ai/weekly-summary', authenticate, requireRole('teacher', 'admin')
       .orderBy(desc(weeklyFeedback.updatedAt));
     // Part 5: enrich the AI context so the model can reference concrete
     // numbers and loss-points instead of guessing.
-    const v2Progress = progress.map(withV2Activities);
+    const assignedSubjects = await getAssignedSubjectsForSummary(studentId);
+    const scopedPapers = scopePapers(papers, assignedSubjects);
+    const scopedExams = scopeExams(examPayload, assignedSubjects);
+    const v2Progress = scopeDaily(progress.map(withV2Activities), assignedSubjects);
     const lossPointLookup = await loadLossPointLookup();
     const englishStats = aggregateEnglishStats(v2Progress);
     const lossPointBreakdown = aggregateLossPoints(v2Progress, lossPointLookup);
     const attendanceRollup = aggregateAttendance(v2Progress);
     const weeklyBreakdown = aggregateWeeklySubjectAndEnglishBreakdown(v2Progress);
-    const weeklyPaperBreakdown = aggregateWeeklyPaperBreakdown(papers);
-    const weeklyExamBreakdown = aggregateWeeklyExamBreakdown(examPayload);
+    const weeklyPaperBreakdown = aggregateWeeklyPaperBreakdown(scopedPapers);
+    const weeklyExamBreakdown = aggregateWeeklyExamBreakdown(scopedExams);
     const context = buildCompactWeeklySummaryContext({
       student,
       weekStarting: weekStart,
@@ -8732,8 +8718,8 @@ app.post('/api/ai/weekly-summary', authenticate, requireRole('teacher', 'admin')
       weeklyExamBreakdown,
       lossPoints: lossPointBreakdown,
       dailyProgress: v2Progress,
-      papers,
-      exams: examPayload,
+      papers: scopedPapers,
+      exams: scopedExams,
       weeklyFeedback: weeklyFeedbackRows,
     });
     // Operator-supplied prompt wins; otherwise use the Part 5 enhanced prompt.
@@ -8758,7 +8744,7 @@ app.post('/api/ai/weekly-summary', authenticate, requireRole('teacher', 'admin')
             metadata: { route: '/api/ai/weekly-summary', weekStarting: weekStart, weekEnding: contextWeekEnding },
           },
           async () => {
-            const raw = await callDeepSeek(promptToUse, context, hasCustomWeeklyPrompt
+            const raw = await callDeepSeek(promptToUse + assignedSubjectPrompt(assignedSubjects), context, hasCustomWeeklyPrompt
               ? { temperature: 0.2, responseFormat: 'text' }
               : { temperature: 0.2, responseFormat: 'json_object' });
 
@@ -8927,15 +8913,18 @@ app.post('/api/ai/quarterly-summary', authenticate, requireRole('teacher', 'admi
         }
       : null;
     const previousQuarterContext = prevQuarterReport || prevQuarter[0] || null;
-    const normalizedDaily = daily.map(withV2Activities);
+    const assignedSubjects = await getAssignedSubjectsForSummary(studentId);
+    const scopedPapers = scopePapers(papers, assignedSubjects);
+    const scopedExams = scopeExams(examPayload, assignedSubjects);
+    const normalizedDaily = scopeDaily(daily.map(withV2Activities), assignedSubjects);
     const analytics = buildStudentReportAnalytics({
       student,
       startDate,
       endDate,
       dailyProgress: normalizedDaily,
       weeklyReports: weekly,
-      papers,
-      exams: examPayload,
+      papers: scopedPapers,
+      exams: scopedExams,
       previousQuarterSummary: previousQuarterContext,
       quarterlySummaries: [],
       reportType: 'quarterly',
@@ -8946,8 +8935,8 @@ app.post('/api/ai/quarterly-summary', authenticate, requireRole('teacher', 'admi
       endDate,
       dailyProgress: normalizedDaily,
       weeklyReports: weekly,
-      papers,
-      exams: examPayload,
+      papers: scopedPapers,
+      exams: scopedExams,
       previousQuarterSummary: previousQuarterContext,
       analytics,
       reportType: 'quarterly',
@@ -8974,10 +8963,11 @@ app.post('/api/ai/quarterly-summary', authenticate, requireRole('teacher', 'admi
             metadata: { route: '/api/ai/quarterly-summary', startDate, endDate, saveReport },
           },
           async () => {
-            const raw = await callDeepSeek(promptToUse, context, hasCustomQuarterlyPrompt
+            const raw = await callDeepSeek(promptToUse + assignedSubjectPrompt(assignedSubjects), context, hasCustomQuarterlyPrompt
               ? { temperature: 0.2, responseFormat: 'text' }
               : { temperature: 0.2, responseFormat: 'json_object' });
             const parsed = parseAiStructuredReportResponse(raw, 'quarterly');
+            parsed.structuredReport = scopeGeneratedReport(parsed.structuredReport, assignedSubjects);
             const baseResponse: Record<string, unknown> = {
               summary: parsed.summaryText,
               structuredReport: parsed.structuredReport,
@@ -9192,15 +9182,18 @@ app.post('/api/ai/yearly-summary', authenticate, requireRole('teacher', 'admin')
       structuredReport: parseReportJson(row.structuredReportJson).value,
     }));
     const quarterlyHistoryForContext = quarterlyReportHistory.length ? quarterlyReportHistory : quarters;
-    const normalizedDaily = daily.map(withV2Activities);
+    const assignedSubjects = await getAssignedSubjectsForSummary(studentId);
+    const scopedPapers = scopePapers(papers, assignedSubjects);
+    const scopedExams = scopeExams(examPayload, assignedSubjects);
+    const normalizedDaily = scopeDaily(daily.map(withV2Activities), assignedSubjects);
     const analytics = buildStudentReportAnalytics({
       student,
       startDate,
       endDate,
       dailyProgress: normalizedDaily,
       weeklyReports: weekly,
-      papers,
-      exams: examPayload,
+      papers: scopedPapers,
+      exams: scopedExams,
       previousQuarterSummary: null,
       quarterlySummaries: quarterlyHistoryForContext,
       reportType: 'yearly',
@@ -9212,8 +9205,8 @@ app.post('/api/ai/yearly-summary', authenticate, requireRole('teacher', 'admin')
       endDate,
       dailyProgress: normalizedDaily,
       weeklyReports: weekly,
-      papers,
-      exams: examPayload,
+      papers: scopedPapers,
+      exams: scopedExams,
       quarterlySummaries: quarterlyHistoryForContext,
       analytics,
       reportType: 'yearly',
@@ -9240,10 +9233,11 @@ app.post('/api/ai/yearly-summary', authenticate, requireRole('teacher', 'admin')
             metadata: { route: '/api/ai/yearly-summary', year: resolvedYear, startDate, endDate, saveReport },
           },
           async () => {
-            const raw = await callDeepSeek(promptToUse, context, hasCustomYearlyPrompt
+            const raw = await callDeepSeek(promptToUse + assignedSubjectPrompt(assignedSubjects), context, hasCustomYearlyPrompt
               ? { temperature: 0.2, responseFormat: 'text' }
               : { temperature: 0.2, responseFormat: 'json_object' });
             const parsed = parseAiStructuredReportResponse(raw, 'yearly');
+            parsed.structuredReport = scopeGeneratedReport(parsed.structuredReport, assignedSubjects);
             const baseResponse: Record<string, unknown> = {
               summary: parsed.summaryText,
               structuredReport: parsed.structuredReport,
@@ -9751,16 +9745,16 @@ app.get('/api/profile', authenticate, async (req, res) => {
     if (req.user.role === 'teacher') {
       const rows = await db.select().from(teachersTable).where(eq(teachersTable.id, req.user.id)).limit(1);
       if (!rows.length) return res.status(404).json({ error: 'User not found' });
-      return res.json({ user: toPublicUser(rows[0], 'teacher') });
+      return res.json({ user: toSessionUser(rows[0], req.user) });
     }
     if (req.user.role === 'parent') {
       const rows = await db.select().from(parentsTable).where(eq(parentsTable.id, req.user.id)).limit(1);
       if (!rows.length) return res.status(404).json({ error: 'User not found' });
-      return res.json({ user: toPublicUser(rows[0], 'parent') });
+      return res.json({ user: toSessionUser(rows[0], req.user) });
     }
     const rows = await db.select().from(adminsTable).where(eq(adminsTable.id, req.user.id)).limit(1);
     if (!rows.length) return res.status(404).json({ error: 'User not found' });
-    return res.json({ user: toPublicUser(rows[0], 'admin') });
+    return res.json({ user: toSessionUser(rows[0], req.user) });
   } catch (err) {
     console.error('Profile fetch error:', err);
     res.status(500).json({ error: 'Database error' });
@@ -9794,18 +9788,18 @@ app.put('/api/profile', authenticate, async (req, res) => {
     if (req.user.role === 'teacher') {
       const updated = await db.update(teachersTable).set(patch).where(eq(teachersTable.id, req.user.id)).returning();
       if (!updated.length) return res.status(404).json({ error: 'User not found' });
-      return res.json({ user: toPublicUser(updated[0], 'teacher') });
+      return res.json({ user: toSessionUser(updated[0], req.user) });
     }
 
     if (req.user.role === 'parent') {
       const updated = await db.update(parentsTable).set(patch).where(eq(parentsTable.id, req.user.id)).returning();
       if (!updated.length) return res.status(404).json({ error: 'User not found' });
-      return res.json({ user: toPublicUser(updated[0], 'parent') });
+      return res.json({ user: toSessionUser(updated[0], req.user) });
     }
 
     const updated = await db.update(adminsTable).set(patch).where(eq(adminsTable.id, req.user.id)).returning();
     if (!updated.length) return res.status(404).json({ error: 'User not found' });
-    return res.json({ user: toPublicUser(updated[0], 'admin') });
+    return res.json({ user: toSessionUser(updated[0], req.user) });
   } catch (err) {
     console.error('Profile update error:', err);
     res.status(500).json({ error: 'Database error' });
@@ -9870,7 +9864,7 @@ if (process.env.SERVE_WEB !== 'false') {
 }
 
 if (process.env.NODE_ENV !== 'test') {
-  app.listen(port, () => {
+  app.listen(port, process.env.API_HOST || '0.0.0.0', () => {
     console.log(`🚀 Server running on port ${port}`);
   });
 }

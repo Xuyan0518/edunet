@@ -116,3 +116,6 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction): v
 
   next();
 }
+
+// Teaching record operations are available to teachers and administrators.
+export const requireTeachingAuthor = requireRole('teacher', 'admin');

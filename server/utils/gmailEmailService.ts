@@ -25,6 +25,7 @@ export class GmailEmailService {
    * Send verification email using Gmail SMTP
    */
   async sendVerificationEmail(email: string, token: string, name: string): Promise<boolean> {
+    if (process.env.NOTIFICATIONS_ENABLED === 'false') return true;
     try {
       console.log('Attempting to send verification email via Gmail SMTP...');
       console.log('Email:', email);
@@ -133,6 +134,7 @@ export class GmailEmailService {
    * Test Gmail connection
    */
   async testConnection(): Promise<boolean> {
+    if (process.env.NOTIFICATIONS_ENABLED === 'false') return false;
     try {
       await this.transporter.verify();
       console.log('Gmail SMTP connection verified successfully');

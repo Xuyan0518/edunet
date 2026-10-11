@@ -1,3 +1,4 @@
+import { fetchApiResponse } from '@/services/http';
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -259,7 +260,7 @@ const ProgressForm: React.FC = () => {
   useEffect(() => {
     const fetchStudents = async () => {
       try {
-        const response = await fetch(buildApiUrl('students'), {
+        const response = await fetchApiResponse(buildApiUrl('students'), {
           headers: getAuthHeaders(),
         });
         if (response.ok) {
@@ -289,10 +290,10 @@ const ProgressForm: React.FC = () => {
       setSubjectsLoading(true);
       try {
         const [assignedResponse, subjectsResponse] = await Promise.all([
-          fetch(buildApiUrl(`students/${selectedStudent}/subjects`), {
+          fetchApiResponse(buildApiUrl(`students/${selectedStudent}/subjects`), {
             headers: getAuthHeaders(),
           }),
-          fetch(buildApiUrl('subjects'), {
+          fetchApiResponse(buildApiUrl('subjects'), {
             headers: getAuthHeaders(),
           }),
         ]);
@@ -351,7 +352,7 @@ const ProgressForm: React.FC = () => {
     let cancelled = false;
     const fetchEnglishTasks = async () => {
       try {
-        const response = await fetch(buildApiUrl(`students/${selectedStudent}/english-tasks`), {
+        const response = await fetchApiResponse(buildApiUrl(`students/${selectedStudent}/english-tasks`), {
           headers: getAuthHeaders(),
         });
         if (!response.ok) throw new Error(`HTTP error ${response.status}`);
@@ -390,7 +391,7 @@ const ProgressForm: React.FC = () => {
       try {
         const dateStr = format(selectedDate, 'yyyy-MM-dd');
         const url = `${buildApiUrl('progress/student')}?studentId=${encodeURIComponent(selectedStudent)}&date=${encodeURIComponent(dateStr)}`;
-        const response = await fetch(url, {
+        const response = await fetchApiResponse(url, {
           headers: getAuthHeaders(),
         });
 
@@ -505,7 +506,7 @@ const ProgressForm: React.FC = () => {
       
       const method = existingProgressId ? 'PUT' : 'POST';
       
-      const response = await fetch(url, {
+      const response = await fetchApiResponse(url, {
         method,
         headers: getAuthHeaders(),
         body: JSON.stringify(progressEntry),

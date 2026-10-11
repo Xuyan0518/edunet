@@ -93,7 +93,7 @@ export class SessionController {
         const payload = await requestJson<{
             user: SessionUser;
             token: string;
-        }>(endpoint, { method: 'POST', body: credentials, auth: false });
+        }>(endpoint, { method: 'POST', body: credentials, auth: false, credentials: 'include' });
         if (generation !== this.generation)
             return false;
         if (!payload.token)

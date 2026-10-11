@@ -10,6 +10,7 @@ interface AuthContextType {
     status: SessionState['status'];
     isAuthenticated: boolean;
     login: (email: string, password: string, role: UserRole) => Promise<boolean>;
+    socialLogin: () => Promise<boolean>;
     reviewerLogin: (account: string, password: string) => Promise<boolean>;
     logout: () => void;
     retry: () => Promise<void>;
@@ -39,6 +40,7 @@ export const AuthProvider = ({ children }: {
     const value: AuthContextType = {
         ...state, role: state.user?.role ?? null, isAuthenticated: state.status === 'authenticated',
         login: (email, password, role) => controller.login(role === 'admin' ? 'admin/login' : 'login', { email, password, role: role || '' }),
+        socialLogin: () => controller.login('auth/web/session', {}),
         reviewerLogin: (account, password) => controller.login('auth/reviewer-login', { username: account, password }),
         logout: () => { controller.clear(); navigate('/login', { replace: true }); },
         retry: controller.restore, refreshProfile: controller.refreshProfile,

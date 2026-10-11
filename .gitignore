@@ -31,3 +31,7 @@ miniprogram/project.private.config.json
 
 # Private local integration credentials and evidence
 .dev/
+
+# Local environment backups may contain credentials
+.env.*.backup
+.env.backup

@@ -28,6 +28,7 @@ import { queryDefaults } from "@/app/queryKeys";
 import { RouteGuard } from "@/app/RouteGuard";
 import AppShell from "@/components/layout/AppShell";
 import Login from "@/pages/Login";
+import WebAuthCallback from '@/pages/WebAuthCallback';
 import RetiredAuth from "@/pages/RetiredAuth";
 import Dashboard from "@/pages/Dashboard";
 import Students from "@/pages/Students";
@@ -99,7 +100,9 @@ export function AppRoutes() {
         path="/login/reviewer"
         element={<Login key="reviewer" mode="reviewer" />}
       />
-      {["/signup", "/verify-email", "/web-auth"].map(path => (
+      <Route path="/signup" element={<Login key="signup" mode="signup" />} />
+      <Route path="/web-auth" element={<WebAuthCallback />} />
+      {["/verify-email"].map(path => (
         <Route key={path} path={path} element={<RetiredAuth />} />
       ))}
       <Route element={<RouteGuard />}>

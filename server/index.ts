@@ -1,3 +1,5 @@
+import { webAuthRouter, authRateLimit } from './auth/web';
+import { hashPassword, verifyPassword } from './auth/password';
 import { scopeDaily, scopePapers, scopeExams, scopeGeneratedReport, assignedSubjectPrompt } from './utils/assignedSubjectContext';
 import { devTestMetadata } from './utils/devTesting';
 import { loadStudentRecords, studentRecordSheets } from './services/studentRecordsExport';
@@ -224,6 +226,7 @@ const fallbackCorsOrigins = ['http://localhost:3001', 'http://localhost:5173'];
 const allowedCorsOrigins = configuredCorsOrigins.length ? configuredCorsOrigins : fallbackCorsOrigins;
 
 app.use(cors({
+  credentials: true,
   origin: (origin, callback) => {
     // Non-browser clients (like WeChat Mini Program requests) may not send origin.
     if (!origin || allowedCorsOrigins.includes(origin)) return callback(null, true);
@@ -231,6 +234,7 @@ app.use(cors({
   },
 }));
 app.use(bodyParser.json());
+app.use('/api/auth/web', webAuthRouter);
 
 const ACTION_LOCK_TTL = {
   studentWriteMs: 60_000,
@@ -9690,7 +9694,7 @@ const reviewerLoginHandler: express.RequestHandler = async (req, res) => {
 app.post('/api/auth/reviewer-login', reviewerLoginHandler);
 app.post('/auth/reviewer-login', reviewerLoginHandler);
 
-app.post('/api/login', async (req, res) => {
+app.post('/api/login', authRateLimit, async (req, res) => {
   const email = trimString(req.body?.email).toLowerCase();
   const password = typeof req.body?.password === 'string' ? req.body.password : '';
   const role = req.body?.role;
@@ -9711,10 +9715,13 @@ app.post('/api/login', async (req, res) => {
     const userRow = rows[0];
 
     if (!userRow || !userRow.password) {
-      return res.status(401).json({ error: 'This account uses WeChat login only.' });
+      return res.status(401).json({ error: 'Invalid credentials. Use your original sign-in method.' });
     }
-    if (!safeEq(password, userRow.password)) {
+    if (!(await verifyPassword(password, userRow.password))) {
       return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    if (!userRow.password.startsWith('scrypt$')) {
+      await db.update(table).set({ password: await hashPassword(password) }).where(eq(table.id, userRow.id));
     }
     if (userRow.status !== 'approved') {
       return res.status(401).json({

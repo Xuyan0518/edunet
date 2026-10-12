@@ -14,6 +14,10 @@ migrations. Render's `PORT` takes priority over the local `API_PORT`.
 schema, returning only `{ok:true}` or a 503. Use readiness as the deployment health
 check. SIGTERM stops the mail polling timer and drains HTTP requests.
 
+Migrations use PostgreSQL with certificate verification, a release advisory lock
+and a bounded connection/lock wait. Neon HTTP remains the application query
+driver; its prepared statements cannot bootstrap the legacy multi-statement SQL.
+
 The Docker image starts this same production command as a non-root user.
 `docker compose up --build` explicitly uses the separate development launcher;
 outbound authentication mail remains in its private local test inbox.

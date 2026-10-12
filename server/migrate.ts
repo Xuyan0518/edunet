@@ -1,64 +1,33 @@
-import { drizzle as drizzlePg } from 'drizzle-orm/node-postgres';
-import { migrate as migratePg } from 'drizzle-orm/node-postgres/migrator';
-import { drizzle as drizzleNeonHttp } from 'drizzle-orm/neon-http';
-import { migrate as migrateNeonHttp } from 'drizzle-orm/neon-http/migrator';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import pg from 'pg';
 import dotenv from 'dotenv';
-import { neon, neonConfig } from '@neondatabase/serverless';
 import { migrationConnection } from './utils/migrationConnection';
 import { logSafeError } from './utils/safeLog';
 
 dotenv.config();
 
-const databaseUrl = process.env.DATABASE_URL;
-if (!databaseUrl) {
-  console.error('Migration failed: missing DATABASE_URL');
-  process.exit(1);
-}
-
-const shouldUseNeonHttp =
-  process.env.DB_MIGRATE_DRIVER === 'neon-http' ||
-  (!process.env.DB_MIGRATE_DRIVER && new URL(databaseUrl).hostname.endsWith('.neon.tech'));
-
-let pool: pg.Pool | null = null;
-
 async function main() {
-  // console.log('Dropping existing tables if any...');
-  // await db.execute(sql`
-  //   DROP TABLE IF EXISTS
-  //     "daily_progress",
-  //     "weekly_feedback",
-  //     "students",
-  //     "parents",
-  //     "teacher",
-  //     "users",
-  //     "admins"
-  //   CASCADE;
-  // `);
-
-  console.log('Migrating database...');
-  if (shouldUseNeonHttp) {
-    // Neon HTTP migration uses HTTPS (443), which is often reachable even when
-    // raw Postgres TCP (5432) is blocked on local networks.
-    const sqlClient = neon(databaseUrl);
-    const db = drizzleNeonHttp(sqlClient);
-    await migrateNeonHttp(db, {
-      migrationsFolder: './server/migrations',
-    });
-  } else {
-    pool = new pg.Pool(migrationConnection(databaseUrl));
-    const db = drizzlePg(pool);
-    await migratePg(db, {
-      migrationsFolder: './server/migrations',
-    });
-  }
-  console.log('Migration complete');
-  if (pool) await pool.end();
-  process.exit(0);
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) throw new Error('DATABASE_URL is required.');
+  // Legacy multi-statement SQL works over PostgreSQL, not Neon HTTP prepared statements.
+  const pool = new pg.Pool({ ...migrationConnection(databaseUrl), connectionTimeoutMillis: 15_000 });
+  try {
+    const client = await pool.connect();
+    try {
+      await client.query("SET lock_timeout = '30s'");
+      await client.query('SELECT pg_advisory_lock(hashtext($1))', ['edunet:schema-migration']);
+      console.log('Migrating database...');
+      await migrate(drizzle(client), { migrationsFolder: './server/migrations' });
+      console.log('Migration complete');
+    } finally {
+      await client.query('SELECT pg_advisory_unlock(hashtext($1))', ['edunet:schema-migration']).catch(() => {});
+      client.release();
+    }
+  } finally { await pool.end(); }
 }
 
-main().catch(async (err) => {
+main().catch((err) => {
   logSafeError('Migration failed', err);
-  if (pool) await pool.end();
-  process.exit(1);
+  process.exitCode = 1;
 });

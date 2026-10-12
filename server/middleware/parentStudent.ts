@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { db } from '../db';
 import { and, eq } from 'drizzle-orm';
 import { studentParentBindingsTable, studentsTable } from '../schema';
+import { logSafeError } from '../utils/safeLog';
 
 /**
  * Middleware to verify that a parent can only access their own child's data
@@ -81,7 +82,7 @@ export async function verifyParentStudentAccess(
 
     next();
   } catch (error) {
-    console.error('Error verifying parent-student access:', error);
+    logSafeError('Error verifying parent-student access', error);
     res.status(500).json({ error: 'Authorization check failed' });
   }
 }
@@ -106,7 +107,7 @@ export async function filterParentStudents(
     req.user = { ...req.user, parentId: req.user.id };
     next();
   } catch (error) {
-    console.error('Error in filterParentStudents:', error);
+    logSafeError('Error in filterParentStudents', error);
     next();
   }
 }

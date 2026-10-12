@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { verifyToken, verifyUserInDb, AuthUser } from '../utils/auth';
+import { logSafeError } from '../utils/safeLog';
 
 declare module 'express-serve-static-core' {
   interface Request {
@@ -42,7 +43,7 @@ export async function authenticate(
     req.user = user;
     next();
   } catch (error) {
-    console.error('Authentication error:', error);
+    logSafeError('Authentication error', error);
     res.status(500).json({ error: 'Authentication failed' });
   }
 }
@@ -119,3 +120,9 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction): v
 
 // Teaching record operations are available to teachers and administrators.
 export const requireTeachingAuthor = requireRole('teacher', 'admin');
+
+export function denyReviewer(req: Request, res: Response, next: NextFunction): void {
+  if (!req.user) { res.status(401).json({ error: 'Authentication required' }); return; }
+  if (req.user.isReviewer) { res.status(403).json({ error: 'Reviewer account cannot perform this operation' }); return; }
+  next();
+}

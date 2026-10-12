@@ -13,6 +13,8 @@ if (!process.env.JWT_SECRET) {
 // This launcher is exclusively for dev-database testing. Never send notifications.
 process.env.EDUNET_DEV_MODE = 'true';
 process.env.NOTIFICATIONS_ENABLED = 'false';
+// Recovery/verification tests use a private filesystem inbox, never real email.
+process.env.AUTH_MAIL_MODE = 'local';
 process.env.DB_LOG_QUERIES = 'false';
 if (process.argv.includes('--web')) {
   // Keep Vite's /api proxy and the API on fixed internal ports in the workspace.

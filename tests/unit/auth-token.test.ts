@@ -51,6 +51,15 @@ describe('server/utils/auth token logic', () => {
     const malformedPayload = Buffer.from('{bad json').toString('base64');
     expect(verifyToken(`${malformedPayload}.${signature}`)).toBeNull();
   });
+  it('rejects additional token segments and future timestamps', () => {
+    const token = generateToken({ id: 'teacher', role: 'teacher', name: 'Teacher' });
+    expect(verifyToken(`${token}.extra`)).toBeNull();
+    const now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now + 60_000);
+    const future = generateToken({ id: 'teacher', role: 'teacher', name: 'Teacher' });
+    clock.mockReturnValue(now);
+    expect(verifyToken(future)).toBeNull();
+  });
 });
 
 describe('server/utils/auth verifyUserInDb', () => {

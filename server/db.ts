@@ -7,7 +7,6 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 // Configure connection settings (important for serverless)
-neonConfig.fetchConnectionCache = true; // Enable connection pooling
 neonConfig.pipelineConnect = false; // Disable for non-WebSocket environments
 
 // Create Neon client
@@ -16,7 +15,8 @@ const sql = neon(process.env.DATABASE_URL!);
 // Initialize Drizzle with Neon
 export const db = drizzle(sql, { 
   schema,
-  logger: process.env.DB_LOG_QUERIES === 'true' // Enable logging in dev
+  // SQL logging includes bound student data and passwords; never log parameters.
+  logger: false
 });
 
 // Type exports for your database

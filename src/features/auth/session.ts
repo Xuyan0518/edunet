@@ -5,6 +5,8 @@ export interface SessionUser {
     name: string;
     displayName?: string;
     email?: string;
+    hasPassword?: boolean;
+    emailVerified?: boolean;
     role: UserRole;
     status?: string;
     authProvider?: string;

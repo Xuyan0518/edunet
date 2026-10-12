@@ -1,10 +1,8 @@
-# Deploy Vite SPA to GitHub Pages
+# Optional static preview only; the full app is deployed with its API on Render.
 # IMPORTANT: In repo Settings → Pages → Source, choose "GitHub Actions" (not "Deploy from a branch")
 name: Deploy to GitHub Pages
 
 on:
-  push:
-    branches: ["main", "master"]
   workflow_dispatch:
 
 permissions:
@@ -24,7 +22,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
 
       - run: npm ci

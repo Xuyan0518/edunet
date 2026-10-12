@@ -7,6 +7,7 @@ export interface Account {
   status: string;
   wechatOpenIdMasked?: string | null;
   authProvider?: string;
+  email?: string | null;
 }
 export interface IdentityGroup {
   identityKey: string;

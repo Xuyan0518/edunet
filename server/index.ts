@@ -1,10 +1,19 @@
+import { manageAccountRoles } from './services/accountManagement';
+import { changeAccountPassword } from './auth/accountActions';
+import { startAuthMailWorker } from './services/authMail';
+import { createStagingAccess } from './middleware/stagingAccess';
+import { providerAccountIdentity } from './services/providerIdentity';
 import { webAuthRouter, authRateLimit } from './auth/web';
+import { adminAuthRateLimit } from './middleware/authRateLimit';
+import { reviewerLoginEnabled, validateProductionSecurity } from './utils/securityConfig';
+import { logSafeError } from './utils/safeLog';
 import { hashPassword, verifyPassword } from './auth/password';
 import { scopeDaily, scopePapers, scopeExams, scopeGeneratedReport, assignedSubjectPrompt } from './utils/assignedSubjectContext';
 import { devTestMetadata } from './utils/devTesting';
 import { loadStudentRecords, studentRecordSheets } from './services/studentRecordsExport';
+import { parsePracticeExportRequest } from '../src/domain/practiceExport';
+import { loadPracticeScores, practiceScoreSheets } from './services/practiceScoresExport';
 import { replaceDayPapers } from './services/paperBatch';
-import { parentRoleHasBindings, applyUserRoles } from './services/userRoles';
 import { deleteStudentCascade } from './services/studentDeletion';
 import express from 'express';
 import cors from 'cors';
@@ -14,7 +23,7 @@ import crypto from 'crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { db } from './db';
-import { eq, desc, and, isNull, isNotNull, inArray, gte, lte, lt } from 'drizzle-orm';
+import { eq, desc, and, isNull, isNotNull, inArray, gte, lte, lt, sql } from 'drizzle-orm';
 import type { SQLWrapper } from 'drizzle-orm';
 import { format } from 'date-fns';
 import {
@@ -196,7 +205,7 @@ import {
 } from './schema';
 
 import { generateToken } from './utils/auth';
-import { authenticate, requireTeachingAuthor, requireParent, requireAdmin, requireRole } from './middleware/auth';
+import { authenticate, requireTeachingAuthor, requireParent, requireAdmin, requireRole, denyReviewer } from './middleware/auth';
 import { verifyParentStudentAccess } from './middleware/parentStudent';
 import { syncCatalogForStudentSubjects } from './utils/catalogSync';
 import { DEFAULT_ENGLISH_TASKS, hasCustomEnglishTaskConfig, normalizeEnglishTaskConfig } from './utils/englishTasks';
@@ -212,9 +221,10 @@ import { DEFAULT_USER_NAME, pickDisplayName, toPublicUser, toSessionUser } from 
 import { canAuthUserManageStudentsAndParents } from './utils/managementPermissions';
 
 dotenv.config();
+validateProductionSecurity();
 
 const app = express();
-const port = process.env.API_PORT || process.env.PORT || 3003;
+const port = process.env.PORT || process.env.API_PORT || 3003;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const webDistDir = path.resolve(__dirname, '../dist');
@@ -223,7 +233,10 @@ const configuredCorsOrigins = (process.env.CORS_ORIGIN || '')
   .map((item) => item.trim())
   .filter(Boolean);
 const fallbackCorsOrigins = ['http://localhost:3001', 'http://localhost:5173'];
-const allowedCorsOrigins = configuredCorsOrigins.length ? configuredCorsOrigins : fallbackCorsOrigins;
+const allowedCorsOrigins = configuredCorsOrigins.length ? configuredCorsOrigins : process.env.NODE_ENV === 'production' ? [process.env.WEB_APP_URL].filter(Boolean) : fallbackCorsOrigins;
+
+app.disable('x-powered-by');
+app.use(createStagingAccess());
 
 app.use(cors({
   credentials: true,
@@ -234,6 +247,11 @@ app.use(cors({
   },
 }));
 app.use(bodyParser.json());
+app.use('/api', (_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
+const developmentOnly: express.RequestHandler = (_req, res, next) => {
+  if (process.env.NODE_ENV === 'production') { res.status(404).json({ error: 'Not found' }); return; }
+  next();
+};
 app.use('/api/auth/web', webAuthRouter);
 
 const ACTION_LOCK_TTL = {
@@ -300,12 +318,6 @@ const isSameTimestamp = (a: any, b: any): boolean => {
   return am === bm;
 };
 
-const getErrorDetails = (err: unknown) => {
-  if (err instanceof Error) {
-    return { message: err.message, stack: err.stack, name: err.name };
-  }
-  return { message: String(err), stack: undefined, name: 'UnknownError' };
-};
 
 const addDaysToDate = (dateStr: string, days: number) => {
   const [y, m, d] = String(dateStr || '').split('-').map(Number);
@@ -339,8 +351,8 @@ const requirePaperEvaluations = (
   return details.length ? { ok: false, details } : { ok: true };
 };
 
-const REVIEWER_USERNAME = String(process.env.REVIEWER_USERNAME || 'account').trim();
-const REVIEWER_PASSWORD = String(process.env.REVIEWER_PASSWORD || 'xyz2026!!');
+const REVIEWER_USERNAME = String(process.env.REVIEWER_USERNAME || '').trim();
+const REVIEWER_PASSWORD = String(process.env.REVIEWER_PASSWORD || '');
 const REVIEWER_DISPLAY_NAME = String(process.env.REVIEWER_DISPLAY_NAME || '审核体验账号').trim() || '审核体验账号';
 const REVIEWER_EMAIL = String(process.env.REVIEWER_EMAIL || 'reviewer@local.edunet').trim();
 const REVIEWER_TEACHER_ID = String(process.env.REVIEWER_TEACHER_ID || '').trim();
@@ -387,7 +399,7 @@ const requireStudentParentManagement = async (
     }
     next();
   } catch (err) {
-    console.error('Management permission check failed:', err);
+    logSafeError('Management permission check failed:', err);
     res.status(500).json({ error: 'Authorization check failed' });
   }
 };
@@ -578,6 +590,17 @@ app.get('/api/health', (_, res) => {
   res.json({ ok: true, timestamp: new Date().toISOString(), ...devTestMetadata() });
 });
 
+app.get('/api/ready', async (_, res) => {
+  try {
+    // Includes the newest account/mail tables: a live process with an old schema
+    // must not be treated as a successful deployment.
+    await db.execute(sql`SELECT 1 FROM auth_mail_jobs LIMIT 0`);
+    res.json({ ok: true });
+  } catch {
+    res.status(503).json({ ok: false });
+  }
+});
+
 const notifyParent = async (payload: {
   studentId: string;
   parentId: string | null;
@@ -586,21 +609,12 @@ const notifyParent = async (payload: {
   data: Record<string, { value: string }>;
 }) => {
   if (!payload.parentId || !payload.templateId) {
-    console.warn('[wechat-notify] skipped: missing parentId/templateId', {
-      studentId: payload.studentId,
-      hasParentId: Boolean(payload.parentId),
-      hasTemplateId: Boolean(payload.templateId),
-    });
+    console.warn('[wechat-notify] skipped: missing configuration');
     return;
   }
   const parents = await db.select().from(parentsTable).where(eq(parentsTable.id, payload.parentId));
   if (!parents.length || !parents[0].wechatOpenId) {
-    console.warn('[wechat-notify] skipped: parent/openid missing', {
-      studentId: payload.studentId,
-      parentId: payload.parentId,
-      parentFound: parents.length > 0,
-      hasWechatOpenId: Boolean(parents[0]?.wechatOpenId),
-    });
+    console.warn('[wechat-notify] skipped: recipient unavailable');
     return;
   }
   const sendResult = await sendWeChatSubscribeMessage({
@@ -610,21 +624,10 @@ const notifyParent = async (payload: {
     data: payload.data,
   });
   if (!sendResult.ok) {
-    console.warn('[wechat-notify] send failed', {
-      studentId: payload.studentId,
-      parentId: payload.parentId,
-      templateId: payload.templateId,
-      error: sendResult.error,
-      errcode: sendResult.errcode ?? null,
-      errmsg: sendResult.errmsg ?? null,
-    });
+    console.warn('[wechat-notify] send failed');
     return;
   }
-  console.info('[wechat-notify] send ok', {
-    studentId: payload.studentId,
-    parentId: payload.parentId,
-    templateId: payload.templateId,
-  });
+  console.info('[wechat-notify] send ok');
 };
 
 const buildTemplateData = (
@@ -1179,9 +1182,9 @@ const xlsxColumnName = (index: number) => {
   return name;
 };
 
-const buildXlsxWorkbook = (sheets: Array<{ name: string; rows: unknown[][] }>) => {
+const buildXlsxWorkbook = (sheets: Array<{ name: string; rows: unknown[][]; filter?: boolean }>, typedNumbers = false) => {
   const sheetFiles = sheets.map((sheet, index) => {
-    const maxCols = Math.max(...sheet.rows.map((row) => row.length), 0);
+    const maxCols = sheet.rows.reduce((maximum, row) => Math.max(maximum, row.length), 0);
     const colsXml = maxCols
       ? `<cols>${Array.from({ length: maxCols }, (_, colIndex) => {
           const width = colIndex === 0 ? 14 : colIndex === 1 ? 16 : 26;
@@ -1192,6 +1195,7 @@ const buildXlsxWorkbook = (sheets: Array<{ name: string; rows: unknown[][] }>) =
       const cells = row.map((value, colIndex) => {
         const ref = `${xlsxColumnName(colIndex)}${rowIndex + 1}`;
         const styleId = rowIndex === 0 ? 1 : 2;
+        if (typedNumbers && typeof value === 'number' && Number.isFinite(value)) return `<c r="${ref}" s="${styleId}"><v>${value}</v></c>`;
         return `<c r="${ref}" s="${styleId}" t="inlineStr"><is><t xml:space="preserve">${xlsxTextEscape(value)}</t></is></c>`;
       }).join('');
       return `<row r="${rowIndex + 1}">${cells}</row>`;
@@ -1200,7 +1204,7 @@ const buildXlsxWorkbook = (sheets: Array<{ name: string; rows: unknown[][] }>) =
       sheet,
       path: `xl/worksheets/sheet${index + 1}.xml`,
       content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${colsXml}<sheetData>${rowsXml}</sheetData></worksheet>`,
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${typedNumbers ? '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>' : ''}${colsXml}<sheetData>${rowsXml}</sheetData>${sheet.filter && maxCols ? `<autoFilter ref="A1:${xlsxColumnName(maxCols - 1)}${sheet.rows.length}"/>` : ''}</worksheet>`,
     };
   });
   const workbookSheets = sheets.map((sheet, index) =>
@@ -2288,7 +2292,7 @@ app.get('/api/teachers/:id', authenticate, requireAdmin, async (req, res) => {
 
 app.post('/api/teachers', async (req, res) => {
   res.status(410).json({
-    error: 'Email/password signup is deprecated. Use WeChat login to create teacher accounts.',
+    error: 'Use the signup page or a supported sign-in provider to create teacher accounts.',
   });
 });
 
@@ -2349,7 +2353,7 @@ app.get('/api/parents/unassigned', authenticate, requireRole('teacher', 'admin')
     const unassignedParents = parents.filter((parent) => !assigned.has(parent.id));
     res.status(200).json(unassignedParents.map((item) => toPublicUser(item, 'parent')));
   } catch (error) {
-    console.error('Error fetching available parents:', error);
+    logSafeError('Error fetching available parents:', error);
     res.status(500).json({ error: 'Failed to fetch available parents' });
   }
 });
@@ -2399,7 +2403,7 @@ app.get('/api/parents/:id/students', authenticate, requireRole('teacher', 'admin
 
 app.post('/api/parents', async (req, res) => {
   res.status(410).json({
-    error: 'Email/password signup is deprecated. Use WeChat login to create parent accounts.',
+    error: 'Use the signup page or a supported sign-in provider to create parent accounts.',
   });
 });
 
@@ -2450,7 +2454,7 @@ app.delete('/api/parents/:id', authenticate, requireRole('teacher', 'admin'), re
     if (!result.length) return res.status(404).json({ error: 'Parent not found' });
     res.json({ message: 'Parent deleted successfully' });
   } catch (err) {
-    console.error('Error deleting parent:', err);
+    logSafeError('Error deleting parent:', err);
     const message = getErrorMessage(err);
     const code = (err as { code?: string })?.code;
     if (code === '23503' || message.includes('foreign key')) {
@@ -2458,7 +2462,7 @@ app.delete('/api/parents/:id', authenticate, requireRole('teacher', 'admin'), re
         error: '该家长已绑定学生，请先解绑后再删除。',
       });
     }
-    res.status(500).json({ error: 'Database error', details: message });
+    res.status(500).json({ error: 'Database error', details: 'Operation failed' });
   }
 });
 
@@ -2504,19 +2508,17 @@ app.get('/api/students', authenticate, async (req, res) => {
 app.get('/api/students/:id', authenticate, verifyParentStudentAccess, async (req, res) => {
   const id = req.params.id;
   try {
-    console.log(`Fetching student with ID: ${id}`);
     // Validate UUID format
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
       return res.status(400).json({ error: 'Invalid student ID format' });
     }
     const result = await db.select().from(studentsTable).where(eq(studentsTable.id, id));
-    console.log(`Query result:`, result);
     if (!result.length) return res.status(404).json({ error: 'Student not found' });
     const [student] = await attachParentBindingsToStudents([result[0]]);
     res.json(student);
   } catch (err) {
-    console.error('Error fetching student by ID:', err);
-    res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
+    logSafeError('Error fetching student by ID:', err);
+    res.status(500).json({ error: 'Database error', details: 'Operation failed' });
   }
 });
 
@@ -2535,7 +2537,7 @@ app.get('/api/students/:id/parents', authenticate, requireRole('teacher', 'admin
       parents: parents.map((parent) => toPublicUser(parent, 'parent')),
     });
   } catch (err) {
-    console.error('Error loading student parents:', err);
+    logSafeError('Error loading student parents:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -2559,7 +2561,7 @@ app.post('/api/students/:id/parents', authenticate, requireRole('teacher', 'admi
     await db.update(studentsTable).set({ parentId: parentIds[0] || parentId }).where(eq(studentsTable.id, studentId));
     res.status(201).json({ success: true, parentId });
   } catch (err) {
-    console.error('Error binding student parent:', err);
+    logSafeError('Error binding student parent:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -2580,7 +2582,7 @@ app.delete('/api/students/:id/parents/:parentId', authenticate, requireRole('tea
     await db.update(studentsTable).set({ parentId: parentIds[0] || null }).where(eq(studentsTable.id, studentId));
     res.json({ success: true });
   } catch (err) {
-    console.error('Error unbinding student parent:', err);
+    logSafeError('Error unbinding student parent:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -2624,7 +2626,7 @@ app.post('/api/students', authenticate, requireRole('teacher', 'admin'), async (
     const [student] = await attachParentBindingsToStudents([result[0]]);
     res.status(201).json(student);
   } catch (err) {
-    console.error('Error creating student:', err);
+    logSafeError('Error creating student:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -2662,7 +2664,7 @@ app.put('/api/students/:id', authenticate, requireRole('teacher', 'admin'), requ
     const [student] = await attachParentBindingsToStudents(refreshed ? [refreshed] : result);
     res.json(student);
   } catch (err) {
-    console.error('Error updating student:', err);
+    logSafeError('Error updating student:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -2687,7 +2689,7 @@ app.delete('/api/students/:id', authenticate, requireRole('teacher', 'admin'), r
     );
   } catch (err) {
     if (isActionLockConflictError(err)) return res.status(409).json(buildActionLockConflictPayload(err.conflict));
-    console.error('Error deleting student:', err);
+    logSafeError('Error deleting student:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -2853,7 +2855,7 @@ app.get('/api/students/:studentId/bin', authenticate, requireRole('teacher', 'ad
 
     res.json({ studentId, retentionDays: BIN_RETENTION_DAYS, groups });
   } catch (err) {
-    console.error('Error fetching student bin:', err);
+    logSafeError('Error fetching student bin:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -2872,8 +2874,8 @@ app.post('/api/students/:studentId/bin/restore', authenticate, requireRole('teac
     if (!restored.length) return res.status(404).json({ error: 'Record not found' });
     res.json({ success: true, record: restored[0] });
   } catch (err) {
-    console.error('Error restoring bin record:', err);
-    res.status(500).json({ error: 'Restore failed', details: getErrorMessage(err) });
+    logSafeError('Error restoring bin record:', err);
+    res.status(500).json({ error: 'Restore failed', details: 'Operation failed' });
   }
 });
 
@@ -2891,8 +2893,8 @@ app.delete('/api/students/:studentId/bin/permanent', authenticate, requireRole('
     if (!deleted.length) return res.status(404).json({ error: 'Record not found' });
     res.json({ success: true, recordType, recordId });
   } catch (err) {
-    console.error('Error permanently deleting bin record:', err);
-    res.status(500).json({ error: 'Permanent delete failed', details: getErrorMessage(err) });
+    logSafeError('Error permanently deleting bin record:', err);
+    res.status(500).json({ error: 'Permanent delete failed', details: 'Operation failed' });
   }
 });
 
@@ -2904,7 +2906,7 @@ const cleanupExpiredDeletedRecords = async () => {
       const rows = await fn();
       results[key] = { count: Array.isArray(rows) ? rows.length : 0 };
     } catch (err) {
-      results[key] = { count: 0, error: getErrorMessage(err) };
+      results[key] = { count: 0, error: 'Operation failed' };
     }
   };
 
@@ -2941,8 +2943,8 @@ app.post('/api/admin/bin/cleanup-expired', authenticate, requireAdmin, async (_r
     const result = await cleanupExpiredDeletedRecords();
     res.json(result);
   } catch (err) {
-    console.error('Error cleaning expired bin records:', err);
-    res.status(500).json({ error: 'Cleanup failed', details: getErrorMessage(err) });
+    logSafeError('Error cleaning expired bin records:', err);
+    res.status(500).json({ error: 'Cleanup failed', details: 'Operation failed' });
   }
 });
 
@@ -3035,7 +3037,7 @@ app.get('/api/study-settings', authenticate, requireRole('teacher', 'admin'), as
   try {
     res.json(await getEveningStudySettings());
   } catch (err) {
-    console.error('Error fetching study settings:', err);
+    logSafeError('Error fetching study settings:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -3046,7 +3048,7 @@ app.put('/api/admin/study-settings', authenticate, requireAdmin, async (req, res
     await upsertAppSetting(APP_SETTING_KEYS.eveningStudy, settings, req.user?.name || null);
     res.json(settings);
   } catch (err) {
-    console.error('Error saving study settings:', err);
+    logSafeError('Error saving study settings:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -3062,7 +3064,7 @@ app.get('/api/admin/english-tasks', authenticate, requireAdmin, async (_req, res
       updatedByName: setting?.updatedByName || null,
     });
   } catch (err) {
-    console.error('Error fetching global english tasks:', err);
+    logSafeError('Error fetching global english tasks:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -3082,7 +3084,7 @@ app.put('/api/admin/english-tasks', authenticate, requireAdmin, async (req, res)
     );
     res.json({ tasks: normalizedTasks, isDefault: false });
   } catch (err) {
-    console.error('Error saving global english tasks:', err);
+    logSafeError('Error saving global english tasks:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -3096,7 +3098,7 @@ app.post('/api/admin/english-tasks/reset', authenticate, requireAdmin, async (re
     );
     res.json({ tasks: DEFAULT_ENGLISH_TASKS, isDefault: true });
   } catch (err) {
-    console.error('Error resetting global english tasks:', err);
+    logSafeError('Error resetting global english tasks:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -3125,7 +3127,7 @@ app.get('/api/students/:studentId/english-tasks', authenticate, requireRole('tea
       updatedBy: row?.updatedBy || null,
     });
   } catch (err) {
-    console.error('Error fetching english task config:', err);
+    logSafeError('Error fetching english task config:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -3206,7 +3208,7 @@ app.put('/api/students/:studentId/english-tasks', authenticate, requireRole('tea
     if (isActionLockConflictError(err)) {
       return res.status(409).json(buildActionLockConflictPayload(err.conflict));
     }
-    console.error('Error saving english task config:', err);
+    logSafeError('Error saving english task config:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -3240,7 +3242,7 @@ app.post('/api/students/:studentId/english-tasks/reset', authenticate, requireRo
     if (isActionLockConflictError(err)) {
       return res.status(409).json(buildActionLockConflictPayload(err.conflict));
     }
-    console.error('Error resetting english task config:', err);
+    logSafeError('Error resetting english task config:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -3299,7 +3301,7 @@ app.get('/api/students/:studentId/exams', authenticate, verifyParentStudentAcces
     }));
     res.json(payload);
   } catch (err) {
-    console.error('Error fetching exams:', err);
+    logSafeError('Error fetching exams:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -3402,7 +3404,7 @@ app.post('/api/students/:studentId/exams', authenticate, requireTeachingAuthor, 
     if (isActionLockConflictError(err)) {
       return res.status(409).json(buildActionLockConflictPayload(err.conflict));
     }
-    console.error('Error creating exam:', err);
+    logSafeError('Error creating exam:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -3504,7 +3506,7 @@ app.put('/api/exams/:id', authenticate, requireTeachingAuthor, async (req, res) 
     if (isActionLockConflictError(err)) {
       return res.status(409).json(buildActionLockConflictPayload(err.conflict));
     }
-    console.error('Error updating exam:', err);
+    logSafeError('Error updating exam:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -3549,7 +3551,7 @@ app.delete('/api/exams/:id', authenticate, requireTeachingAuthor, async (req, re
     if (isActionLockConflictError(err)) {
       return res.status(409).json(buildActionLockConflictPayload(err.conflict));
     }
-    console.error('Error deleting exam:', err);
+    logSafeError('Error deleting exam:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -3637,7 +3639,7 @@ app.get('/api/exams/upcoming', authenticate, requireTeachingAuthor, async (req, 
     upcoming.sort((a, b) => (a.daysUntil ?? 0) - (b.daysUntil ?? 0));
     res.json({ date: today, upcoming });
   } catch (err) {
-    console.error('Error fetching upcoming exams:', err);
+    logSafeError('Error fetching upcoming exams:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -3663,7 +3665,7 @@ app.get('/api/students/:studentId/quarterly-summary', authenticate, verifyParent
       .orderBy(quarterlySummaryTable.quarter);
     res.json(rows);
   } catch (err) {
-    console.error('Error fetching quarterly summary:', err);
+    logSafeError('Error fetching quarterly summary:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -3786,7 +3788,7 @@ app.put('/api/students/:studentId/quarterly-summary', authenticate, requireRole(
         updatedByName: (err as any).updatedByName,
       });
     }
-    console.error('Error saving quarterly summary:', err);
+    logSafeError('Error saving quarterly summary:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -3840,7 +3842,7 @@ app.delete('/api/students/:studentId/quarterly-summary', authenticate, requireRo
     if (isActionLockConflictError(err)) {
       return res.status(409).json(buildActionLockConflictPayload(err.conflict));
     }
-    console.error('Error deleting quarterly summary:', err);
+    logSafeError('Error deleting quarterly summary:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -3865,7 +3867,7 @@ app.get('/api/students/:studentId/yearly-summary', authenticate, verifyParentStu
       .limit(1);
     res.json(rows[0] || {});
   } catch (err) {
-    console.error('Error fetching yearly summary:', err);
+    logSafeError('Error fetching yearly summary:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -3951,7 +3953,7 @@ app.put('/api/students/:studentId/yearly-summary', authenticate, requireRole('te
     if (isActionLockConflictError(err)) {
       return res.status(409).json(buildActionLockConflictPayload(err.conflict));
     }
-    console.error('Error saving yearly summary:', err);
+    logSafeError('Error saving yearly summary:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -3997,7 +3999,7 @@ app.delete('/api/students/:studentId/yearly-summary', authenticate, requireRole(
     if (isActionLockConflictError(err)) {
       return res.status(409).json(buildActionLockConflictPayload(err.conflict));
     }
-    console.error('Error deleting yearly summary:', err);
+    logSafeError('Error deleting yearly summary:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -4106,7 +4108,7 @@ app.post('/api/reports', authenticate, requireRole('teacher', 'admin'), async (r
     if (isActionLockConflictError(err)) {
       return res.status(409).json(buildActionLockConflictPayload(err.conflict));
     }
-    console.error('Error saving report:', err);
+    logSafeError('Error saving report:', err);
     return res.status(500).json({ error: 'Database error' });
   }
 });
@@ -4172,7 +4174,7 @@ app.get('/api/students/:studentId/reports', authenticate, verifyParentStudentAcc
 
     return res.json(rows.map((row) => hydrateStudentReport(row, user.role, { includeHeavyFields: false })));
   } catch (err) {
-    console.error('Error listing reports:', err);
+    logSafeError('Error listing reports:', err);
     return res.status(500).json({ error: 'Database error' });
   }
 });
@@ -4195,7 +4197,7 @@ app.get('/api/reports/:reportId', authenticate, async (req, res) => {
 
     return res.json(hydrateStudentReport(report, user.role, { includeHeavyFields: true }));
   } catch (err) {
-    console.error('Error fetching report:', err);
+    logSafeError('Error fetching report:', err);
     return res.status(500).json({ error: 'Database error' });
   }
 });
@@ -4282,7 +4284,7 @@ app.patch('/api/reports/:reportId', authenticate, requireRole('teacher', 'admin'
     if (isActionLockConflictError(err)) {
       return res.status(409).json(buildActionLockConflictPayload(err.conflict));
     }
-    console.error('Error updating report:', err);
+    logSafeError('Error updating report:', err);
     return res.status(500).json({ error: 'Database error' });
   }
 });
@@ -4334,7 +4336,7 @@ app.patch('/api/reports/:reportId/visibility', authenticate, requireRole('teache
     if (isActionLockConflictError(err)) {
       return res.status(409).json(buildActionLockConflictPayload(err.conflict));
     }
-    console.error('Error updating report visibility:', err);
+    logSafeError('Error updating report visibility:', err);
     return res.status(500).json({ error: 'Database error' });
   }
 });
@@ -4383,7 +4385,7 @@ app.delete('/api/reports/:reportId', authenticate, requireRole('teacher', 'admin
     if (isActionLockConflictError(err)) {
       return res.status(409).json(buildActionLockConflictPayload(err.conflict));
     }
-    console.error('Error deleting report:', err);
+    logSafeError('Error deleting report:', err);
     return res.status(500).json({ error: 'Database error' });
   }
 });
@@ -4402,12 +4404,12 @@ app.get('/api/academic-terms', authenticate, requireTeachingAuthor, async (_, re
       .orderBy(desc(academicTermsTable.year), academicTermsTable.startDate);
     res.json(rows);
   } catch (err) {
-    console.error('Error listing academic terms:', err);
+    logSafeError('Error listing academic terms:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
 
-app.post('/api/academic-terms', authenticate, requireTeachingAuthor, async (req, res) => {
+app.post('/api/academic-terms', authenticate, requireTeachingAuthor, denyReviewer, async (req, res) => {
   const parsed = AcademicTermSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const { year, termType, startDate, endDate, notes } = parsed.data;
@@ -4431,12 +4433,12 @@ app.post('/api/academic-terms', authenticate, requireTeachingAuthor, async (req,
     if (String((err as { message?: string })?.message || '').includes('uq_academic_terms_year_term')) {
       return res.status(409).json({ error: 'Term already exists for this (year, termType)' });
     }
-    console.error('Error creating academic term:', err);
+    logSafeError('Error creating academic term:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
 
-app.put('/api/academic-terms/:id', authenticate, requireTeachingAuthor, async (req, res) => {
+app.put('/api/academic-terms/:id', authenticate, requireTeachingAuthor, denyReviewer, async (req, res) => {
   const { id } = req.params;
   const parsed = AcademicTermSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
@@ -4469,12 +4471,12 @@ app.put('/api/academic-terms/:id', authenticate, requireTeachingAuthor, async (r
       .returning();
     res.json(row);
   } catch (err) {
-    console.error('Error updating academic term:', err);
+    logSafeError('Error updating academic term:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
 
-app.delete('/api/academic-terms/:id', authenticate, requireTeachingAuthor, async (req, res) => {
+app.delete('/api/academic-terms/:id', authenticate, requireTeachingAuthor, denyReviewer, async (req, res) => {
   const { id } = req.params;
   try {
     const clientUpdatedAt = parseTimestamp((req.query as any).updatedAt || req.body?.updatedAt);
@@ -4491,7 +4493,7 @@ app.delete('/api/academic-terms/:id', authenticate, requireTeachingAuthor, async
     await db.delete(academicTermsTable).where(eq(academicTermsTable.id, id));
     res.json({ message: 'Term deleted' });
   } catch (err) {
-    console.error('Error deleting academic term:', err);
+    logSafeError('Error deleting academic term:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -4505,7 +4507,7 @@ app.get('/api/academic-terms/current', authenticate, requireTeachingAuthor, asyn
     const term = pickCurrentTerm(rows, date);
     res.json({ date, term });
   } catch (err) {
-    console.error('Error resolving current term:', err);
+    logSafeError('Error resolving current term:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -4544,7 +4546,7 @@ const buildAnalyticsHandler = (
     ]);
     res.json({ current, previous, subjectProgress });
   } catch (err) {
-    console.error('Error computing analytics:', err);
+    logSafeError('Error computing analytics:', err);
     res.status(500).json({ error: 'Database error' });
   }
 };
@@ -4628,7 +4630,7 @@ app.get(
       ]);
       res.json({ current, previous, subjectProgress, term: resolvedTerm });
     } catch (err) {
-      console.error('Error computing term analytics:', err);
+      logSafeError('Error computing term analytics:', err);
       res.status(500).json({ error: 'Database error' });
     }
   },
@@ -4794,7 +4796,7 @@ app.get('/api/students/:studentId/report-export', authenticate, verifyParentStud
       },
     });
   } catch (err) {
-    console.error('Error exporting report:', err);
+    logSafeError('Error exporting report:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -4803,7 +4805,7 @@ app.get('/api/students/:studentId/report-export', authenticate, verifyParentStud
 // List all subjects
 app.get('/api/subjects', async (req, res) => {
   try {
-    const defaultLevel = await ensureDefaultSubjectLevel();
+    const defaultLevel = await ensureDefaultSubjectLevel(false);
     const includeInactive = parseBooleanLike(req.query?.includeInactive) === true;
     const subjects = await db
       .select({
@@ -4836,9 +4838,9 @@ app.get('/api/subjects', async (req, res) => {
   }
 });
 
-app.get('/api/subject-levels', authenticate, requireRole('teacher', 'admin'), async (_, res) => {
+app.get('/api/subject-levels', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
   try {
-    const defaultLevel = await ensureDefaultSubjectLevel();
+    const defaultLevel = await ensureDefaultSubjectLevel(!isReviewerSession(req));
     const levels = await db
       .select()
       .from(subjectLevelsTable)
@@ -4848,12 +4850,12 @@ app.get('/api/subject-levels', authenticate, requireRole('teacher', 'admin'), as
     const out = hasDefault ? levels : [defaultLevel, ...levels];
     res.json(out);
   } catch (err) {
-    console.error('Error listing subject levels:', err);
+    logSafeError('Error listing subject levels:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
 
-app.post('/api/subject-levels', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
+app.post('/api/subject-levels', authenticate, requireRole('teacher', 'admin'), denyReviewer, async (req, res) => {
   if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot manage subject levels' });
   const name = sanitizeLevelName(req.body?.name);
   const description = sanitizeLevelDescription(req.body?.description);
@@ -4903,12 +4905,12 @@ app.post('/api/subject-levels', authenticate, requireRole('teacher', 'admin'), a
     if (isActionLockConflictError(err)) {
       return res.status(409).json(buildActionLockConflictPayload(err.conflict));
     }
-    console.error('Error creating subject level:', err);
+    logSafeError('Error creating subject level:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
 
-app.put('/api/subject-levels/:id', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
+app.put('/api/subject-levels/:id', authenticate, requireRole('teacher', 'admin'), denyReviewer, async (req, res) => {
   if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot manage subject levels' });
   const id = req.params.id;
   const name = sanitizeLevelName(req.body?.name);
@@ -4970,12 +4972,12 @@ app.put('/api/subject-levels/:id', authenticate, requireRole('teacher', 'admin')
     if (isActionLockConflictError(err)) {
       return res.status(409).json(buildActionLockConflictPayload(err.conflict));
     }
-    console.error('Error updating subject level:', err);
+    logSafeError('Error updating subject level:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
 
-app.delete('/api/subject-levels/:id', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
+app.delete('/api/subject-levels/:id', authenticate, requireRole('teacher', 'admin'), denyReviewer, async (req, res) => {
   if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot manage subject levels' });
   const id = req.params.id;
   try {
@@ -5018,14 +5020,14 @@ app.delete('/api/subject-levels/:id', authenticate, requireRole('teacher', 'admi
     if (isActionLockConflictError(err)) {
       return res.status(409).json(buildActionLockConflictPayload(err.conflict));
     }
-    console.error('Error deleting subject level:', err);
+    logSafeError('Error deleting subject level:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
 
-app.get('/api/subjects/hierarchy', authenticate, requireRole('teacher', 'admin'), async (_, res) => {
+app.get('/api/subjects/hierarchy', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
   try {
-    const defaultLevel = await ensureDefaultSubjectLevel();
+    const defaultLevel = await ensureDefaultSubjectLevel(!isReviewerSession(req));
     const levels = await db
       .select()
       .from(subjectLevelsTable)
@@ -5096,12 +5098,12 @@ app.get('/api/subjects/hierarchy', authenticate, requireRole('teacher', 'admin')
       }));
     res.json({ levels: normalizedLevels, defaultLevelId: defaultLevel.id });
   } catch (err) {
-    console.error('Error fetching subject hierarchy:', err);
+    logSafeError('Error fetching subject hierarchy:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
 
-app.post('/api/subjects', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
+app.post('/api/subjects', authenticate, requireRole('teacher', 'admin'), denyReviewer, async (req, res) => {
   if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot manage subjects' });
   const code = trimString(req.body?.code).toUpperCase().slice(0, 64);
   const chineseName = trimString(req.body?.chineseName).slice(0, 120);
@@ -5124,7 +5126,7 @@ app.post('/api/subjects', authenticate, requireRole('teacher', 'admin'), async (
         metadata: { route: '/api/subjects', code },
       },
       async () => {
-        const defaultLevel = await ensureDefaultSubjectLevel();
+        const defaultLevel = await ensureDefaultSubjectLevel(!isReviewerSession(req));
         const levelIdInput = trimString(req.body?.levelId);
         const levelId = levelIdInput || defaultLevel.id;
         let resolvedLevelName = levelNameFallback;
@@ -5212,12 +5214,12 @@ app.post('/api/subjects', authenticate, requireRole('teacher', 'admin'), async (
     if (isActionLockConflictError(err)) {
       return res.status(409).json(buildActionLockConflictPayload(err.conflict));
     }
-    console.error('Error creating subject:', err);
+    logSafeError('Error creating subject:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
 
-app.put('/api/subjects/:id', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
+app.put('/api/subjects/:id', authenticate, requireRole('teacher', 'admin'), denyReviewer, async (req, res) => {
   if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot manage subjects' });
   const id = req.params.id;
   const code = trimString(req.body?.code).toUpperCase().slice(0, 64);
@@ -5250,7 +5252,7 @@ app.put('/api/subjects/:id', authenticate, requireRole('teacher', 'admin'), asyn
           res.status(404).json({ error: 'Subject not found' });
           return;
         }
-        const defaultLevel = await ensureDefaultSubjectLevel();
+        const defaultLevel = await ensureDefaultSubjectLevel(!isReviewerSession(req));
         const levelIdInput = trimString(req.body?.levelId);
         const levelId = levelIdInput || existing[0].levelId || defaultLevel.id;
         let resolvedLevelName = levelNameFallback || existing[0].level || DEFAULT_SUBJECT_LEVEL_NAME;
@@ -5315,12 +5317,12 @@ app.put('/api/subjects/:id', authenticate, requireRole('teacher', 'admin'), asyn
     if (isActionLockConflictError(err)) {
       return res.status(409).json(buildActionLockConflictPayload(err.conflict));
     }
-    console.error('Error updating subject:', err);
+    logSafeError('Error updating subject:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
 
-app.delete('/api/subjects/:id', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
+app.delete('/api/subjects/:id', authenticate, requireRole('teacher', 'admin'), denyReviewer, async (req, res) => {
   if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot manage subjects' });
   const id = req.params.id;
   try {
@@ -5370,12 +5372,12 @@ app.delete('/api/subjects/:id', authenticate, requireRole('teacher', 'admin'), a
     if (isActionLockConflictError(err)) {
       return res.status(409).json(buildActionLockConflictPayload(err.conflict));
     }
-    console.error('Error deleting subject:', err);
+    logSafeError('Error deleting subject:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
 
-app.post('/api/subjects/:subjectId/topics', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
+app.post('/api/subjects/:subjectId/topics', authenticate, requireRole('teacher', 'admin'), denyReviewer, async (req, res) => {
   if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot manage topics' });
   const { subjectId } = req.params;
   const code = trimString(req.body?.code).slice(0, 64);
@@ -5433,12 +5435,12 @@ app.post('/api/subjects/:subjectId/topics', authenticate, requireRole('teacher',
     if (isActionLockConflictError(err)) {
       return res.status(409).json(buildActionLockConflictPayload(err.conflict));
     }
-    console.error('Error creating topic:', err);
+    logSafeError('Error creating topic:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
 
-app.put('/api/topics/:id', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
+app.put('/api/topics/:id', authenticate, requireRole('teacher', 'admin'), denyReviewer, async (req, res) => {
   if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot manage topics' });
   const id = req.params.id;
   const code = trimString(req.body?.code).slice(0, 64);
@@ -5495,12 +5497,12 @@ app.put('/api/topics/:id', authenticate, requireRole('teacher', 'admin'), async 
     if (isActionLockConflictError(err)) {
       return res.status(409).json(buildActionLockConflictPayload(err.conflict));
     }
-    console.error('Error updating topic:', err);
+    logSafeError('Error updating topic:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
 
-app.delete('/api/topics/:id', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
+app.delete('/api/topics/:id', authenticate, requireRole('teacher', 'admin'), denyReviewer, async (req, res) => {
   if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot manage topics' });
   const id = req.params.id;
   try {
@@ -5568,7 +5570,7 @@ app.delete('/api/topics/:id', authenticate, requireRole('teacher', 'admin'), asy
     if (isActionLockConflictError(err)) {
       return res.status(409).json(buildActionLockConflictPayload(err.conflict));
     }
-    console.error('Error deleting topic:', err);
+    logSafeError('Error deleting topic:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -5684,7 +5686,7 @@ app.put('/api/students/:studentId/subjects', authenticate, requireRole('teacher'
     if (isActionLockConflictError(err)) {
       return res.status(409).json(buildActionLockConflictPayload(err.conflict));
     }
-    console.error(err);
+    logSafeError('Database operation failed', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -5721,7 +5723,7 @@ app.post('/api/students/:studentId/subjects/sync-catalog', authenticate, require
     if (isActionLockConflictError(err)) {
       return res.status(409).json(buildActionLockConflictPayload(err.conflict));
     }
-    console.error('Error syncing catalog topics:', err);
+    logSafeError('Error syncing catalog topics:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -5731,7 +5733,7 @@ app.post('/api/students/:studentId/subjects/sync-catalog', authenticate, require
 app.get('/api/students/:studentId/subjects/full', authenticate, verifyParentStudentAccess, async (req, res) => {
   const { studentId } = req.params;
   try {
-    const defaultLevel = await ensureDefaultSubjectLevel();
+    const defaultLevel = await ensureDefaultSubjectLevel(!isReviewerSession(req));
     const rows = await db
       .select({
         subjectId: subjectsTable.id,
@@ -5853,7 +5855,7 @@ app.get('/api/students/:studentId/subjects/full', authenticate, verifyParentStud
     const result = Object.values(subjectMap);
     res.json(result);
   } catch (err) {
-    console.error(err);
+    logSafeError('Database operation failed', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -6007,7 +6009,7 @@ app.get('/api/paper-types', authenticate, async (_, res) => {
   }
 });
 
-app.post('/api/paper-types', authenticate, requireTeachingAuthor, async (req, res) => {
+app.post('/api/paper-types', authenticate, requireTeachingAuthor, denyReviewer, async (req, res) => {
   if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot edit paper catalog' });
   const { name } = req.body || {};
   if (!name || !String(name).trim()) {
@@ -6048,7 +6050,7 @@ app.post('/api/paper-types', authenticate, requireTeachingAuthor, async (req, re
   }
 });
 
-app.delete('/api/paper-types/:id', authenticate, requireTeachingAuthor, async (req, res) => {
+app.delete('/api/paper-types/:id', authenticate, requireTeachingAuthor, denyReviewer, async (req, res) => {
   if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot edit paper catalog' });
   const { id } = req.params;
   try {
@@ -6093,7 +6095,7 @@ app.get('/api/paper-schools', authenticate, async (_, res) => {
   }
 });
 
-app.post('/api/paper-schools', authenticate, requireTeachingAuthor, async (req, res) => {
+app.post('/api/paper-schools', authenticate, requireTeachingAuthor, denyReviewer, async (req, res) => {
   if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot edit paper catalog' });
   const { name } = req.body || {};
   if (!name || !String(name).trim()) {
@@ -6134,7 +6136,7 @@ app.post('/api/paper-schools', authenticate, requireTeachingAuthor, async (req, 
   }
 });
 
-app.delete('/api/paper-schools/:id', authenticate, requireTeachingAuthor, async (req, res) => {
+app.delete('/api/paper-schools/:id', authenticate, requireTeachingAuthor, denyReviewer, async (req, res) => {
   if (isReviewerSession(req)) return res.status(403).json({ error: 'Reviewer account cannot edit paper catalog' });
   const { id } = req.params;
   try {
@@ -6500,7 +6502,7 @@ app.delete('/api/students/:studentId/papers/:paperId', authenticate, requireTeac
 });
 
 // ========== ADMIN ROUTES ==========
-app.post('/api/admin/login', async (req, res) => {
+app.post('/api/admin/login', adminAuthRateLimit, async (req, res) => {
   const email = trimString(req.body?.email).toLowerCase();
   const password = typeof req.body?.password === 'string' ? req.body.password : '';
 
@@ -6512,24 +6514,30 @@ app.post('/api/admin/login', async (req, res) => {
   }
 
   try {
-    const rows = await db.select().from(adminsTable).where(eq(adminsTable.email, email)).limit(1);
+    const rows = await db.select().from(adminsTable).where(sql`lower(${adminsTable.email})=${email}`).limit(1);
     const admin = rows[0];
     if (!admin || !admin.password) {
-      return res.status(401).json({ error: 'This admin account uses WeChat login only.' });
+      return res.status(401).json({ error: 'Invalid credentials' });
     }
-    if (!safeEq(password, admin.password)) {
+    if (!(await verifyPassword(password, admin.password, process.env.NODE_ENV !== 'production'))) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
+    if (admin.emailVerified !== undefined && admin.emailVerified !== 'true') return res.status(401).json({ error: 'Verify your email before signing in.', status: 'email_verification_required' });
+    if (!admin.password.startsWith('scrypt$')) {
+      const upgraded = await db.update(adminsTable).set({ password: await hashPassword(password), updatedAt: new Date() }).where(and(eq(adminsTable.id, admin.id), eq(adminsTable.password, admin.password))).returning();
+      if (!upgraded.length) return res.status(401).json({ error: 'Invalid credentials' });
+    }
     const token = generateToken({
       id: admin.id,
+      authVersion: admin.authVersion || 0,
       role: 'admin',
       name: admin.displayName || admin.name || DEFAULT_USER_NAME,
     });
 
     return res.json({ user: toPublicUser(admin, 'admin'), token });
   } catch (err) {
-    console.error('Admin login error:', err);
+    logSafeError('Admin login error:', err);
     return res.status(500).json({ error: 'Admin login failed' });
   }
 });
@@ -6539,8 +6547,8 @@ app.get('/api/admin/pending', authenticate, requireAdmin, async (req, res) => {
   const parents = await db.select().from(parentsTable).where(eq(parentsTable.status, 'pending'));
   const teachers = await db.select().from(teachersTable).where(eq(teachersTable.status, 'pending'));
   res.json({
-    parents: parents.map((item) => toPublicUser(item, 'parent')),
-    teachers: teachers.map((item) => toPublicUser(item, 'teacher')),
+    parents: parents.map((item) => toPublicUser(item, 'parent', true)),
+    teachers: teachers.map((item) => toPublicUser(item, 'teacher', true)),
   });
 });
 
@@ -6702,8 +6710,8 @@ app.get('/api/admin/student-management', authenticate, requireAdmin, async (_req
       students: enrichedStudents,
     });
   } catch (err) {
-    console.error('Error loading admin student-management dashboard:', err);
-    res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
+    logSafeError('Error loading admin student-management dashboard:', err);
+    res.status(500).json({ error: 'Database error', details: 'Operation failed' });
   }
 });
 
@@ -6714,11 +6722,11 @@ app.get('/api/admin/users', authenticate, requireAdmin, async (_req, res) => {
       db.select().from(teachersTable).orderBy(teachersTable.name),
       db.select().from(parentsTable).orderBy(parentsTable.name),
     ]);
-    const grouped = new Map<string, { identityKey: string; displayName: string; roles: any[] }>();
+    const grouped = new Map<string, { identityKey: string; displayName: string; roles: ReturnType<typeof toPublicUser>[] }>();
     const addRole = (row: any, role: 'admin' | 'teacher' | 'parent') => {
-      const publicUser = toPublicUser(row, role);
-      const identityKey = row.wechatUnionId || row.wechatOpenId || `${role}:${row.id}`;
-      const existing = grouped.get(identityKey) || {
+      const publicUser = toPublicUser(row, role, true);
+      const identityKey = row.accountIdentityId || row.wechatUnionId || row.wechatOpenId || `${role}:${row.id}`;
+      const existing: { identityKey: string; displayName: string; roles: ReturnType<typeof toPublicUser>[] } = grouped.get(identityKey) || {
         identityKey,
         displayName: publicUser.displayName,
         roles: [],
@@ -6739,8 +6747,8 @@ app.get('/api/admin/users', authenticate, requireAdmin, async (_req, res) => {
       },
     });
   } catch (err) {
-    console.error('Error loading admin users:', err);
-    res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
+    logSafeError('Error loading admin users:', err);
+    res.status(500).json({ error: 'Database error', details: 'Operation failed' });
   }
 });
 
@@ -6829,8 +6837,8 @@ app.get('/api/admin/feedback-review', authenticate, requireAdmin, async (_req, r
     ].sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
     res.json({ pending });
   } catch (err) {
-    console.error('Error loading feedback review queue:', err);
-    res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
+    logSafeError('Error loading feedback review queue:', err);
+    res.status(500).json({ error: 'Database error', details: 'Operation failed' });
   }
 });
 
@@ -6909,8 +6917,8 @@ app.post('/api/admin/feedback-review/:type/:id/publish', authenticate, requireAd
     }
     return res.status(400).json({ error: 'Invalid feedback type' });
   } catch (err) {
-    console.error('Error publishing feedback review item:', err);
-    return res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
+    logSafeError('Error publishing feedback review item:', err);
+    return res.status(500).json({ error: 'Database error', details: 'Operation failed' });
   }
 });
 
@@ -6952,197 +6960,30 @@ app.delete('/api/admin/feedback-review/:type/:id', authenticate, requireAdmin, a
     }
     return res.status(400).json({ error: 'Invalid feedback type' });
   } catch (err) {
-    console.error('Error deleting feedback review item:', err);
-    return res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
+    logSafeError('Error deleting feedback review item:', err);
+    return res.status(500).json({ error: 'Database error', details: 'Operation failed' });
   }
 });
 
-app.post('/api/admin/users/assign-role', authenticate, requireAdmin, async (req, res) => {
-  const sourceRole = String(req.body?.sourceRole || '');
-  const sourceId = String(req.body?.sourceId || '');
-  const targetRole = String(req.body?.targetRole || '');
-  if (!sourceId || !['admin', 'teacher', 'parent'].includes(sourceRole) || !['admin', 'teacher', 'parent'].includes(targetRole)) {
-    return res.status(400).json({ error: 'Invalid role assignment request' });
-  }
+app.post('/api/admin/users/assign-role', authenticate, requireAdmin, manageAccountRoles(true));
+app.post('/api/admin/users/set-roles', authenticate, requireAdmin, manageAccountRoles());
 
-  const loadByRole = async (role: string, id: string) => {
-    if (role === 'admin') return (await db.select().from(adminsTable).where(eq(adminsTable.id, id)).limit(1))[0];
-    if (role === 'teacher') return (await db.select().from(teachersTable).where(eq(teachersTable.id, id)).limit(1))[0];
-    return (await db.select().from(parentsTable).where(eq(parentsTable.id, id)).limit(1))[0];
-  };
-
+app.post('/api/admin/practice-scores/export', authenticate, requireAdmin, async (req, res) => {
+  const parsed = parsePracticeExportRequest(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Choose students or a grade and a valid date range.', details: parsed.error.flatten() });
   try {
-    const source = await loadByRole(sourceRole, sourceId);
-    if (!source) return res.status(404).json({ error: 'Source user not found' });
-    if (!source.wechatOpenId && !source.wechatUnionId) {
-      return res.status(400).json({ error: 'User has no WeChat identity to assign' });
-    }
-
-    const values = {
-      name: source.displayName || source.name || DEFAULT_USER_NAME,
-      displayName: source.displayName || source.name || DEFAULT_USER_NAME,
-      avatarUrl: source.avatarUrl || null,
-      email: source.email || null,
-      password: null,
-      authProvider: 'wechat',
-      wechatOpenId: source.wechatOpenId || null,
-      wechatUnionId: source.wechatUnionId || null,
-      updatedAt: new Date(),
-    };
-
-    const findExisting = async (role: string) => {
-      const table = role === 'admin' ? adminsTable : role === 'teacher' ? teachersTable : parentsTable;
-      const openIdColumn = role === 'admin' ? adminsTable.wechatOpenId : role === 'teacher' ? teachersTable.wechatOpenId : parentsTable.wechatOpenId;
-      const unionIdColumn = role === 'admin' ? adminsTable.wechatUnionId : role === 'teacher' ? teachersTable.wechatUnionId : parentsTable.wechatUnionId;
-      if (source.wechatOpenId) {
-        const byOpenId = await db.select().from(table).where(eq(openIdColumn, source.wechatOpenId)).limit(1);
-        if (byOpenId.length) return byOpenId[0];
-      }
-      if (source.wechatUnionId) {
-        const byUnionId = await db.select().from(table).where(eq(unionIdColumn, source.wechatUnionId)).limit(1);
-        if (byUnionId.length) return byUnionId[0];
-      }
-      return null;
-    };
-
-    const existing = await findExisting(targetRole);
-    let result: any[] = [];
-    if (targetRole === 'admin') {
-      if (existing) {
-        result = await db.update(adminsTable).set(values).where(eq(adminsTable.id, existing.id)).returning();
-      } else {
-        result = await db.insert(adminsTable).values(values).returning();
-      }
-    } else if (targetRole === 'teacher') {
-      const teacherValues = { ...values, status: 'approved', emailVerified: 'true' };
-      if (existing) {
-        result = await db.update(teachersTable).set(teacherValues).where(eq(teachersTable.id, existing.id)).returning();
-      } else {
-        result = await db.insert(teachersTable).values(teacherValues).returning();
-      }
-    } else {
-      const parentValues = { ...values, status: 'approved', emailVerified: 'true' };
-      if (existing) {
-        result = await db.update(parentsTable).set(parentValues).where(eq(parentsTable.id, existing.id)).returning();
-      } else {
-        result = await db.insert(parentsTable).values(parentValues).returning();
-      }
-    }
-
-    res.json({ success: true, user: toPublicUser(result[0], targetRole as 'admin' | 'teacher' | 'parent') });
-  } catch (err) {
-    console.error('Error assigning user role:', err);
-    res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
-  }
-});
-
-app.post('/api/admin/users/set-roles', authenticate, requireAdmin, async (req, res) => {
-  const sourceRole = String(req.body?.sourceRole || '');
-  const sourceId = String(req.body?.sourceId || '');
-  const roles = Array.isArray(req.body?.roles) ? req.body.roles.map((role: unknown) => String(role)) : [];
-  const validRoles = ['admin', 'teacher', 'parent'] as const;
-  if (!sourceId || !validRoles.includes(sourceRole as any) || roles.some((role) => !validRoles.includes(role as any))) {
-    return res.status(400).json({ error: 'Invalid role update request' });
-  }
-  const nextRoles = Array.from(new Set(roles));
-  if (!nextRoles.length) {
-    return res.status(400).json({ error: 'At least one role is required' });
-  }
-
-  const loadByRole = async (role: string, id: string) => {
-    if (role === 'admin') return (await db.select().from(adminsTable).where(eq(adminsTable.id, id)).limit(1))[0];
-    if (role === 'teacher') return (await db.select().from(teachersTable).where(eq(teachersTable.id, id)).limit(1))[0];
-    return (await db.select().from(parentsTable).where(eq(parentsTable.id, id)).limit(1))[0];
-  };
-
-  try {
-    const source = await loadByRole(sourceRole, sourceId);
-    if (!source) return res.status(404).json({ error: 'Source user not found' });
-    if (!source.wechatOpenId && !source.wechatUnionId) {
-      return res.status(400).json({ error: 'User has no WeChat identity to update' });
-    }
-    const hasDisplayNameUpdate = Object.prototype.hasOwnProperty.call(req.body || {}, 'displayName');
-    const submittedDisplayName = pickDisplayName(req.body?.displayName);
-    if (hasDisplayNameUpdate && !submittedDisplayName) {
-      return res.status(400).json({ error: 'Display name is required' });
-    }
-    const nextDisplayName = submittedDisplayName || pickDisplayName(source.displayName) || pickDisplayName(source.name) || DEFAULT_USER_NAME;
-    if (nextDisplayName.length > 40) {
-      return res.status(400).json({ error: 'Display name must be 40 characters or less' });
-    }
-
-    const findExisting = async (role: string) => {
-      if (role === 'admin') {
-        if (source.wechatOpenId) {
-          const rows = await db.select().from(adminsTable).where(eq(adminsTable.wechatOpenId, source.wechatOpenId)).limit(1);
-          if (rows.length) return rows[0];
-        }
-        if (source.wechatUnionId) {
-          const rows = await db.select().from(adminsTable).where(eq(adminsTable.wechatUnionId, source.wechatUnionId)).limit(1);
-          if (rows.length) return rows[0];
-        }
-      }
-      if (role === 'teacher') {
-        if (source.wechatOpenId) {
-          const rows = await db.select().from(teachersTable).where(eq(teachersTable.wechatOpenId, source.wechatOpenId)).limit(1);
-          if (rows.length) return rows[0];
-        }
-        if (source.wechatUnionId) {
-          const rows = await db.select().from(teachersTable).where(eq(teachersTable.wechatUnionId, source.wechatUnionId)).limit(1);
-          if (rows.length) return rows[0];
-        }
-      }
-      if (role === 'parent') {
-        if (source.wechatOpenId) {
-          const rows = await db.select().from(parentsTable).where(eq(parentsTable.wechatOpenId, source.wechatOpenId)).limit(1);
-          if (rows.length) return rows[0];
-        }
-        if (source.wechatUnionId) {
-          const rows = await db.select().from(parentsTable).where(eq(parentsTable.wechatUnionId, source.wechatUnionId)).limit(1);
-          if (rows.length) return rows[0];
-        }
-      }
-      return null;
-    };
-
-    const existing = {
-      admin: await findExisting('admin'),
-      teacher: await findExisting('teacher'),
-      parent: await findExisting('parent'),
-    };
-
-    if (existing.admin && !nextRoles.includes('admin')) {
-      const allAdmins = await db.select({ id: adminsTable.id }).from(adminsTable);
-      if (allAdmins.length <= 1) {
-        return res.status(400).json({ error: 'Cannot remove the last admin role' });
-      }
-      if (existing.admin.id === req.user?.id) {
-        return res.status(400).json({ error: 'Cannot remove your own admin role' });
-      }
-    }
-
-    if (existing.parent && !nextRoles.includes('parent') && await parentRoleHasBindings(db, existing.parent.id)) {
-      return res.status(400).json({ error: 'Cannot remove parent role while students are linked' });
-    }
-
-    const baseValues = {
-      name: nextDisplayName,
-      displayName: nextDisplayName,
-      avatarUrl: source.avatarUrl || null,
-      email: source.email || null,
-      password: null,
-      authProvider: 'wechat',
-      wechatOpenId: source.wechatOpenId || null,
-      wechatUnionId: source.wechatUnionId || null,
-      updatedAt: new Date(),
-    };
-
-    await applyUserRoles(db, nextRoles, existing, baseValues);
-
-    res.json({ success: true, roles: nextRoles });
-  } catch (err) {
-    console.error('Error setting user roles:', err);
-    res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
+    const data = await loadPracticeScores(db, parsed.data);
+    const sheets = practiceScoreSheets(parsed.data, data);
+    if (sheets.some(sheet => sheet.rows.length > 1048576)) return res.status(422).json({ error: 'This export exceeds the Excel row limit. Choose a shorter date range or fewer students.' });
+    const filename = `practice-scores_${parsed.data.scope}_${parsed.data.startDate}_${parsed.data.endDate}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(buildXlsxWorkbook(sheets, true));
+  } catch (error) {
+    if (error instanceof Error && error.message === 'STUDENT_SELECTION_NOT_FOUND') return res.status(400).json({ error: 'Some selected students no longer exist. Refresh the student list and try again.' });
+    console.error('Practice score export failed');
+    res.status(500).json({ error: 'Practice score export failed. Please try again.' });
   }
 });
 
@@ -7155,7 +6996,7 @@ app.get('/api/admin/students/:studentId/records-export', authenticate, requireAd
     res.setHeader('Content-Disposition',`attachment; filename="student-records.xlsx"; filename*=UTF-8''${encodeURIComponent(filename)}`);
     res.send(buildXlsxWorkbook(studentRecordSheets(records)));
   } catch(error) {
-    console.error('Student records export failed', error);
+    logSafeError('Student records export failed', error);
     res.status(500).json({error:'Student records export failed'});
   }
 });
@@ -7222,8 +7063,8 @@ app.get('/api/admin/students/:studentId/wellbeing-export', authenticate, require
     );
     res.send(workbook);
   } catch (err) {
-    console.error('Error exporting student weekly reports Excel:', err);
-    res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
+    logSafeError('Error exporting student weekly reports Excel:', err);
+    res.status(500).json({ error: 'Database error', details: 'Operation failed' });
   }
 });
 
@@ -7254,8 +7095,6 @@ const handleProgressStudent = async (req: any, res: any) => {
   const studentIdParam = Array.isArray(studentId) ? studentId[0] : studentId;
   const dateParam = Array.isArray(date) ? date[0] : date;
 
-  console.log('Progress student request:', { studentId: studentIdParam, date: dateParam });
-
   if (!studentIdParam || !dateParam) {
     return res.status(400).json({ error: 'Missing studentId or date query parameter' });
   }
@@ -7272,18 +7111,6 @@ const handleProgressStudent = async (req: any, res: any) => {
     }
 
     const formattedDate = format(targetDate, 'yyyy-MM-dd');
-    console.log('Formatted date:', formattedDate);
-
-    // Debug: Check if student exists first
-    const studentCheck = await db
-      .select()
-      .from(studentsTable)
-      .where(eq(studentsTable.id, studentIdParam))
-      .limit(1);
-    
-    console.log('Student check result:', studentCheck);
-    console.log('Student ID type:', typeof studentIdParam);
-    console.log('Student ID value:', studentIdParam);
 
     const progress = await db
       .select()
@@ -7297,19 +7124,13 @@ const handleProgressStudent = async (req: any, res: any) => {
       )
       .limit(1);
 
-    console.log('Query result:', progress);
-
-    // Debug: Check if there's any data in daily_progress table
-    const allProgress = await db.select().from(dailyProgress).where(activeRecord(dailyProgress)).limit(5);
-    console.log('All progress records (first 5):', allProgress);
-
     if (progress.length === 0) {
       return res.status(404).json({ error: 'No progress found for this student on this date' });
     }
 
     res.json(withV2Activities(progress[0]));
   } catch (err) {
-    console.error('Error fetching student progress:', err);
+    logSafeError('Error fetching student progress:', err);
     res.status(500).json({ error: 'Database error' });
   }
 };
@@ -7318,29 +7139,6 @@ app.get('/api/progress/student', authenticate, verifyParentStudentAccess, handle
 // Backwards-compatible alias (some clients still call /progress/students)
 app.get('/api/progress/students', authenticate, verifyParentStudentAccess, handleProgressStudent);
 
-// Temporarily disabled - tables don't exist yet
-/*
-app.get('/api/progress', async (_, res) => {
-  try {
-    console.log('Fetching daily progress...');
-    const result = await db.select().from(dailyProgress).orderBy(desc(dailyProgress.date));
-    console.log(`Found ${result.length} progress records`);
-    res.json(result);
-  } catch (err) {
-    console.error('Error fetching daily progress:', err);
-    console.error('Error details:', {
-      message: err.message,
-      stack: err.stack,
-      name: err.name
-    });
-    res.status(500).json({ 
-      error: 'Database error', 
-      details: err.message,
-      type: 'progress_fetch_error'
-    });
-  }
-});
-*/
 
 // Get all progress for a specific student
 app.get('/api/students/:studentId/progress', authenticate, verifyParentStudentAccess, async (req, res) => {
@@ -7364,11 +7162,9 @@ app.get('/api/students/:studentId/progress', authenticate, verifyParentStudentAc
       .from(dailyProgress)
       .where(and(eq(dailyProgress.studentId, studentId), activeRecord(dailyProgress)))
       .orderBy(desc(dailyProgress.date));
-
-    console.log(`Found ${progress.length} progress records for student ${studentId}`);
     res.json(progress.map(withV2Activities));
   } catch (err) {
-    console.error('Error fetching student progress:', err);
+    logSafeError('Error fetching student progress:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -7376,7 +7172,6 @@ app.get('/api/students/:studentId/progress', authenticate, verifyParentStudentAc
 // Return empty array for now until tables are created
 app.get('/api/progress', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
   try {
-    console.log('Fetching all daily progress...');
     if (isReviewerSession(req)) {
       const reviewerStudentId = String(req.user?.reviewerStudentId || '').trim();
       if (!reviewerStudentId) {
@@ -7390,10 +7185,9 @@ app.get('/api/progress', authenticate, requireRole('teacher', 'admin'), async (r
       return res.json(reviewerRows.map(withV2Activities));
     }
     const result = await db.select().from(dailyProgress).where(activeRecord(dailyProgress)).orderBy(desc(dailyProgress.date));
-    console.log(`Found ${result.length} progress records`);
     res.json(result.map(withV2Activities));
   } catch (err) {
-    console.error('Error fetching daily progress:', err);
+    logSafeError('Error fetching daily progress:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -7435,7 +7229,7 @@ app.get('/api/daily-progress/missing', authenticate, requireRole('teacher', 'adm
 
     res.json({ date, missing });
   } catch (err) {
-    console.error('Error fetching missing daily-progress records:', err);
+    logSafeError('Error fetching missing daily-progress records:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -7517,7 +7311,7 @@ app.get('/api/feedback/missing', authenticate, requireRole('teacher', 'admin'), 
       missing,
     });
   } catch (err) {
-    console.error('Error fetching missing weekly-feedback records:', err);
+    logSafeError('Error fetching missing weekly-feedback records:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -7559,7 +7353,7 @@ app.get('/api/loss-points', authenticate, requireTeachingAuthor, async (_, res) 
       })),
     });
   } catch (err) {
-    console.error('Error fetching loss-point catalog:', err);
+    logSafeError('Error fetching loss-point catalog:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -7588,12 +7382,12 @@ app.get('/api/weekly-cycles', authenticate, requireTeachingAuthor, async (_, res
       .orderBy(desc(weeklyStudyCyclesTable.startDate));
     res.json(rows);
   } catch (err) {
-    console.error('Error listing weekly cycles:', err);
+    logSafeError('Error listing weekly cycles:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
 
-app.post('/api/weekly-cycles', authenticate, requireTeachingAuthor, async (req, res) => {
+app.post('/api/weekly-cycles', authenticate, requireTeachingAuthor, denyReviewer, async (req, res) => {
   const parsed = WeeklyStudyCycleSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const { startDate, endDate, notes } = parsed.data;
@@ -7628,7 +7422,7 @@ app.post('/api/weekly-cycles', authenticate, requireTeachingAuthor, async (req, 
     if (isActionLockConflictError(err)) {
       return res.status(409).json(buildActionLockConflictPayload(err.conflict));
     }
-    console.error('Error creating weekly cycle:', err);
+    logSafeError('Error creating weekly cycle:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -7641,7 +7435,7 @@ app.get('/api/weekly-cycles/current', authenticate, requireTeachingAuthor, async
     const cycle = await resolveCycleForDate(date);
     res.json({ date, cycle });
   } catch (err) {
-    console.error('Error resolving current weekly cycle:', err);
+    logSafeError('Error resolving current weekly cycle:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -7683,7 +7477,7 @@ app.get('/api/students/:studentId/weekly-targets', authenticate, requireTeaching
       effective: effectiveTargetsFor(stored),
     });
   } catch (err) {
-    console.error('Error fetching weekly targets:', err);
+    logSafeError('Error fetching weekly targets:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -7760,7 +7554,7 @@ app.put('/api/students/:studentId/weekly-targets', authenticate, requireTeaching
     if (isActionLockConflictError(err)) {
       return res.status(409).json(buildActionLockConflictPayload(err.conflict));
     }
-    console.error('Error upserting weekly targets:', err);
+    logSafeError('Error upserting weekly targets:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -7846,7 +7640,7 @@ app.get('/api/weekly-tasks/incomplete', authenticate, requireTeachingAuthor, asy
 
     res.json({ date, cycle, incomplete });
   } catch (err) {
-    console.error('Error computing incomplete weekly tasks:', err);
+    logSafeError('Error computing incomplete weekly tasks:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -7866,12 +7660,12 @@ app.get('/api/grade-weekly-plans', authenticate, requireRole('teacher', 'admin')
       .orderBy(gradeWeeklyPlansTable.grade);
     res.json({ cycle, plans });
   } catch (err) {
-    console.error('Error loading grade weekly plans:', err);
-    res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
+    logSafeError('Error loading grade weekly plans:', err);
+    res.status(500).json({ error: 'Database error', details: 'Operation failed' });
   }
 });
 
-app.post('/api/grade-weekly-plans', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
+app.post('/api/grade-weekly-plans', authenticate, requireRole('teacher', 'admin'), denyReviewer, async (req, res) => {
   try {
     const parsed = GradeWeeklyPlanSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -7903,8 +7697,8 @@ app.post('/api/grade-weekly-plans', authenticate, requireRole('teacher', 'admin'
       .returning();
     res.status(201).json({ plan: rows[0], cycle });
   } catch (err) {
-    console.error('Error saving grade weekly plan:', err);
-    res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
+    logSafeError('Error saving grade weekly plan:', err);
+    res.status(500).json({ error: 'Database error', details: 'Operation failed' });
   }
 });
 
@@ -7945,8 +7739,8 @@ app.get('/api/students/:studentId/weekly-plan-record', authenticate, requireRole
       completed: isCompletedWeeklyPlanRecord(record),
     });
   } catch (err) {
-    console.error('Error loading student weekly plan record:', err);
-    res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
+    logSafeError('Error loading student weekly plan record:', err);
+    res.status(500).json({ error: 'Database error', details: 'Operation failed' });
   }
 });
 
@@ -7996,8 +7790,8 @@ app.post('/api/student-weekly-plan-records', authenticate, requireRole('teacher'
       .returning();
     res.status(201).json({ record: rows[0], completed });
   } catch (err) {
-    console.error('Error saving student weekly plan record:', err);
-    res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
+    logSafeError('Error saving student weekly plan record:', err);
+    res.status(500).json({ error: 'Database error', details: 'Operation failed' });
   }
 });
 
@@ -8009,8 +7803,8 @@ app.get('/api/admin/weekly-plan-summary', authenticate, requireAdmin, async (req
     const summary = await buildWeeklyPlanSummary(date);
     res.json(summary);
   } catch (err) {
-    console.error('Error loading admin weekly plan summary:', err);
-    res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
+    logSafeError('Error loading admin weekly plan summary:', err);
+    res.status(500).json({ error: 'Database error', details: 'Operation failed' });
   }
 });
 
@@ -8028,8 +7822,8 @@ app.get('/api/admin/term-plan-summary', authenticate, requireAdmin, async (req, 
     const summary = await buildTermPlanSummary(startDate, endDate);
     res.json(summary);
   } catch (err) {
-    console.error('Error loading admin term plan summary:', err);
-    res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
+    logSafeError('Error loading admin term plan summary:', err);
+    res.status(500).json({ error: 'Database error', details: 'Operation failed' });
   }
 });
 
@@ -8045,8 +7839,8 @@ app.get('/api/admin/weekly-plan-summary/export', authenticate, requireAdmin, asy
     res.setHeader('Content-Disposition', `attachment; filename="${safeExportName(fileBase, 'weekly_plan_summary')}.xls"; filename*=UTF-8''${encodeURIComponent(fileBase)}.xls`);
     res.send(workbook);
   } catch (err) {
-    console.error('Error exporting weekly plan summary:', err);
-    res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
+    logSafeError('Error exporting weekly plan summary:', err);
+    res.status(500).json({ error: 'Database error', details: 'Operation failed' });
   }
 });
 
@@ -8068,8 +7862,8 @@ app.get('/api/admin/term-plan-summary/export', authenticate, requireAdmin, async
     res.setHeader('Content-Disposition', `attachment; filename="${safeExportName(fileBase, 'term_plan_summary')}.xls"; filename*=UTF-8''${encodeURIComponent(fileBase)}.xls`);
     res.send(workbook);
   } catch (err) {
-    console.error('Error exporting term plan summary:', err);
-    res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
+    logSafeError('Error exporting term plan summary:', err);
+    res.status(500).json({ error: 'Database error', details: 'Operation failed' });
   }
 });
 
@@ -8090,40 +7884,16 @@ app.get('/api/admin/learning-task-completion/export', authenticate, requireAdmin
     res.setHeader('Content-Disposition', `attachment; filename="${safeExportName(fileBase, 'learning_task_completion')}.xlsx"; filename*=UTF-8''${encodeURIComponent(fileBase)}.xlsx`);
     res.send(workbook);
   } catch (err) {
-    console.error('Error exporting learning task completion:', err);
-    res.status(500).json({ error: 'Database error', details: getErrorMessage(err) });
+    logSafeError('Error exporting learning task completion:', err);
+    res.status(500).json({ error: 'Database error', details: 'Operation failed' });
   }
 });
 
 // ========== WEEKLY FEEDBACK ROUTES ==========
 
-// Temporarily disabled - tables don't exist yet
-/*
-app.get('/api/feedback', async (_, res) => {
-  try {
-    console.log('Fetching weekly feedback...');
-    const result = await db.select().from(weeklyFeedback).where(activeRecord(weeklyFeedback)).orderBy(desc(weeklyFeedback.weekEnding));
-    console.log(`Found ${result.length} feedback records`);
-    res.json(result);
-  } catch (err) {
-    console.error('Error fetching weekly feedback:', err);
-    console.error('Error details:', {
-      message: err.message,
-      stack: err.stack,
-      name: err.name
-    });
-    res.status(500).json({ 
-      error: 'Database error', 
-      details: err.message,
-      type: 'feedback_fetch_error'
-    });
-  }
-});
-*/
 
 app.post('/api/progress', authenticate, requireRole('teacher', 'admin'), async (req, res) => {
   try {
-    console.log('Received progress data:', req.body);
 
     // Part 9: structurally validate the request body via Zod before doing any
     // DB work. Catches missing fields, bad UUIDs, malformed dates/times, and
@@ -8211,8 +7981,6 @@ app.post('/api/progress', authenticate, requireRole('teacher', 'admin'), async (
         }).returning();
 
         // Daily progress is teacher-only; skip parent notifications.
-
-        console.log('Progress saved successfully:', newProgress[0]);
         res.status(201).json(withV2Activities(newProgress[0]));
       },
     );
@@ -8220,7 +7988,7 @@ app.post('/api/progress', authenticate, requireRole('teacher', 'admin'), async (
     if (isActionLockConflictError(err)) {
       return res.status(409).json(buildActionLockConflictPayload(err.conflict));
     }
-    console.error('Error creating progress:', err);
+    logSafeError('Error creating progress:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -8338,7 +8106,7 @@ app.put('/api/progress/:id', authenticate, requireRole('teacher', 'admin'), asyn
     if (isActionLockConflictError(err)) {
       return res.status(409).json(buildActionLockConflictPayload(err.conflict));
     }
-    console.error('Error updating progress:', err);
+    logSafeError('Error updating progress:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -8379,7 +8147,7 @@ app.delete('/api/progress/:id', authenticate, requireRole('teacher', 'admin'), a
     if (isActionLockConflictError(err)) {
       return res.status(409).json(buildActionLockConflictPayload(err.conflict));
     }
-    console.error('Error:', err);
+    logSafeError('Error:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -8397,7 +8165,7 @@ app.get('/api/progress/list', authenticate, verifyParentStudentAccess, async (re
       .orderBy(desc(dailyProgress.date));
     res.json(rows.map(withV2Activities));
   } catch (err) {
-    console.error('progress/list error:', err);
+    logSafeError('progress/list error:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -8422,7 +8190,7 @@ app.get('/api/feedback', authenticate, requireRole('teacher', 'admin'), async (r
     const result = await db.select().from(weeklyFeedback).where(activeRecord(weeklyFeedback)).orderBy(desc(weeklyFeedback.weekStarting));
     res.json(result);
   } catch (err) {
-    console.error('Error:', err);
+    logSafeError('Error:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -8487,7 +8255,7 @@ app.post('/api/feedback', authenticate, requireRole('teacher', 'admin'), async (
     if (isActionLockConflictError(err)) {
       return res.status(409).json(buildActionLockConflictPayload(err.conflict));
     }
-    console.error('Error:', err);
+    logSafeError('Error:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -8584,7 +8352,7 @@ app.put('/api/feedback/:id', authenticate, requireRole('teacher', 'admin'), asyn
     if (isActionLockConflictError(err)) {
       return res.status(409).json(buildActionLockConflictPayload(err.conflict));
     }
-    console.error('Error:', err);
+    logSafeError('Error:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -8772,7 +8540,7 @@ app.post('/api/ai/weekly-summary', authenticate, requireRole('teacher', 'admin')
     if (message.includes('AI_NOT_CONFIGURED')) {
       return res.status(400).json({ error: 'AI_NOT_CONFIGURED' });
     }
-    console.error('AI weekly summary error:', err);
+    logSafeError('AI weekly summary error:', err);
     res.status(500).json({ error: 'AI request failed' });
   }
 });
@@ -9032,7 +8800,7 @@ app.post('/api/ai/quarterly-summary', authenticate, requireRole('teacher', 'admi
     if (message.includes('AI_NOT_CONFIGURED')) {
       return res.status(400).json({ error: 'AI_NOT_CONFIGURED' });
     }
-    console.error('AI quarterly summary error:', err);
+    logSafeError('AI quarterly summary error:', err);
     res.status(500).json({ error: 'AI request failed' });
   }
 });
@@ -9304,7 +9072,7 @@ app.post('/api/ai/yearly-summary', authenticate, requireRole('teacher', 'admin')
     if (message.includes('AI_NOT_CONFIGURED')) {
       return res.status(400).json({ error: 'AI_NOT_CONFIGURED' });
     }
-    console.error('AI yearly summary error:', err);
+    logSafeError('AI yearly summary error:', err);
     res.status(500).json({ error: 'AI request failed' });
   }
 });
@@ -9343,7 +9111,7 @@ app.delete('/api/feedback/:id', authenticate, requireRole('teacher', 'admin'), a
     if (isActionLockConflictError(err)) {
       return res.status(409).json(buildActionLockConflictPayload(err.conflict));
     }
-    console.error('Error:', err);
+    logSafeError('Error:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -9374,7 +9142,7 @@ app.get('/api/feedback/one', authenticate, verifyParentStudentAccess, async (req
 
     res.json(row || null);
   } catch (err) {
-    console.error('feedback/one error:', err);
+    logSafeError('feedback/one error:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -9397,7 +9165,7 @@ app.get('/api/feedback/list', authenticate, verifyParentStudentAccess, async (re
       .orderBy(desc(weeklyFeedback.weekStarting));
     res.json(rows);
   } catch (err) {
-    console.error('feedback/list error:', err);
+    logSafeError('feedback/list error:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -9498,6 +9266,7 @@ app.post('/api/auth/wechat', async (req, res) => {
 
         const token = generateToken({
           id: userRow.id,
+      authVersion: userRow.authVersion || 0,
           role,
           name: userRow.displayName || userRow.name || DEFAULT_USER_NAME,
         });
@@ -9512,10 +9281,12 @@ app.post('/api/auth/wechat', async (req, res) => {
         });
       }
 
-      // First login: create pending account bound to WeChat identity only.
+      // Link only the proven provider identity, preserving independent approval.
+      const accountIdentityId = await providerAccountIdentity({ wechatOpenId: openid, wechatUnionId: unionid });
       const createdRows = await db
         .insert(table)
         .values({
+          accountIdentityId,
           name: submittedDisplayName,
           displayName: submittedDisplayName,
           avatarUrl: nextAvatarUrl,
@@ -9567,17 +9338,20 @@ app.post('/api/auth/wechat', async (req, res) => {
 
     const token = generateToken({
       id: admin.id,
+      authVersion: admin.authVersion || 0,
       role: 'admin',
       name: admin.displayName || admin.name || DEFAULT_USER_NAME,
     });
     return res.json({ user: toPublicUser(admin, 'admin'), token });
   } catch (err) {
-    console.error('WeChat login error:', err);
+    logSafeError('WeChat login error:', err);
     res.status(500).json({ error: 'WeChat login failed' });
   }
 });
 
 const reviewerLoginHandler: express.RequestHandler = async (req, res) => {
+  if (!reviewerLoginEnabled()) return res.status(404).json({ error: 'Not found' });
+  if (!REVIEWER_USERNAME || !REVIEWER_PASSWORD || !REVIEWER_STUDENT_ID) return res.status(503).json({ error: 'Reviewer login is not configured' });
   const username = trimString(req.body?.username);
   const password = typeof req.body?.password === 'string' ? req.body.password : '';
   if (!username || !password) {
@@ -9630,6 +9404,9 @@ const reviewerLoginHandler: express.RequestHandler = async (req, res) => {
     }
 
     let reviewerTeacher = teacherRows[0];
+    if (reviewerTeacher && (reviewerTeacher.authProvider !== 'reviewer' || reviewerTeacher.status !== 'approved')) {
+      return res.status(503).json({ error: 'Configure a dedicated approved reviewer identity' });
+    }
     if (!reviewerTeacher) {
       const created = await db
         .insert(teachersTable)
@@ -9670,6 +9447,7 @@ const reviewerLoginHandler: express.RequestHandler = async (req, res) => {
 
     const token = generateToken({
       id: reviewerTeacher.id,
+      authVersion: reviewerTeacher.authVersion || 0,
       role: 'teacher',
       name: reviewerTeacher.displayName || reviewerTeacher.name || REVIEWER_DISPLAY_NAME,
       isReviewer: true,
@@ -9685,14 +9463,14 @@ const reviewerLoginHandler: express.RequestHandler = async (req, res) => {
       token,
     });
   } catch (err) {
-    console.error('Reviewer login error:', err);
+    logSafeError('Reviewer login error:', err);
     return res.status(500).json({ error: 'Reviewer login failed' });
   }
 };
 
 // Keep both paths to tolerate API gateway setups that may or may not strip `/api`.
-app.post('/api/auth/reviewer-login', reviewerLoginHandler);
-app.post('/auth/reviewer-login', reviewerLoginHandler);
+app.post('/api/auth/reviewer-login', authRateLimit, reviewerLoginHandler);
+app.post('/auth/reviewer-login', authRateLimit, reviewerLoginHandler);
 
 app.post('/api/login', authRateLimit, async (req, res) => {
   const email = trimString(req.body?.email).toLowerCase();
@@ -9711,7 +9489,7 @@ app.post('/api/login', authRateLimit, async (req, res) => {
 
   try {
     const table = role === 'teacher' ? teachersTable : parentsTable;
-    const rows = await db.select().from(table).where(eq(table.email, email)).limit(1);
+    const rows = await db.select().from(table).where(sql`lower(${table.email})=${email}`).limit(1);
     const userRow = rows[0];
 
     if (!userRow || !userRow.password) {
@@ -9731,15 +9509,17 @@ app.post('/api/login', authRateLimit, async (req, res) => {
       });
     }
 
+    if (userRow.emailVerified !== undefined && userRow.emailVerified !== 'true') return res.status(401).json({ error: 'Verify your email before signing in.', status: 'email_verification_required' });
     const token = generateToken({
       id: userRow.id,
+      authVersion: userRow.authVersion || 0,
       role,
       name: userRow.displayName || userRow.name || DEFAULT_USER_NAME,
     });
 
     return res.json({ user: toPublicUser(userRow, role), token });
   } catch (err) {
-    console.error('Web login error:', err);
+    logSafeError('Web login error:', err);
     return res.status(500).json({ error: 'Login failed' });
   }
 });
@@ -9763,12 +9543,12 @@ app.get('/api/profile', authenticate, async (req, res) => {
     if (!rows.length) return res.status(404).json({ error: 'User not found' });
     return res.json({ user: toSessionUser(rows[0], req.user) });
   } catch (err) {
-    console.error('Profile fetch error:', err);
+    logSafeError('Profile fetch error:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
 
-app.put('/api/profile', authenticate, async (req, res) => {
+app.put('/api/profile', authenticate, denyReviewer, async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Authentication required' });
   const explicitDisplayName = pickDisplayName(req.body?.displayName) || pickDisplayName(req.body?.name);
   const hasDisplayName = !!explicitDisplayName;
@@ -9808,20 +9588,16 @@ app.put('/api/profile', authenticate, async (req, res) => {
     if (!updated.length) return res.status(404).json({ error: 'User not found' });
     return res.json({ user: toSessionUser(updated[0], req.user) });
   } catch (err) {
-    console.error('Profile update error:', err);
+    logSafeError('Profile update error:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
 
-app.put('/api/profile/password', authenticate, async (_req, res) => {
-  res.status(410).json({
-    error: 'Password-based profile update is deprecated in WeChat-only auth mode.',
-  });
-});
+app.put('/api/profile/password', authenticate, denyReviewer, authRateLimit, changeAccountPassword);
 
 // ========== TEST ENDPOINTS ==========
 
-app.get('/api/test-env', (req, res) => {
+app.get('/api/test-env', developmentOnly, authenticate, requireAdmin, (req, res) => {
   res.json({
     resendApiKey: process.env.RESEND_API_KEY ? 'Present' : 'Missing',
     gmailUser: process.env.GMAIL_USER ? 'Present' : 'Missing',
@@ -9832,7 +9608,7 @@ app.get('/api/test-env', (req, res) => {
   });
 });
 
-app.get('/api/test-gmail', async (req, res) => {
+app.get('/api/test-gmail', developmentOnly, authenticate, requireAdmin, async (req, res) => {
   try {
     const { gmailEmailService } = await import('./utils/gmailEmailService');
     const isConnected = await gmailEmailService.testConnection();
@@ -9840,14 +9616,14 @@ app.get('/api/test-gmail', async (req, res) => {
     res.json({
       success: isConnected,
       message: isConnected ? 'Gmail SMTP connection successful' : 'Gmail SMTP connection failed',
-      gmailUser: process.env.GMAIL_USER || 'Not set',
+      gmailUser: process.env.GMAIL_USER ? 'Present' : 'Missing',
       gmailAppPassword: process.env.GMAIL_APP_PASSWORD ? 'Present' : 'Missing'
     });
   } catch (error) {
     res.status(500).json({
       success: false,
       message: 'Failed to test Gmail connection',
-      error: getErrorMessage(error)
+      error: 'SMTP connection check failed'
     });
   }
 });
@@ -9856,24 +9632,43 @@ app.get('/api/test-gmail', async (req, res) => {
 
 app.get('/api/verify-email/:token', async (_req, res) => {
   res.status(410).json({
-    error: 'Email verification is deprecated in WeChat-only auth mode.',
+    error: 'This verification link has been retired. Request a new verification email.',
   });
 });
 
 if (process.env.SERVE_WEB !== 'false') {
   app.use(express.static(webDistDir));
   app.get('*', (req, res, next) => {
-    if (req.path.startsWith('/api/')) return next();
+    if (req.path === '/api' || req.path.startsWith('/api/')) return next();
     res.sendFile(path.join(webDistDir, 'index.html'), (err) => {
       if (err) next();
     });
   });
 }
 
+// Express's default error logger can include malformed JSON bodies or provider
+// details. Handle parser and uncaught middleware errors without echoing content.
+app.use((error: unknown, _req: express.Request, res: express.Response, next: express.NextFunction): void => {
+  if (res.headersSent) { next(error); return; }
+  logSafeError('Request processing failed', error);
+  const status = (error as { status?: unknown } | null)?.status;
+  res.set('Cache-Control', 'no-store');
+  if (status === 400 || status === 413) { res.status(status).json({ error: 'Invalid request body' }); return; }
+  res.status(500).json({ error: 'Request failed' });
+});
+
 if (process.env.NODE_ENV !== 'test') {
-  app.listen(port, process.env.API_HOST || '0.0.0.0', () => {
+  const mailTimer = startAuthMailWorker();
+  const server = app.listen(port, process.env.API_HOST || '0.0.0.0', () => {
     console.log(`🚀 Server running on port ${port}`);
   });
+  const shutdown = () => {
+    clearInterval(mailTimer);
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(1), 10_000).unref();
+  };
+  process.once('SIGTERM', shutdown);
+  process.once('SIGINT', shutdown);
 }
 
 export { app };

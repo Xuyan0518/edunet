@@ -43,13 +43,14 @@ export function userRoleBatch(
   existing: Existing,
   base: Values
 ) {
-  const approved = { ...base, status: "approved", emailVerified: "true" };
+  const profile = { name: base.name, displayName: base.displayName, avatarUrl: base.avatarUrl, updatedAt: base.updatedAt };
+  const approved = { ...base, status: "approved", emailVerified: base.emailVerified || "false" };
   return [
     nextRoles.includes("admin")
       ? existing.admin
         ? database
             .update(adminsTable)
-            .set(base)
+            .set(profile)
             .where(eq(adminsTable.id, existing.admin.id))
         : database.insert(adminsTable).values(base)
       : existing.admin
@@ -64,7 +65,7 @@ export function userRoleBatch(
       ? existing.teacher
         ? database
             .update(teachersTable)
-            .set(approved)
+            .set({ ...profile, status: "approved" })
             .where(eq(teachersTable.id, existing.teacher.id))
         : database.insert(teachersTable).values(approved)
       : existing.teacher
@@ -79,7 +80,7 @@ export function userRoleBatch(
       ? existing.parent
         ? database
             .update(parentsTable)
-            .set(approved)
+            .set({ ...profile, status: "approved" })
             .where(eq(parentsTable.id, existing.parent.id))
         : database.insert(parentsTable).values(approved)
       : existing.parent

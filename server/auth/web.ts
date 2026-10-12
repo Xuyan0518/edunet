@@ -1,26 +1,23 @@
-import { Router, type RequestHandler } from 'express';
+import { Router } from 'express';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db';
-import { teachersTable, parentsTable } from '../schema';
+import { teachersTable, parentsTable, adminsTable } from '../schema';
+import { accountActionsRouter, queueAccountAction } from './accountActions';
+import { authMailReady } from '../services/authMail';
+import { providerAccountIdentity } from '../services/providerIdentity';
 import { generateToken, verifyToken, verifyUserInDb } from '../utils/auth';
 import { hashPassword } from './password';
+import { authRateLimit } from '../middleware/authRateLimit';
+export { authRateLimit } from '../middleware/authRateLimit';
 
 export const webAuthRouter = Router();
-const attempts = new Map<string, { count: number; until: number }>();
-export const authRateLimit: RequestHandler = (req, res, next) => {
-  const now = Date.now();
-  for (const [key, value] of attempts) if (value.until <= now) attempts.delete(key);
-  const key = req.ip || 'unknown';
-  const value = attempts.get(key) || { count: 0, until: now + 15 * 60_000 };
-  attempts.set(key, value);
-  if (++value.count > 30) { res.set('Retry-After', String(Math.ceil((value.until - now) / 1000))).status(429).json({ error: 'Too many attempts. Try again later.' }); return; }
-  next();
-};
 webAuthRouter.use((_req, res, next) => { res.set('Cache-Control', 'no-store'); res.set('Referrer-Policy', 'no-referrer'); next(); });
 webAuthRouter.use(authRateLimit);
+webAuthRouter.use(accountActionsRouter);
 const roleSchema = z.enum(['teacher', 'parent']);
+const signInRoleSchema = z.enum(['teacher', 'parent', 'admin']);
 const registration = z.object({
   role: roleSchema, name: z.string().trim().min(1).max(100),
   email: z.string().trim().toLowerCase().email().max(100), password: z.string().min(10).max(128),
@@ -31,10 +28,14 @@ webAuthRouter.post('/register', async (req, res) => {
   const { role, name, email, password } = input.data;
   const table = role === 'teacher' ? teachersTable : parentsTable;
   try {
-    const existing = await db.select().from(table).where(eq(table.email, email)).limit(1);
+    const existing = await db.select().from(table).where(sql`lower(${table.email})=${email}`).limit(1);
     if (existing.length) return res.status(409).json({ error: 'An account with this email already exists. Sign in instead.' });
     await db.insert(table).values({ name, displayName: name, email, password: await hashPassword(password), status: 'pending', authProvider: 'email' });
-    return res.status(201).json({ status: 'pending_approval' });
+    let verificationQueued = false;
+    if (authMailReady()) {
+      try { await queueAccountAction(role, email, 'verify'); verificationQueued = true; } catch { /* The account is created; the user can request another verification email. */ }
+    }
+    return res.status(201).json({ status: 'pending_approval', verificationRequired: true, verificationQueued });
   } catch (error) {
     if ((error as { code?: string }).code === '23505') return res.status(409).json({ error: 'An account with this email already exists.' });
     return res.status(500).json({ error: 'Unable to create account. Try again later.' });
@@ -74,7 +75,7 @@ async function json(url: string, init?: RequestInit) {
 webAuthRouter.get('/:provider/start', (req, res) => {
   const provider = req.params.provider as Provider;
   if (!['google', 'wechat'].includes(provider)) return res.sendStatus(404);
-  const cfg = config(provider), role = roleSchema.safeParse(req.query.role);
+  const cfg = config(provider), role = signInRoleSchema.safeParse(req.query.role);
   if (!role.success) return res.status(400).json({ error: 'Invalid role' });
   if (!cfg) return res.status(503).json({ error: 'This sign-in provider is not configured.' });
   const nonce = randomBytes(24).toString('hex');
@@ -94,10 +95,10 @@ webAuthRouter.get('/:provider/callback', async (req, res) => {
   res.clearCookie('edunet_oauth', { ...cookieOptions(), maxAge: undefined });
   try {
     const state = unpack(saved);
-    if (state.provider !== provider || state.nonce !== req.query.state || state.expires < Date.now() || !roleSchema.safeParse(state.role).success) throw new Error('Invalid state');
+    if (state.provider !== provider || state.nonce !== req.query.state || state.expires < Date.now() || !signInRoleSchema.safeParse(state.role).success) throw new Error('Invalid state');
     if (req.query.error) return finish('cancelled');
     if (typeof req.query.code !== 'string' || req.query.code.length > 2048) throw new Error('Missing code');
-    const table = state.role === 'teacher' ? teachersTable : parentsTable;
+    const table = state.role === 'admin' ? adminsTable : state.role === 'teacher' ? teachersTable : parentsTable;
     let subject: string, name: string, email: string | null = null, unionId: string | null = null;
     if (provider === 'google') {
       const tokens = await json('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ code: req.query.code, client_id: cfg.clientId, client_secret: cfg.secret, redirect_uri: cfg.redirect, grant_type: 'authorization_code' }).toString() });
@@ -120,15 +121,18 @@ webAuthRouter.get('/:provider/callback', async (req, res) => {
       if (user) await db.update(table).set({ wechatWebOpenId: subject }).where(eq(table.id, user.id));
     }
     if (!user && email) {
-      const existing = await db.select().from(table).where(eq(table.email, email)).limit(1);
+      const existing = await db.select().from(table).where(sql`lower(${table.email})=${email}`).limit(1);
       // Never implicitly link a password account by matching an email address.
       if (existing.length) return finish('account_exists');
     }
     if (!user) {
-      [user] = await db.insert(table).values({ name: String(name).slice(0, 100), displayName: String(name).slice(0, 100), email, password: null, status: 'pending', authProvider: provider, emailVerified: email ? 'true' : 'false', ...(provider === 'google' ? { googleSubject: subject } : { wechatWebOpenId: subject, wechatUnionId: unionId }) }).returning();
+      if (state.role === 'admin') return finish('account_not_found');
+      const creationTable = state.role === 'teacher' ? teachersTable : parentsTable;
+      const accountIdentityId = await providerAccountIdentity(provider === 'google' ? { googleSubject: subject } : { wechatWebOpenId: subject, wechatUnionId: unionId });
+      [user] = await db.insert(creationTable).values({ accountIdentityId, name: String(name).slice(0, 100), displayName: String(name).slice(0, 100), email, password: null, status: 'pending', authProvider: provider, emailVerified: email ? 'true' : 'false', ...(provider === 'google' ? { googleSubject: subject } : { wechatWebOpenId: subject, wechatUnionId: unionId }) }).returning();
     }
-    if (user.status !== 'approved') return finish(user.status === 'rejected' ? 'rejected' : 'pending_approval');
-    const token = generateToken({ id: user.id, name: user.displayName || user.name, role: state.role });
+    if ('status' in user && user.status !== 'approved') return finish(user.status === 'rejected' ? 'rejected' : 'pending_approval');
+    const token = generateToken({ id: user.id, name: user.displayName || user.name, role: state.role, authVersion: user.authVersion || 0 });
     res.cookie('edunet_oauth_session', token, { ...cookieOptions(), maxAge: 60_000 });
     return finish('success');
   } catch { return finish('failed'); }

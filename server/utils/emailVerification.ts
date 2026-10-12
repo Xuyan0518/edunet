@@ -1,3 +1,4 @@
+import { logSafeError } from './safeLog';
 import { randomBytes } from 'crypto';
 import { gmailEmailService } from './gmailEmailService';
 
@@ -36,21 +37,17 @@ export function isValidTokenFormat(token: string): boolean {
  */
 export async function sendVerificationEmail(email: string, token: string, name: string): Promise<boolean> {
   try {
-    console.log('Attempting to send verification email via Gmail SMTP...');
     
     // Try Gmail SMTP first
     const emailSent = await gmailEmailService.sendVerificationEmail(email, token, name);
     
     if (emailSent) {
-      console.log('Email sent successfully via Gmail SMTP');
       return true;
     }
-    
-    console.log('Gmail SMTP failed, falling back to console email...');
     return false;
     
   } catch (error) {
-    console.error('Failed to send verification email:', error);
+    logSafeError('Failed to send verification email:', error);
     return false;
   }
 }
@@ -58,20 +55,7 @@ export async function sendVerificationEmail(email: string, token: string, name: 
 /**
  * Fallback email sending function (for development/testing)
  */
-export async function sendVerificationEmailFallback(email: string, token: string, name: string): Promise<boolean> {
-  try {
-    // This is a fallback for development/testing when Gmail is not configured
-    const verificationUrl = `http://localhost:3001/verify-email?token=${token}`;
-    
-    console.log('=== VERIFICATION EMAIL (DEVELOPMENT MODE) ===');
-    console.log(`To: ${email}`);
-    console.log(`Subject: Verify Your 桐心成长 Account`);
-    console.log(`Verification Link: ${verificationUrl}`);
-    console.log('=============================================');
-    
-    return true;
-  } catch (error) {
-    console.error('Fallback email error:', error);
-    return false;
-  }
+export async function sendVerificationEmailFallback(_email: string, _token: string, _name: string): Promise<boolean> {
+  // Console output is not email delivery and must never expose a verification token.
+  return false;
 }

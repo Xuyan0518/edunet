@@ -8,7 +8,7 @@
     <view class="row-between section-head">
       <view>
         <view class="section-title">待审批账号</view>
-        <view class="muted helper-text">新用户微信登录后会先出现在这里</view>
+        <view class="muted helper-text">邮箱、Google 或微信注册的新账号会先出现在这里</view>
       </view>
       <view class="pending-badge">{{pendingCount}}</view>
     </view>

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { sql } from 'drizzle-orm';
-import { pgTable, uuid, varchar, integer, timestamp, jsonb, text, date, uniqueIndex, boolean, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, integer, timestamp, jsonb, text, date, uniqueIndex, boolean, index, check } from 'drizzle-orm/pg-core';
 import { v4 as uuidv4 } from 'uuid';
 // Fix uuid import for ESM compatibility
 import { randomUUID } from 'node:crypto';
@@ -339,11 +339,16 @@ export const users = pgTable('users', {
 });
 
 export const adminsTable = pgTable('admins', {
+  accountIdentityId: uuid('account_identity_id').defaultRandom().notNull().unique(),
+  authVersion: integer('auth_version').default(0).notNull(),
+  emailVerified: varchar('email_verified', { length: 5 }).default('true').notNull(),
+  googleSubject: varchar('google_subject', { length: 255 }).unique(),
+  wechatWebOpenId: varchar('wechat_web_open_id', { length: 64 }).unique(),
   id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
   name: varchar('name', { length: 100 }).notNull(),
   displayName: varchar('display_name', { length: 100 }),
   email: varchar('email', { length: 100 }).unique(),
-  password: varchar('password', { length: 100 }),
+  password: varchar('password', { length: 128 }),
   wechatOpenId: varchar('wechat_open_id', { length: 64 }).unique(),
   wechatUnionId: varchar('wechat_union_id', { length: 64 }).unique(),
   avatarUrl: text('avatar_url'),
@@ -353,6 +358,8 @@ export const adminsTable = pgTable('admins', {
 });
 
 export const teachersTable = pgTable('teacher', {
+  accountIdentityId: uuid('account_identity_id').defaultRandom().notNull().unique(),
+  authVersion: integer('auth_version').default(0).notNull(),
   id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
   name: varchar('name', { length: 100 }).notNull(),
   displayName: varchar('display_name', { length: 100 }),
@@ -373,6 +380,8 @@ export const teachersTable = pgTable('teacher', {
 });
 
 export const parentsTable = pgTable('parents', {
+  accountIdentityId: uuid('account_identity_id').defaultRandom().notNull().unique(),
+  authVersion: integer('auth_version').default(0).notNull(),
   id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),
   name: varchar('name', { length: 100 }).notNull(),
   displayName: varchar('display_name', { length: 100 }),
@@ -391,6 +400,34 @@ export const parentsTable = pgTable('parents', {
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 });
+
+export const authActionTokensTable = pgTable('auth_action_tokens', {
+  tokenHash: varchar('token_hash', { length: 64 }).primaryKey(),
+  accountIdentityId: uuid('account_identity_id').notNull(),
+  userRole: varchar('user_role', { length: 10 }).notNull(),
+  userId: uuid('user_id').notNull(),
+  email: varchar('email', { length: 100 }).notNull(),
+  authVersion: integer('auth_version').notNull(),
+  purpose: varchar('purpose', { length: 10 }).notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+}, table => [
+  uniqueIndex('auth_action_tokens_account_identity_id_purpose_key').on(table.accountIdentityId, table.purpose),
+  index('auth_action_tokens_expiry').on(table.expiresAt),
+  check('auth_action_tokens_user_role_check', sql`${table.userRole} IN ('admin','teacher','parent')`),
+  check('auth_action_tokens_purpose_check', sql`${table.purpose} IN ('reset','verify')`),
+]);
+
+export const authMailJobsTable = pgTable('auth_mail_jobs', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  encryptedPayload: text('encrypted_payload'),
+  tokenHash: varchar('token_hash', { length: 64 }),
+  status: varchar('status', { length: 12 }).default('pending').notNull(),
+  attempts: integer('attempts').default(0).notNull(),
+  availableAt: timestamp('available_at', { withTimezone: true }).defaultNow().notNull(),
+  lockedUntil: timestamp('locked_until', { withTimezone: true }),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, table => [index('auth_mail_pending').on(table.status, table.availableAt)]);
 
 export const studentsTable = pgTable('students', {
   id: uuid('id').primaryKey().$defaultFn(() => randomUUID()),

@@ -4,12 +4,33 @@ services:
     runtime: node
     plan: free
     region: singapore
+    autoDeployTrigger: off
     buildCommand: npm ci --include=dev && npm run build
     startCommand: npm run start:api
-    healthCheckPath: /api/health
+    healthCheckPath: /api/ready
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NODE_VERSION
+        value: 22.22.0
+      - key: SERVE_WEB
+        value: "true"
+      - key: VITE_API_URL
+        value: /api
+      - key: API_PUBLIC_URL
+        sync: false
+      - key: WEB_APP_URL
+        sync: false
+      - key: AUTH_MAIL_MODE
+        value: resend
+      - key: AUTH_MAIL_ENABLED
+        value: "true"
+      - key: AUTH_EMAIL_FROM
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: REVIEWER_LOGIN_ENABLED
+        value: "false"
       - key: DATABASE_URL
         sync: false
       - key: JWT_SECRET

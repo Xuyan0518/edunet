@@ -5,6 +5,8 @@ import { migrate as migrateNeonHttp } from 'drizzle-orm/neon-http/migrator';
 import pg from 'pg';
 import dotenv from 'dotenv';
 import { neon, neonConfig } from '@neondatabase/serverless';
+import { migrationConnection } from './utils/migrationConnection';
+import { logSafeError } from './utils/safeLog';
 
 dotenv.config();
 
@@ -16,7 +18,7 @@ if (!databaseUrl) {
 
 const shouldUseNeonHttp =
   process.env.DB_MIGRATE_DRIVER === 'neon-http' ||
-  /neon\.tech/i.test(databaseUrl);
+  (!process.env.DB_MIGRATE_DRIVER && new URL(databaseUrl).hostname.endsWith('.neon.tech'));
 
 let pool: pg.Pool | null = null;
 
@@ -38,19 +40,13 @@ async function main() {
   if (shouldUseNeonHttp) {
     // Neon HTTP migration uses HTTPS (443), which is often reachable even when
     // raw Postgres TCP (5432) is blocked on local networks.
-    neonConfig.fetchConnectionCache = true;
     const sqlClient = neon(databaseUrl);
     const db = drizzleNeonHttp(sqlClient);
     await migrateNeonHttp(db, {
       migrationsFolder: './server/migrations',
     });
   } else {
-    pool = new pg.Pool({
-      connectionString: databaseUrl,
-      ssl: {
-        rejectUnauthorized: false,
-      },
-    });
+    pool = new pg.Pool(migrationConnection(databaseUrl));
     const db = drizzlePg(pool);
     await migratePg(db, {
       migrationsFolder: './server/migrations',
@@ -61,7 +57,8 @@ async function main() {
   process.exit(0);
 }
 
-main().catch((err) => {
-  console.error('Migration failed:', err);
+main().catch(async (err) => {
+  logSafeError('Migration failed', err);
+  if (pool) await pool.end();
   process.exit(1);
 });

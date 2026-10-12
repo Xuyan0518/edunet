@@ -34,6 +34,9 @@ describe('server/auth/userIdentity', () => {
     expect(user).toEqual({
       id: 'u1',
       role: 'teacher',
+      email: null,
+      hasPassword: false,
+      emailVerified: false,
       name: DEFAULT_USER_NAME,
       displayName: DEFAULT_USER_NAME,
       avatarUrl: null,

@@ -20,6 +20,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { buildApiUrl } from "@/config/api";
+import PracticeScoreExport from "./PracticeScoreExport";
 
 type AccessUser = {
   id: string;
@@ -320,48 +321,6 @@ const AdminDashboard: React.FC = () => {
     );
   };
 
-  const exportSelectedRecords = () => {
-    if (!selectedStudent) return;
-    const rows = [
-      ...selectedStudent.dailyProgress.map(record => ({
-        type: "daily",
-        date: shortDate(record.date),
-        rangeEnd: "",
-        title: record.attendance,
-        summary: record.summary || ""
-      })),
-      ...selectedStudent.weeklyFeedback.map(record => ({
-        type: "weekly",
-        date: shortDate(record.weekStarting),
-        rangeEnd: shortDate(record.weekEnding),
-        title: record.nextWeekFocus || "",
-        summary: record.summary
-      })),
-      ...selectedStudent.quarterlySummaries.map(record => ({
-        type: "term",
-        date: `${record.year} Q${record.quarter}`,
-        rangeEnd: "",
-        title: "",
-        summary: record.summary
-      })),
-      ...selectedStudent.yearlySummaries.map(record => ({
-        type: "yearly",
-        date: String(record.year),
-        rangeEnd: "",
-        title: "",
-        summary: record.summary
-      })),
-      ...selectedStudent.reports.map(record => ({
-        type: record.reportType,
-        date: shortDate(record.startDate),
-        rangeEnd: shortDate(record.endDate),
-        title: record.title || "",
-        summary: record.summaryText
-      }))
-    ];
-    downloadCsv(`${selectedStudent.name}-records.csv`, rows);
-  };
-
   const metricItems = [
     { label: "Students", value: data?.metrics.totalStudents || 0, icon: Users },
     {
@@ -421,17 +380,14 @@ const AdminDashboard: React.FC = () => {
             </Button>
             <Button variant="outline" onClick={exportStudents}>
               <ArrowDownToLine className="mr-2 h-4 w-4" />
-              Export Students
-            </Button>
-            <Button onClick={exportSelectedRecords} disabled={!selectedStudent}>
-              <ArrowDownToLine className="mr-2 h-4 w-4" />
-              Export Selected
+              Export student list CSV
             </Button>
           </div>
         </div>
       </div>
 
       <main className="mx-auto grid max-w-7xl gap-6 px-6 py-6">
+        {data && <PracticeScoreExport students={data.students} />}
         <section className="grid gap-3 md:grid-cols-4">
           {metricItems.map(item => {
             const Icon = item.icon;

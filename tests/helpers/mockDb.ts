@@ -5,6 +5,7 @@ type QueueBuckets = {
   insert: QueryResult[];
   update: QueryResult[];
   delete: QueryResult[];
+  execute: QueryResult[];
 };
 
 const buildQuery = (result: QueryResult) => {
@@ -35,6 +36,7 @@ export const createMockDb = () => {
     insert: [],
     update: [],
     delete: [],
+    execute: [],
   };
 
   const next = (bucket: keyof QueueBuckets): QueryResult => {
@@ -54,13 +56,16 @@ export const createMockDb = () => {
     queueDelete(result: QueryResult) {
       queues.delete.push(result);
     },
+    queueExecute(result: QueryResult) { queues.execute.push(result); },
     reset() {
       queues.select = [];
       queues.insert = [];
       queues.update = [];
       queues.delete = [];
+      queues.execute = [];
     },
     select: () => buildQuery(next('select')),
+    execute: async (_query: unknown) => ({ rows: next('execute') }),
     insert: () => {
       const query = buildQuery(next('insert'));
       return {

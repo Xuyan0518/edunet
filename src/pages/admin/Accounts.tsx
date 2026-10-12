@@ -88,8 +88,8 @@ function RoleEditor({
         </div>
         <p>
           {c(
-            "角色决定访问权限。此功能需要已有微信身份；保存教师或家长角色会设为已批准，并清除原密码字段。",
-            "Roles control access. An existing WeChat identity is required. Saving teacher or parent roles approves them and clears their stored password fields."
+            "角色决定访问权限。支持邮箱、Google 和微信账号；保留已有登录方式，教师或家长角色会设为已批准。",
+            "Roles control access. Email, Google and WeChat accounts are supported. Existing sign-in methods are preserved; teacher and parent roles are approved."
           )}
         </p>
         <Button

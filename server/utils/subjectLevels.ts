@@ -20,7 +20,7 @@ export const sanitizeSortOrder = (value: unknown, fallback = 0) => {
   return n;
 };
 
-export const ensureDefaultSubjectLevel = async () => {
+export const ensureDefaultSubjectLevel = async (allowCreate = true) => {
   const existing = await db
     .select()
     .from(subjectLevelsTable)
@@ -29,6 +29,7 @@ export const ensureDefaultSubjectLevel = async () => {
   if (existing.length) {
     return existing[0];
   }
+  if (!allowCreate) throw new Error('Default subject level requires administrator setup');
   const created = await db
     .insert(subjectLevelsTable)
     .values({

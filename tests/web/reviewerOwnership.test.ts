@@ -245,6 +245,34 @@ it.each([
   }
 });
 
+it('practice-score export is admin-only, validates its request and writes numeric scores in a downloadable XLSX', async () => {
+  const route = registeredRoutes.find(row => row.path === '/api/admin/practice-scores/export' && row.methods.post)!;
+  expect(route).toBeDefined();
+  for (const role of ['teacher', 'parent']) {
+    const denied = { status: vi.fn().mockReturnThis(), json: vi.fn() }, next = vi.fn();
+    await route.stack[1].handle({ user: { role } } as Request, denied as unknown as Response, next);
+    expect(denied.status).toHaveBeenCalledWith(403); expect(next).not.toHaveBeenCalled();
+  }
+  const invalid = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+  await route.stack.at(-1)!.handle({ body: { scope: 'selected', studentIds: [] } } as Request, invalid as unknown as Response, vi.fn());
+  expect(invalid.status).toHaveBeenCalledWith(400);
+  database.queueSelect([{ id: demo, name: '=QA 中文', grade: '中一' }]);
+  database.queueSelect([{ paper: { id: recordId, studentId: demo, date: '2026-10-03', score: 0, total: 10, subjectName: 'Math', description: 'Fractions' }, type: 'Practice', school: 'QA' }]);
+  database.queueSelect([]);
+  const response = { setHeader: vi.fn(), send: vi.fn(), status: vi.fn().mockReturnThis(), json: vi.fn() };
+  await route.stack.at(-1)!.handle({ body: { scope: 'selected', studentIds: [demo], startDate: '2026-10-03', endDate: '2026-10-03' }, user: { role: 'admin' } } as unknown as Request, response as unknown as Response, vi.fn());
+  expect(response.status).not.toHaveBeenCalled();
+  expect(response.setHeader).toHaveBeenCalledWith('Cache-Control', 'no-store');
+  expect(response.setHeader).toHaveBeenCalledWith('Content-Disposition', expect.stringContaining('practice-scores_selected_2026-10-03_2026-10-03.xlsx'));
+  const bytes: Buffer = response.send.mock.calls[0][0];
+  expect(bytes.readUInt32LE()).toBe(0x04034b50);
+  const xml = bytes.toString('utf8');
+  expect(xml).toContain('<c r="I2" s="2"><v>0</v></c>');
+  expect(xml).toContain('<c r="J2" s="2"><v>10</v></c>');
+  expect(xml).toContain('t="inlineStr"><is><t xml:space="preserve">=QA 中文</t>');
+  expect(xml).not.toContain('<f>');
+});
+
 it('registered student XLSX export is admin-only and returns a genuine complete workbook', async () => {
   const route = registeredRoutes.find(row => row.path === '/api/admin/students/:studentId/records-export')!;
   for (const role of ['teacher', 'parent']) {

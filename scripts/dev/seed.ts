@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import crypto from 'node:crypto';
+import { hashPassword } from '../../server/auth/password';
 import { sql, databaseKey, stateFile, readState, safeFailure } from './database';
 try {
     if (!process.argv.includes('--confirm-dev'))
@@ -16,9 +17,10 @@ try {
     if (!fs.existsSync(stateFile))
         fs.writeFileSync(stateFile, JSON.stringify(state, null, 2), { mode: 0o600 });
     const { teacher, admin, parent, otherParent, student, otherStudent } = state;
+    const adminHash = await hashPassword(admin.password);
     await sql.transaction([
         sql `INSERT INTO teacher(id,name,display_name,email,password,status,email_verified) VALUES(${teacher.id},${teacher.name},${teacher.name},${teacher.email},${teacher.password},'approved','true') ON CONFLICT(id) DO NOTHING`,
-        sql `INSERT INTO admins(id,name,display_name,email,password) VALUES(${admin.id},${admin.name},${admin.name},${admin.email},${admin.password}) ON CONFLICT(id) DO NOTHING`,
+        sql `INSERT INTO admins(id,name,display_name,email,password) VALUES(${admin.id},${admin.name},${admin.name},${admin.email},${adminHash}) ON CONFLICT(id) DO NOTHING`,
         ...[parent, otherParent].map(p => sql `INSERT INTO parents(id,name,display_name,email,password,status,email_verified) VALUES(${p.id},${p.name},${p.name},${p.email},${p.password},'approved','true') ON CONFLICT(id) DO NOTHING`),
         sql `INSERT INTO students(id,name,grade,parent_id) VALUES(${student.id},${student.name},${student.grade},${parent.id}),(${otherStudent.id},${otherStudent.name},${otherStudent.grade},${otherParent.id}) ON CONFLICT(id) DO NOTHING`,
         sql `INSERT INTO student_parent_bindings(id,student_id,parent_id) VALUES(${crypto.randomUUID()},${student.id},${parent.id}),(${crypto.randomUUID()},${otherStudent.id},${otherParent.id}) ON CONFLICT(student_id,parent_id) DO NOTHING`,

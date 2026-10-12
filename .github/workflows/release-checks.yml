@@ -1,0 +1,24 @@
+name: Release checks
+on:
+  push:
+    branches: [main, 'codex/**']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --include=dev
+      - run: npm test
+      - run: npm run test:web
+      - run: npm run build
+        env:
+          VITE_API_URL: /api
+      - run: docker build -t edunet:release-check .

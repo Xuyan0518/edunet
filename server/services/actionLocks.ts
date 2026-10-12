@@ -163,12 +163,7 @@ export async function withActionLock<T>(
     try {
       await releaseActionLock(lock.id, options.actorUserId);
     } catch (err) {
-      console.warn('[action-lock] failed to release lock', {
-        lockId: lock.id,
-        lockKey: lock.lockKey,
-        actorUserId: options.actorUserId,
-        error: err instanceof Error ? err.message : String(err),
-      });
+      console.warn('[action-lock] failed to release lock');
     }
   }
 }

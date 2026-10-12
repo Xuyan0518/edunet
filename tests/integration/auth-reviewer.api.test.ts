@@ -11,6 +11,7 @@ vi.mock('../../server/db', () => ({
 let app: any;
 
 beforeAll(async () => {
+  process.env.REVIEWER_LOGIN_ENABLED = 'true';
   process.env.REVIEWER_USERNAME = 'account';
   process.env.REVIEWER_PASSWORD = 'xyz2026!!';
   process.env.REVIEWER_STUDENT_ID = '11111111-1111-1111-1111-111111111111';
@@ -114,6 +115,7 @@ describe('POST /api/auth/reviewer-login', () => {
         name: '审核体验账号',
         displayName: '审核体验账号',
         status: 'approved',
+        authProvider: 'reviewer',
       },
     ]);
     // /api/students reviewer only sees configured demo student

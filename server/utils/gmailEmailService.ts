@@ -1,3 +1,4 @@
+import { logSafeError } from './safeLog';
 import nodemailer from 'nodemailer';
 
 export interface EmailOptions {
@@ -27,12 +28,6 @@ export class GmailEmailService {
   async sendVerificationEmail(email: string, token: string, name: string): Promise<boolean> {
     if (process.env.NOTIFICATIONS_ENABLED === 'false') return true;
     try {
-      console.log('Attempting to send verification email via Gmail SMTP...');
-      console.log('Email:', email);
-      console.log('Token:', token);
-      console.log('Name:', name);
-      console.log('Gmail User:', process.env.GMAIL_USER ? 'Present' : 'Missing');
-      console.log('Gmail App Password:', process.env.GMAIL_APP_PASSWORD ? 'Present' : 'Missing');
 
       // Check if Gmail credentials are present
       if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
@@ -42,7 +37,6 @@ export class GmailEmailService {
 
       // Create verification link
       const verificationUrl = `${process.env.FRONTEND_URL || 'http://localhost:3001'}/verify-email?token=${token}`;
-      console.log('Verification URL:', verificationUrl);
 
       // Email content
       const htmlContent = `
@@ -113,19 +107,11 @@ export class GmailEmailService {
         text: textContent,
       };
 
-      const info = await this.transporter.sendMail(mailOptions);
-      
-      console.log('Verification email sent successfully to:', email);
-      console.log('Message ID:', info.messageId);
+      await this.transporter.sendMail(mailOptions);
       return true;
 
     } catch (error) {
-      console.error('Failed to send verification email via Gmail:', error);
-      console.error('Error details:', {
-        name: error.name,
-        message: error.message,
-        code: error.code,
-      });
+      logSafeError('Failed to send verification email via Gmail:', error);
       return false;
     }
   }
@@ -137,10 +123,9 @@ export class GmailEmailService {
     if (process.env.NOTIFICATIONS_ENABLED === 'false') return false;
     try {
       await this.transporter.verify();
-      console.log('Gmail SMTP connection verified successfully');
       return true;
     } catch (error) {
-      console.error('Gmail SMTP connection failed:', error);
+      logSafeError('Gmail SMTP connection failed:', error);
       return false;
     }
   }

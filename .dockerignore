@@ -5,6 +5,9 @@ build
 .env
 .env.*
 .dev
+.hermes
+coverage
+docs
 .vscode
 .codex
 .agents

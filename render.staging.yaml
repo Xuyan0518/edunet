@@ -1,0 +1,46 @@
+# Separate service and empty Neon database. Never supply the live DATABASE_URL.
+# Free staging runs migrations during its build because free services do not
+# support preDeployCommand. Production migration is a separate release step.
+services:
+  - type: web
+    name: edunet-web-staging
+    runtime: node
+    plan: free
+    region: singapore
+    autoDeployTrigger: off
+    buildCommand: npm ci --include=dev && npm run build && npm run db:migrate
+    startCommand: npm run start:api
+    healthCheckPath: /api/ready
+    envVars:
+      - key: NODE_VERSION
+        value: 22.22.0
+      - key: NODE_ENV
+        value: production
+      - key: DEPLOYMENT_ENV
+        value: staging
+      - key: SERVE_WEB
+        value: "true"
+      - key: VITE_API_URL
+        value: /api
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: STAGING_ACCESS_USERNAME
+        value: edunet-staging
+      - key: STAGING_ACCESS_PASSWORD
+        generateValue: true
+      - key: API_PUBLIC_URL
+        sync: false
+      - key: WEB_APP_URL
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: AUTH_MAIL_MODE
+        value: resend
+      - key: AUTH_MAIL_ENABLED
+        value: "false"
+      - key: NOTIFICATIONS_ENABLED
+        value: "false"
+      - key: REVIEWER_LOGIN_ENABLED
+        value: "false"

@@ -53,6 +53,14 @@ it("does not report success or retry a rejected role transaction", async () => {
   ).rejects.toThrow();
   expect(transaction).toHaveBeenCalledOnce();
 });
+it("preserves credentials and verification when an existing role is retained", () => {
+  const queries = userRoleBatch(db,["admin","teacher","parent"],{admin:{id},teacher:{id},parent:{id}},base).map(item=>item.toSQL());
+  for(const query of queries){
+    expect(query.sql).not.toContain('"password"');
+    expect(query.sql).not.toContain('"auth_provider"');
+    expect(query.sql).not.toContain('"email_verified"');
+  }
+});
 it.each([
   [1, 0, true],
   [0, 1, true],

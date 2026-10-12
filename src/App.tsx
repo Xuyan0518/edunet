@@ -29,7 +29,7 @@ import { RouteGuard } from "@/app/RouteGuard";
 import AppShell from "@/components/layout/AppShell";
 import Login from "@/pages/Login";
 import WebAuthCallback from '@/pages/WebAuthCallback';
-import RetiredAuth from "@/pages/RetiredAuth";
+import AccountAccess from "@/pages/AccountAccess";
 import Dashboard from "@/pages/Dashboard";
 import Students from "@/pages/Students";
 import StudentProfile from "@/pages/StudentProfile";
@@ -102,9 +102,10 @@ export function AppRoutes() {
       />
       <Route path="/signup" element={<Login key="signup" mode="signup" />} />
       <Route path="/web-auth" element={<WebAuthCallback />} />
-      {["/verify-email"].map(path => (
-        <Route key={path} path={path} element={<RetiredAuth />} />
-      ))}
+      <Route path="/forgot-password" element={<AccountAccess key="forgot" mode="forgot" />} />
+      <Route path="/reset-password" element={<AccountAccess key="reset" mode="reset" />} />
+      <Route path="/verify-email" element={<AccountAccess key="verify" mode="verify" />} />
+      <Route path="/resend-verification" element={<AccountAccess key="verify-request" mode="verify-request" />} />
       <Route element={<RouteGuard />}>
         <Route element={<AppShell />}>
           <Route path="/dashboard" element={<Dashboard />} />

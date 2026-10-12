@@ -2,7 +2,6 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import fs from "fs";
-import { componentTagger } from "lovable-tagger";
 
 // Inject correct base href into index.html for GitHub Pages (so assets and relative URLs resolve)
 function baseHrefPlugin() {
@@ -40,7 +39,7 @@ function copy404Plugin() {
 // For GitHub Pages: set BASE_PATH to your repo name, e.g. BASE_PATH=/edunet/ npm run build
 const base = process.env.BASE_PATH ?? "/";
 
-export default defineConfig(({ mode }) => ({
+export default defineConfig({
   base,
   server: {
     host: "::",
@@ -54,7 +53,6 @@ export default defineConfig(({ mode }) => ({
   },
   plugins: [
     react(),
-    mode === "development" && componentTagger(),
     baseHrefPlugin(),
     copy404Plugin(),
   ].filter(Boolean),
@@ -63,4 +61,4 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
-}));
+});

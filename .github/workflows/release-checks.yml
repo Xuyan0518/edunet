@@ -16,8 +16,10 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci --include=dev
+      - run: npm run test:dependencies
       - run: npm test
       - run: npm run test:web
+      - run: npx tsc --noEmit -p tsconfig.app.json
       - run: npm run build
         env:
           VITE_API_URL: /api

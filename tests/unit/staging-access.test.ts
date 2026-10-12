@@ -68,7 +68,10 @@ describe('private staging boundary', () => {
     const form = { username: env.STAGING_ACCESS_USERNAME, password: env.STAGING_ACCESS_PASSWORD };
     expect((await request(server).post('/__staging/login').type('form').send(form)).status).toBe(403);
     expect((await request(server).post('/__staging/login').set('Origin', 'https://evil.example.test').type('form').send(form)).status).toBe(403);
-    expect((await request(server).post('/__staging/login').set('Origin', 'https://staging.example.test').type('form').send({ ...form, password: 'wrong' })).status).toBe(401);
+    const denied = await request(server).post('/__staging/login').set('Origin', 'https://staging.example.test').type('form').send({ ...form, password: 'wrong' });
+    expect(denied.status).toBe(200);
+    expect(denied.text).toContain('Access denied');
+    expect(denied.headers['set-cookie']).toBeUndefined();
     const res = await request(server).post('/__staging/login').set('Origin', 'https://staging.example.test').type('form').send(form);
     expect(res.status).toBe(303);
     expect(res.headers.location).toBe('/login');

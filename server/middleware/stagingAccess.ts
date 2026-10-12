@@ -35,7 +35,7 @@ export function createStagingAccess(env = process.env): RequestHandler {
       rateLimit(req, res, () => parseForm(req, res, error => {
         if (error) { res.sendStatus(400); return; }
         if (typeof req.body?.username !== 'string' || typeof req.body?.password !== 'string' || !equal(`${req.body.username}:${req.body.password}`, credentials)) {
-          res.status(401).type('html').send(accessForm(true)); return;
+          res.status(200).type('html').send(accessForm(true)); return;
         }
         setAccessCookie(req, res, () => res.redirect(303, '/login'));
       }));

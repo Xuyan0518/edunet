@@ -47,7 +47,9 @@ export class SessionController {
     clear = () => {
         this.generation++;
         this.clearPrivateCache();
-        ['edunet-token', 'edunet-user', 'adminToken'].forEach(key => this.storage.removeItem(key));
+        // Remove the legacy fallback before the shared token. Another tab can
+        // restore as soon as the shared token's storage event is dispatched.
+        ['adminToken', 'edunet-user', 'edunet-token'].forEach(key => this.storage.removeItem(key));
         // Explicit privacy policy: remove app drafts/seen markers on this device at logout.
         for (let i = this.storage.length - 1; i >= 0; i--) {
             const key = this.storage.key(i)!;

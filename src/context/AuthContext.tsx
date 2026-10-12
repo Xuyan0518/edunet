@@ -31,7 +31,7 @@ export const AuthProvider = ({ children }: {
             if ((event as CustomEvent).detail === localStorage.getItem('edunet-token'))
                 controller.clear();
         };
-        const changed = (event: StorageEvent) => { if (event.key === 'edunet-token' || event.key === null)
+        const changed = (event: StorageEvent) => { if (event.key === 'edunet-token' || event.key === 'adminToken' || event.key === null)
             void controller.restore(); };
         window.addEventListener(SESSION_EXPIRED, expired);
         window.addEventListener('storage', changed);

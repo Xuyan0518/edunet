@@ -181,6 +181,30 @@ describe("authoritative session lifecycle", () => {
     expect(storage.getItem("unrelated")).toBe("value");
     expect(storage.getItem("edunet-language")).toBe("value");
   });
+  it("does not let another tab restore the legacy token during logout", async () => {
+    storage.setItem("edunet-token", "shared-admin");
+    storage.setItem("adminToken", "shared-admin");
+    const otherTab = new SessionController(storage, vi.fn());
+    const remove = storage.removeItem.bind(storage);
+    let restoring: Promise<void> | undefined;
+    let handlingChange = false;
+    vi.spyOn(storage, "removeItem").mockImplementation(key => {
+      remove(key);
+      // Another browsing context can process the token storage event while
+      // this tab is still clearing its remaining localStorage entries.
+      if (key === "edunet-token" && !handlingChange) {
+        handlingChange = true;
+        restoring = otherTab.restore();
+        handlingChange = false;
+      }
+    });
+    vi.mocked(fetch).mockResolvedValue(response({ user: roles.admin }));
+    new SessionController(storage, vi.fn()).clear();
+    await restoring;
+    expect(otherTab.state.status).toBe("anonymous");
+    expect(storage.getItem("edunet-token")).toBeNull();
+    expect(storage.getItem("adminToken")).toBeNull();
+  });
   it("treats pending login as unauthenticated", async () => {
     vi.mocked(fetch).mockResolvedValue(
       response(

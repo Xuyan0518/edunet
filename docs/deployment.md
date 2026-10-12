@@ -17,6 +17,8 @@ check. SIGTERM stops the mail polling timer and drains HTTP requests.
 Migrations use PostgreSQL with certificate verification, a release advisory lock
 and a bounded connection/lock wait. Neon HTTP remains the application query
 driver; its prepared statements cannot bootstrap the legacy multi-statement SQL.
+For Neon, the migration runner derives the direct endpoint from a pooled URL so
+its session advisory lock and timeout remain on one PostgreSQL connection.
 
 The Docker image starts this same production command as a non-root user.
 `docker compose up --build` explicitly uses the separate development launcher;

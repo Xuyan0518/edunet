@@ -33,7 +33,9 @@ Set `DEPLOYMENT_ENV=staging`, `STAGING_ACCESS_USERNAME` and a random
 `STAGING_ACCESS_PASSWORD` of at least 24 characters. Missing credentials prevent
 startup. The gate protects HTML, assets and API routes. Initial Basic login sets
 an eight-hour Secure, HttpOnly cookie so API Bearer authentication remains usable.
-Only GET/HEAD health/readiness responses are public. Responses prohibit caching
+Browsers enter these existing credentials through a staging-only access form;
+it checks the request origin and limits password attempts. Basic authentication
+also works for API verification. Only GET/HEAD health/readiness responses are public. Responses prohibit caching
 and indexing. An HTTPS origin is required for the gate cookie.
 
 Free Render staging runs migrations during its build against the isolated

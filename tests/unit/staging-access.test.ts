@@ -12,7 +12,7 @@ function app() {
 }
 describe('private staging boundary', () => {
   it.each(['/', '/login', '/assets/app.js', '/api/students', '/api/auth/web/forgot-password', '/api/ready/'])('protects browser and API paths %s', async path => {
-    const res = await request(app()).get(path);
+    const res = await request(app()).get(path).set('Accept', 'application/json');
     expect(res.status).toBe(401);
     expect(res.headers['www-authenticate']).toContain('Basic');
     expect(res.headers['cache-control']).toBe('no-store');
@@ -52,5 +52,30 @@ describe('private staging boundary', () => {
     server.use(createStagingAccess({ DEPLOYMENT_ENV: 'production' }));
     server.get('/', (_req, res) => res.sendStatus(200));
     expect((await request(server).get('/')).status).toBe(200);
+  });
+  it('renders a browser access form without triggering an HTTP authentication dialog', async () => {
+    const res = await request(app()).get('/login').set('Accept', 'text/html');
+    expect(res.status).toBe(401);
+    expect(res.text).toContain('Open staging');
+    expect(res.headers['www-authenticate']).toBeUndefined();
+    expect(res.text).not.toContain(env.STAGING_ACCESS_PASSWORD);
+  });
+  it('checks the origin and credentials before issuing the same secure access cookie', async () => {
+    const server = express();
+    server.use(createStagingAccess({ ...env, WEB_APP_URL: 'https://staging.example.test' }));
+    const form = { username: env.STAGING_ACCESS_USERNAME, password: env.STAGING_ACCESS_PASSWORD };
+    expect((await request(server).post('/__staging/login').type('form').send(form)).status).toBe(403);
+    expect((await request(server).post('/__staging/login').set('Origin', 'https://evil.example.test').type('form').send(form)).status).toBe(403);
+    expect((await request(server).post('/__staging/login').set('Origin', 'https://staging.example.test').type('form').send({ ...form, password: 'wrong' })).status).toBe(401);
+    const res = await request(server).post('/__staging/login').set('Origin', 'https://staging.example.test').type('form').send(form);
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toBe('/login');
+    expect(res.headers['set-cookie'][0]).toMatch(/HttpOnly/);
+  });
+  it('limits password attempts at the browser access form', async () => {
+    const server = express();
+    server.use(createStagingAccess({ ...env, WEB_APP_URL: 'https://staging.example.test' }));
+    for (let attempt = 0; attempt < 10; attempt++) await request(server).post('/__staging/login').set('Origin', 'https://staging.example.test').type('form').send({ username: 'qa', password: 'wrong' });
+    expect((await request(server).post('/__staging/login').set('Origin', 'https://staging.example.test').type('form').send({ username: 'qa', password: 'wrong' })).status).toBe(429);
   });
 });

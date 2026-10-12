@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+// These identity helpers are pure; CI must never need a database connection.
+vi.mock('../../server/db', () => ({ db: {} }));
 import { DEFAULT_USER_NAME, maskOpenId, pickDisplayName, toPublicUser } from '../../server/auth/userIdentity';
 import { canManageStudentsAndParents } from '../../server/utils/managementPermissions';
 

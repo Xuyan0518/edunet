@@ -23,7 +23,7 @@ describe('private staging boundary', () => {
     expect((await request(app()).post('/api/health')).status).toBe(401);
   });
   it('rejects invalid credentials and sets a secure cookie for valid access', async () => {
-    expect((await request(app()).get('/login').auth('qa', 'wrong')).status).toBe(401);
+    expect((await request(app()).get('/api/students').auth('qa', 'wrong')).status).toBe(401);
     const res = await request(app()).get('/login').auth(env.STAGING_ACCESS_USERNAME, env.STAGING_ACCESS_PASSWORD);
     expect(res.status).toBe(200);
     const cookie = res.headers['set-cookie'][0];
@@ -38,10 +38,10 @@ describe('private staging boundary', () => {
     const server = app();
     const res = await request(server).get('/').auth(env.STAGING_ACCESS_USERNAME, env.STAGING_ACCESS_PASSWORD);
     const cookie = res.headers['set-cookie'][0].split(';')[0];
-    expect((await request(server).get('/').set('Cookie', cookie + 'a')).status).toBe(401);
+    expect((await request(server).get('/api/students').set('Cookie', cookie + 'a')).status).toBe(401);
     const now = Date.now();
     vi.spyOn(Date, 'now').mockReturnValue(now + 8 * 60 * 60_000 + 1000);
-    expect((await request(server).get('/').set('Cookie', cookie)).status).toBe(401);
+    expect((await request(server).get('/api/students').set('Cookie', cookie)).status).toBe(401);
   });
   it('fails closed with missing or weak staging credentials', () => {
     expect(() => createStagingAccess({ DEPLOYMENT_ENV: 'staging' })).toThrow();
@@ -55,10 +55,12 @@ describe('private staging boundary', () => {
   });
   it('renders a browser access form without triggering an HTTP authentication dialog', async () => {
     const res = await request(app()).get('/login').set('Accept', 'text/html');
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(200);
     expect(res.text).toContain('Open staging');
     expect(res.headers['www-authenticate']).toBeUndefined();
     expect(res.text).not.toContain(env.STAGING_ACCESS_PASSWORD);
+    expect(res.headers['set-cookie']).toBeUndefined();
+    expect(res.text).not.toContain('/assets/');
   });
   it('checks the origin and credentials before issuing the same secure access cookie', async () => {
     const server = express();

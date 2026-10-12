@@ -56,7 +56,9 @@ export function createStagingAccess(env = process.env): RequestHandler {
     }
     if (req.method === 'GET' && req.accepts('html') && !req.path.startsWith('/api') && !req.path.startsWith('/assets/')) {
       res.set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");
-      res.status(401).type('html').send(accessForm()); return;
+      // A public access form contains no application data. Some embedded browsers
+      // reject every 401 document before rendering it, even without a challenge.
+      res.status(200).type('html').send(accessForm()); return;
     }
     res.set('WWW-Authenticate', 'Basic realm="EduNet private staging", charset="UTF-8"');
     res.status(401).send('Private staging access required.');
